@@ -4,7 +4,7 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 ## 現在の状態
 
-Phase 1D（APK転送・標準インストール）まで実装済みです。
+Phase 1D（APK転送・標準インストール）まで実装済みで、Phase 1Eは検証途中です。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
@@ -22,6 +22,8 @@ Phase 1D（APK転送・標準インストール）まで実装済みです。
 - `PackageInstaller.Session`によるユーザー確認付き単一APKインストール
 - unknown app sources設定への誘導
 - download結果とインストール試行を分離して保存するRoom v3 migration
+
+Phase 1Eではemulatorへのdebug APK導入、Android UIからの`REAL_TRUSTED` Job作成・確認・実ビルド、アプリ／AVD再起動後のRoom復元まで確認した。中断時点のartifactは`NOT_DOWNLOADED`、install attemptは0件であり、Android側download、APK解析、unknown app sources、標準`PackageInstaller`とcallbackは未確認。詳細は[Phase 1E検証レポート](../reprodroid-project/reports/2026/08/2026-08-21-phase-1e.md)、保持中のJobと再接続手順は[Phase 1E再開手順](../reprodroid-project/docs/handoffs/phase-1e-resume.md)を参照してください。
 
 初期実装では次の縦切りを対象にします。
 
@@ -150,7 +152,7 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 ./gradlew assembleDebug
 ```
 
-Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。実機またはエミュレータ上のsystem installer確認はPhase 1Eで行います。
+Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E中断時点では`./gradlew testDebugUnitTest lintDebug build`が成功し、113 tasks中3 executed、110 up-to-dateだった。`--rerun-tasks`による全テスト再実行はしていません。実機または安定したemulator上のsystem installer確認はPhase 1Eの残件です。
 
 ## 初期実装で扱わないもの
 
