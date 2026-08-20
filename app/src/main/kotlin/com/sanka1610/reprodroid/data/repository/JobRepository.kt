@@ -7,6 +7,7 @@ import com.sanka1610.reprodroid.data.local.JobRecord
 import com.sanka1610.reprodroid.data.local.LogEntity
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.network.CreateJobRequest
+import com.sanka1610.reprodroid.data.network.ConfirmJobRequest
 import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.JobResponse
 import com.sanka1610.reprodroid.data.network.LogResponse
@@ -41,6 +42,26 @@ class JobRepository(
             revision = RequestedRevision(revisionType, revisionValue),
             simulationOutcome = outcome,
         )
+        return createJob(request, outcome)
+    }
+
+    suspend fun createRealTrustedJob(
+        repositoryUrl: String,
+        revisionType: RevisionType,
+        revisionValue: String,
+    ): String = createJob(
+        request = CreateJobRequest(
+            executionMode = ExecutionMode.REAL_TRUSTED,
+            repositoryUrl = repositoryUrl,
+            revision = RequestedRevision(revisionType, revisionValue),
+        ),
+        outcome = null,
+    )
+
+    private suspend fun createJob(
+        request: CreateJobRequest,
+        outcome: SimulationOutcome?,
+    ): String {
         val created = runnerApi.createJob(request)
         val now = Instant.now().toString()
         syncMutex.withLock {
@@ -51,7 +72,7 @@ class JobRepository(
                     repositoryUrl = request.repositoryUrl,
                     revisionType = request.revision.type.name,
                     revisionValue = request.revision.value,
-                    simulationOutcome = outcome.name,
+                    simulationOutcome = outcome?.name,
                     state = created.state.name,
                     progressPercent = 0,
                     latestLogSequence = 0,
@@ -137,6 +158,19 @@ class JobRepository(
         }
     }
 
+    suspend fun confirmRealBuild(jobId: String, resolvedCommitSha: String) {
+        syncMutex.withLock {
+            runnerApi.confirmJob(
+                jobId,
+                ConfirmJobRequest(
+                    resolvedCommitSha = resolvedCommitSha,
+                    riskAcknowledged = true,
+                ),
+            )
+            syncJobLocked(jobId)
+        }
+    }
+
     suspend fun retryJob(jobId: String): String {
         return syncMutex.withLock {
             val original = requireNotNull(jobDao.getJob(jobId)) { "The local job does not exist." }
@@ -150,6 +184,10 @@ class JobRepository(
                     latestLogSequence = 0,
                     errorCode = null,
                     errorMessage = null,
+                    resolvedCommitSha = null,
+                    requiresConfirmation = false,
+                    effectiveBuildRoot = null,
+                    effectiveBuildTasks = null,
                     createdAt = now,
                     updatedAt = now,
                     downloadResult = null,
@@ -168,6 +206,10 @@ class JobRepository(
         revisionType = requestedRevision.type.name,
         revisionValue = requestedRevision.value,
         simulationOutcome = existing?.simulationOutcome,
+        resolvedCommitSha = resolvedCommitSha,
+        requiresConfirmation = requiresConfirmation,
+        effectiveBuildRoot = effectiveBuild?.buildRoot,
+        effectiveBuildTasks = effectiveBuild?.tasks?.joinToString("\n"),
         state = state.name,
         progressPercent = progressPercent,
         latestLogSequence = maxOf(logCursor, existing?.latestLogSequence ?: 0L),

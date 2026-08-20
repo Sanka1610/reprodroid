@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.sanka1610.reprodroid.ReproDroidApplication
+import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.RevisionType
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
 import com.sanka1610.reprodroid.work.JobSyncWorker
@@ -56,6 +57,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun createJob(
+        executionMode: ExecutionMode,
         repositoryUrl: String,
         revisionType: RevisionType,
         revisionValue: String,
@@ -68,12 +70,19 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isSubmitting.value = true
             try {
-                repository.createSimulatedJob(
-                    repositoryUrl = repositoryUrl.trim(),
-                    revisionType = revisionType,
-                    revisionValue = revisionValue.trim(),
-                    outcome = outcome,
-                )
+                when (executionMode) {
+                    ExecutionMode.SIMULATED -> repository.createSimulatedJob(
+                        repositoryUrl = repositoryUrl.trim(),
+                        revisionType = revisionType,
+                        revisionValue = revisionValue.trim(),
+                        outcome = outcome,
+                    )
+                    ExecutionMode.REAL_TRUSTED -> repository.createRealTrustedJob(
+                        repositoryUrl = repositoryUrl.trim(),
+                        revisionType = revisionType,
+                        revisionValue = revisionValue.trim(),
+                    )
+                }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
@@ -85,6 +94,9 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun cancelJob(jobId: String) = runAction { repository.cancelJob(jobId) }
+
+    fun confirmRealBuild(jobId: String, resolvedCommitSha: String) =
+        runAction { repository.confirmRealBuild(jobId, resolvedCommitSha) }
 
     fun retryJob(jobId: String) = runAction { repository.retryJob(jobId) }
 

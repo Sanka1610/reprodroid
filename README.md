@@ -4,7 +4,7 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 ## 現在の状態
 
-Phase 1B（永続化した模擬Job）まで実装済みです。
+Phase 1C（確認付き信頼済み実ビルド）まで実装済みです。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
@@ -12,8 +12,11 @@ Phase 1B（永続化した模擬Job）まで実装済みです。
 - 画面表示中の2秒ポーリングと再表示時の即時同期
 - WorkManagerによる起動時・バックグラウンド再同期
 - cancelと、新しいJob IDを発行するretry
+- `SIMULATED`/`REAL_TRUSTED`作成モード
+- Runnerが解決したcommit SHA、固定build root/task、RCE警告の確認UI
+- 確認状態を保存するRoom v2 migration
 
-`REAL_TRUSTED`の確認UIと実ビルドはPhase 1C、APK転送・SHA-256照合・標準インストールはPhase 1Dで実装します。Phase 1Bでは模擬APKのメタデータを表示しますが、APKファイルはダウンロードしません。
+APK転送・Android側SHA-256照合・package/version/署名情報・標準インストールはPhase 1Dで実装します。Phase 1Cでは実ビルドAPKのファイル名・サイズ・Runner側SHA-256を表示しますが、APKファイルはダウンロードしません。
 
 初期実装では次の縦切りを対象にします。
 
@@ -63,6 +66,14 @@ cd ../reprodroid-runner
 ./gradlew run
 ```
 
+`REAL_TRUSTED`を使用する場合は、Runner側でも明示的に有効化します。
+
+```bash
+REPRODROID_ENABLE_REAL_BUILDS=true ./gradlew run
+```
+
+この設定後も、Jobはref解決後に`AWAITING_CONFIRMATION`で停止します。画面に表示されたcommit SHAと固定taskを確認し、Gradle build scriptがRunnerホストで任意コードを実行できる旨に同意した場合だけbuildを開始できます。allowlistとWrapper checksum検査はサンドボックスではありません。
+
 Runnerはデフォルトで`127.0.0.1:8080`へbindします。開発端末またはエミュレータから接続する場合はADB reverseを使用します。
 
 ```bash
@@ -80,6 +91,7 @@ base URLはGradle propertyで上書きできます。値には`/v1`を含めず�
 ## Jobと永続化
 
 - Job ID、状態、ログカーソル、APK候補、ダウンロード、インストール結果をRoomへ保存
+- 解決済みcommit、確認要否、固定build root/taskをRoomへ保存
 - 画面表示中はCoroutineで短周期ポーリング
 - バックグラウンドはWorkManagerで同期
 - アプリ再表示時はRunnerから即時更新
@@ -96,7 +108,7 @@ base URLはGradle propertyで上書きできます。値には`/v1`を含めず�
 5. package、version、署名証明書fingerprintを表示
 6. 利用者の明示操作で標準`PackageInstaller`を起動
 
-Phase 1Dで標準インストーラを実装する際は、`REQUEST_INSTALL_PACKAGES`と端末側の「不明なアプリのインストール」許可が必要です。Phase 1Bでは不要なため、この権限をまだ宣言しません。既存の同一packageアプリと署名が異なる場合、通常は上書きできません。本アプリは自動アンインストール、silent install、root/Shizuku、署名検証回避を行いません。
+Phase 1Dで標準インストーラを実装する際は、`REQUEST_INSTALL_PACKAGES`と端末側の「不明なアプリのインストール」許可が必要です。Phase 1Cでは不要なため、この権限をまだ宣言しません。既存の同一packageアプリと署名が異なる場合、通常は上書きできません。本アプリは自動アンインストール、silent install、root/Shizuku、署名検証回避を行いません。
 
 Android Developer Verificationの適用状況によっては、未登録または証明書が異なるローカルビルドAPKにadvanced flowが必要になる可能性があります。OSの拒否は回避せず、結果と必要な操作を表示します。
 
@@ -129,7 +141,7 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 ./gradlew assembleDebug
 ```
 
-Phase 1Bでは`assembleDebug`、`lintDebug`、`testDebugUnitTest`を実行し、Room schemaの生成、Compose UI、Runner API response/errorのdecodeを検証します。Room schemaは`app/schemas/`でバージョン管理します。
+Phase 1Cでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v2生成、Runner APIの確認endpointを検証します。Room schemaは`app/schemas/`でバージョン管理します。
 
 ## 初期実装で扱わないもの
 

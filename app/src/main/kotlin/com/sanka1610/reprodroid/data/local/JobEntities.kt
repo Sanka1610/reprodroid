@@ -1,6 +1,7 @@
 package com.sanka1610.reprodroid.data.local
 
 import androidx.room.Embedded
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -14,6 +15,11 @@ data class JobEntity(
     val revisionType: String,
     val revisionValue: String,
     val simulationOutcome: String?,
+    val resolvedCommitSha: String? = null,
+    @ColumnInfo(defaultValue = "0")
+    val requiresConfirmation: Boolean = false,
+    val effectiveBuildRoot: String? = null,
+    val effectiveBuildTasks: String? = null,
     val state: String,
     val progressPercent: Int,
     val latestLogSequence: Long,

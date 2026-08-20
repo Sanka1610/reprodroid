@@ -69,6 +69,12 @@ data class CreateJobResponse(
 )
 
 @Serializable
+data class ConfirmJobRequest(
+    val resolvedCommitSha: String,
+    val riskAcknowledged: Boolean,
+)
+
+@Serializable
 data class EffectiveBuild(
     val buildRoot: String,
     val tasks: List<String>,

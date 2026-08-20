@@ -17,7 +17,7 @@ class ReproDroidApplication : Application() {
             applicationContext,
             ReproDroidDatabase::class.java,
             "reprodroid.sqlite3",
-        ).build()
+        ).addMigrations(ReproDroidDatabase.MIGRATION_1_2).build()
         jobRepository = JobRepository(
             database = database,
             runnerApi = RunnerApiClient(BuildConfig.RUNNER_BASE_URL),

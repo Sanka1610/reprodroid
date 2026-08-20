@@ -4,6 +4,7 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.HttpMethod
 import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -55,6 +56,24 @@ class RunnerApiClientTest {
             assertEquals(404, failure.statusCode)
             assertEquals("JOB_NOT_FOUND", failure.errorCode)
         }
+    }
+
+    @Test
+    fun `confirm real build posts to the commit confirmation endpoint`() = runBlocking {
+        val engine = MockEngine { request ->
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals("http://127.0.0.1:8080/v1/jobs/job-1/confirm", request.url.toString())
+            respond(content = "", status = HttpStatusCode.NoContent)
+        }
+        val client = RunnerApiClient("http://127.0.0.1:8080", engine)
+
+        client.confirmJob(
+            "job-1",
+            ConfirmJobRequest(
+                resolvedCommitSha = "1".repeat(40),
+                riskAcknowledged = true,
+            ),
+        )
     }
 
     @Test

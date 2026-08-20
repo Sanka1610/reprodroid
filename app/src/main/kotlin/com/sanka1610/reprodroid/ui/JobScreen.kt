@@ -3,7 +3,6 @@ package com.sanka1610.reprodroid.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanka1610.reprodroid.data.local.JobRecord
+import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.JobState
 import com.sanka1610.reprodroid.data.network.RevisionType
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
@@ -41,7 +42,10 @@ fun ReproDroidApp(viewModel: JobViewModel) {
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
     val isSubmitting by viewModel.isSubmitting.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
-    var repositoryUrl by rememberSaveable { mutableStateOf("https://github.com/example/app.git") }
+    var repositoryUrl by rememberSaveable {
+        mutableStateOf("https://github.com/MorpheApp/MicroG-RE.git")
+    }
+    var executionMode by rememberSaveable { mutableStateOf(ExecutionMode.SIMULATED) }
     var revisionType by rememberSaveable { mutableStateOf(RevisionType.BRANCH) }
     var revision by rememberSaveable { mutableStateOf("main") }
     var outcome by rememberSaveable { mutableStateOf(SimulationOutcome.SUCCESS) }
@@ -60,12 +64,32 @@ fun ReproDroidApp(viewModel: JobViewModel) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("ReproDroid", style = MaterialTheme.typography.headlineMedium)
-                Text("Phase 1B · persistent simulated jobs", style = MaterialTheme.typography.bodyMedium)
+                Text("Phase 1C · confirmed allowlisted builds", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    ExecutionMode.entries.forEach { candidate ->
+                        RadioButton(
+                            selected = executionMode == candidate,
+                            onClick = { executionMode = candidate },
+                        )
+                        Text(candidate.name)
+                    }
+                }
                 OutlinedTextField(
                     value = repositoryUrl,
                     onValueChange = { repositoryUrl = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Repository URL (not accessed in SIMULATED mode)") },
+                    label = {
+                        Text(
+                            if (executionMode == ExecutionMode.SIMULATED) {
+                                "Repository URL (not accessed)"
+                            } else {
+                                "Allowlisted GitHub HTTPS URL"
+                            },
+                        )
+                    },
                     singleLine = true,
                 )
                 OutlinedTextField(
@@ -87,24 +111,32 @@ fun ReproDroidApp(viewModel: JobViewModel) {
                         Text(candidate.name)
                     }
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    SimulationOutcome.entries.forEach { candidate ->
-                        RadioButton(
-                            selected = outcome == candidate,
-                            onClick = { outcome = candidate },
-                        )
-                        Text(candidate.name)
-                    }
-                    Spacer(Modifier.weight(1f))
-                    Button(
-                        enabled = !isSubmitting,
-                        onClick = { viewModel.createJob(repositoryUrl, revisionType, revision, outcome) },
+                if (executionMode == ExecutionMode.SIMULATED) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(if (isSubmitting) "Creating…" else "Create job")
+                        SimulationOutcome.entries.forEach { candidate ->
+                            RadioButton(
+                                selected = outcome == candidate,
+                                onClick = { outcome = candidate },
+                            )
+                            Text(candidate.name)
+                        }
                     }
+                } else {
+                    Text(
+                        "Creation resolves the allowlisted ref only. Host build execution still requires a separate commit and RCE confirmation.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Button(
+                    enabled = !isSubmitting,
+                    onClick = {
+                        viewModel.createJob(executionMode, repositoryUrl, revisionType, revision, outcome)
+                    },
+                ) {
+                    Text(if (isSubmitting) "Creating…" else "Create job")
                 }
 
                 message?.let { currentMessage ->
@@ -134,6 +166,9 @@ fun ReproDroidApp(viewModel: JobViewModel) {
                                 record = record,
                                 onCancel = { viewModel.cancelJob(record.job.jobId) },
                                 onRetry = { viewModel.retryJob(record.job.jobId) },
+                                onConfirm = { commit ->
+                                    viewModel.confirmRealBuild(record.job.jobId, commit)
+                                },
                             )
                         }
                     }
@@ -148,9 +183,11 @@ private fun JobCard(
     record: JobRecord,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
+    onConfirm: (String) -> Unit,
 ) {
     val job = record.job
     val state = remember(job.state) { JobState.valueOf(job.state) }
+    var riskAcknowledged by rememberSaveable(job.jobId) { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -170,19 +207,63 @@ private fun JobCard(
             )
             Text(job.repositoryUrl, style = MaterialTheme.typography.bodySmall)
             Text(
-                "${job.revisionType.lowercase()} ${job.revisionValue} · ${job.simulationOutcome}",
+                "${job.executionMode} · ${job.revisionType.lowercase()} ${job.revisionValue}" +
+                    (job.simulationOutcome?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.bodySmall,
             )
+            job.resolvedCommitSha?.let { commit ->
+                Text("Resolved commit: $commit", style = MaterialTheme.typography.bodySmall)
+            }
+            job.effectiveBuildRoot?.let { buildRoot ->
+                Text(
+                    "Fixed build: $buildRoot · ${job.effectiveBuildTasks.orEmpty().replace('\n', ' ')}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             job.errorMessage?.let { error ->
                 Text("${job.errorCode}: $error", color = MaterialTheme.colorScheme.error)
             }
 
             record.artifacts.forEach { artifact ->
                 Text(
-                    "APK metadata: ${artifact.fileName} · ${artifact.packageName} " +
-                        "${artifact.versionName} (${artifact.sizeBytes} bytes)",
+                    if (artifact.packageName.isBlank()) {
+                        "APK: ${artifact.fileName} · ${artifact.sizeBytes} bytes · SHA-256 ${artifact.sha256}"
+                    } else {
+                        "APK metadata: ${artifact.fileName} · ${artifact.packageName} " +
+                            "${artifact.versionName} (${artifact.sizeBytes} bytes)"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                 )
+            }
+
+            if (state == JobState.AWAITING_CONFIRMATION && job.requiresConfirmation) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Host arbitrary-code-execution warning", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Gradle plugins and build scripts at the resolved commit can execute arbitrary code on the Runner host. " +
+                                "The allowlist and Wrapper checksum checks do not provide a sandbox.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = riskAcknowledged,
+                                onCheckedChange = { riskAcknowledged = it },
+                            )
+                            Text("I accept this risk for the displayed commit.")
+                        }
+                        Button(
+                            enabled = riskAcknowledged && job.resolvedCommitSha != null,
+                            onClick = { job.resolvedCommitSha?.let(onConfirm) },
+                        ) {
+                            Text("Confirm and run fixed build")
+                        }
+                    }
+                }
             }
 
             val recentLogs = record.logs.sortedBy { it.sequence }.takeLast(6)

@@ -48,6 +48,13 @@ class RunnerApiClient(
             }
         }.successBody()
 
+    suspend fun confirmJob(jobId: String, request: ConfirmJobRequest) {
+        client.post(endpoint("/v1/jobs/$jobId/confirm")) {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.ensureSuccess()
+    }
+
     suspend fun cancelJob(jobId: String) {
         client.post(endpoint("/v1/jobs/$jobId/cancel")).ensureSuccess()
     }

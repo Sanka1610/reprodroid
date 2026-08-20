@@ -73,6 +73,11 @@ ksp {
     arg("room.generateKotlin", "true")
 }
 
+// Both variants export the same Room schema file. Serialize first-time generation to avoid a truncated JSON race.
+tasks.matching { it.name == "kspReleaseKotlin" }.configureEach {
+    mustRunAfter("kspDebugKotlin")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
