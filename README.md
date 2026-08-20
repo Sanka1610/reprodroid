@@ -4,15 +4,16 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 ## 現在の状態
 
-Phase 1A（管理基盤）まで実装済みです。
+Phase 1B（永続化した模擬Job）まで実装済みです。
 
-- Kotlin/ComposeのGradleプロジェクトとVersion Catalog
-- 公式SHA-256を固定したGradle Wrapper 8.14.3
-- debug限定のloopback cleartext設定
-- 起動確認用の静的`Phase 1A scaffold`画面
-- debug APKのbuildとlint
+- `SIMULATED` Jobの成功・失敗を作成するCompose UI
+- Ktor clientによるRunner API v1接続
+- Job、ログカーソル、差分ログ、APKメタデータを保存するRoom database
+- 画面表示中の2秒ポーリングと再表示時の即時同期
+- WorkManagerによる起動時・バックグラウンド再同期
+- cancelと、新しいJob IDを発行するretry
 
-Runner接続、Room、WorkManager、Job UI、APK転送・インストール処理は未実装です。次のPhase 1Bから段階的に追加します。
+`REAL_TRUSTED`の確認UIと実ビルドはPhase 1C、APK転送・SHA-256照合・標準インストールはPhase 1Dで実装します。Phase 1Bでは模擬APKのメタデータを表示しますが、APKファイルはダウンロードしません。
 
 初期実装では次の縦切りを対象にします。
 
@@ -55,8 +56,6 @@ ReproDroidは3つの独立リポジトリで管理します。
 
 ## Runnerとの接続
 
-以下はPhase 1B以降で有効になる予定の接続手順です。Phase 1AのRunnerはHTTP APIをまだ起動しません。
-
 Runnerを先に起動します。
 
 ```bash
@@ -71,6 +70,12 @@ adb reverse tcp:8080 tcp:8080
 ```
 
 Android debugビルドの既定base URLは`http://127.0.0.1:8080`です。cleartext HTTPはdebugに限定します。認証を実装するまで、Runnerの無認証HTTPをLANへ公開しないでください。
+
+base URLはGradle propertyで上書きできます。値には`/v1`を含めず、scheme、host、任意のportだけを指定します。
+
+```bash
+./gradlew assembleDebug -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080
+```
 
 ## Jobと永続化
 
@@ -91,7 +96,7 @@ Android debugビルドの既定base URLは`http://127.0.0.1:8080`です。cleart
 5. package、version、署名証明書fingerprintを表示
 6. 利用者の明示操作で標準`PackageInstaller`を起動
 
-`REQUEST_INSTALL_PACKAGES`と端末側の「不明なアプリのインストール」許可が必要です。既存の同一packageアプリと署名が異なる場合、通常は上書きできません。本アプリは自動アンインストール、silent install、root/Shizuku、署名検証回避を行いません。
+Phase 1Dで標準インストーラを実装する際は、`REQUEST_INSTALL_PACKAGES`と端末側の「不明なアプリのインストール」許可が必要です。Phase 1Bでは不要なため、この権限をまだ宣言しません。既存の同一packageアプリと署名が異なる場合、通常は上書きできません。本アプリは自動アンインストール、silent install、root/Shizuku、署名検証回避を行いません。
 
 Android Developer Verificationの適用状況によっては、未登録または証明書が異なるローカルビルドAPKにadvanced flowが必要になる可能性があります。OSの拒否は回避せず、結果と必要な操作を表示します。
 
@@ -124,7 +129,7 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 ./gradlew assembleDebug
 ```
 
-Phase 1Aでは`assembleDebug`、`lintDebug`、`testDebugUnitTest`タスクの成功を確認済みです。テストコードはPhase 1Bから追加します。
+Phase 1Bでは`assembleDebug`、`lintDebug`、`testDebugUnitTest`を実行し、Room schemaの生成、Compose UI、Runner API response/errorのdecodeを検証します。Room schemaは`app/schemas/`でバージョン管理します。
 
 ## 初期実装で扱わないもの
 

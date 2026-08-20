@@ -6,6 +6,16 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val runnerBaseUrlOverride = providers.gradleProperty("reprodroid.runnerBaseUrl").orNull
+
+fun buildConfigString(value: String): String =
+    "\"${value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")}\""
+
 android {
     namespace = "com.sanka1610.reprodroid"
     compileSdk = 36
@@ -19,12 +29,16 @@ android {
         versionName = "0.1.0-alpha01"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "RUNNER_BASE_URL", "\"\"")
+        buildConfigField("String", "RUNNER_BASE_URL", buildConfigString(runnerBaseUrlOverride.orEmpty()))
     }
 
     buildTypes {
         debug {
-            buildConfigField("String", "RUNNER_BASE_URL", "\"http://127.0.0.1:8080\"")
+            buildConfigField(
+                "String",
+                "RUNNER_BASE_URL",
+                buildConfigString(runnerBaseUrlOverride ?: "http://127.0.0.1:8080"),
+            )
         }
         release {
             isMinifyEnabled = false
