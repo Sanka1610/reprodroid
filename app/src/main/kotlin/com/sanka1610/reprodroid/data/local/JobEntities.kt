@@ -53,7 +53,66 @@ data class ArtifactEntity(
     val packageName: String,
     val versionName: String,
     val versionCode: Long,
+    @ColumnInfo(defaultValue = "'NOT_DOWNLOADED'")
+    val downloadStatus: String = ArtifactDownloadStatus.NOT_DOWNLOADED.name,
+    val downloadError: String? = null,
+    val localContentPath: String? = null,
+    val downloadedSizeBytes: Long? = null,
+    val downloadedSha256: String? = null,
+    val signingCertificateSha256: String? = null,
+    val currentSignerSha256: String? = null,
+    val existingInstallStatus: String? = null,
+    val installedVersionName: String? = null,
+    val installedVersionCode: Long? = null,
+    val downloadedAt: String? = null,
 )
+
+enum class ArtifactDownloadStatus {
+    NOT_DOWNLOADED,
+    DOWNLOADING,
+    VERIFIED,
+    FAILED,
+}
+
+enum class ExistingInstallStatus {
+    NOT_INSTALLED_OR_NOT_VISIBLE,
+    SIGNER_MATCH,
+    SIGNER_MISMATCH,
+}
+
+@Entity(
+    tableName = "install_attempts",
+    primaryKeys = ["attemptId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = JobEntity::class,
+            parentColumns = ["jobId"],
+            childColumns = ["jobId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("jobId"), Index("artifactId")],
+)
+data class InstallAttemptEntity(
+    val attemptId: String,
+    val jobId: String,
+    val artifactId: String,
+    val packageInstallerSessionId: Int?,
+    val status: String,
+    val packageInstallerStatus: Int?,
+    val statusMessage: String?,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+enum class InstallAttemptStatus {
+    PREPARING,
+    COMMITTED,
+    PENDING_USER_ACTION,
+    SUCCEEDED,
+    FAILED,
+    CANCELLED,
+}
 
 @Entity(
     tableName = "logs",
@@ -82,4 +141,6 @@ data class JobRecord(
     val artifacts: List<ArtifactEntity>,
     @Relation(parentColumn = "jobId", entityColumn = "jobId")
     val logs: List<LogEntity>,
+    @Relation(parentColumn = "jobId", entityColumn = "jobId")
+    val installAttempts: List<InstallAttemptEntity>,
 )

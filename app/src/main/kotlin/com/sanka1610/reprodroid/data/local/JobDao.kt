@@ -17,6 +17,12 @@ interface JobDao {
     @Query("SELECT * FROM jobs WHERE jobId = :jobId")
     suspend fun getJob(jobId: String): JobEntity?
 
+    @Query("SELECT * FROM artifacts WHERE artifactId = :artifactId AND jobId = :jobId")
+    suspend fun getArtifact(jobId: String, artifactId: String): ArtifactEntity?
+
+    @Query("SELECT * FROM artifacts WHERE jobId = :jobId")
+    suspend fun getArtifacts(jobId: String): List<ArtifactEntity>
+
     @Query(
         """
         SELECT jobId FROM jobs
@@ -34,6 +40,12 @@ interface JobDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertArtifacts(artifacts: List<ArtifactEntity>)
+
+    @Upsert
+    suspend fun upsertInstallAttempt(attempt: InstallAttemptEntity)
+
+    @Query("SELECT * FROM install_attempts WHERE attemptId = :attemptId")
+    suspend fun getInstallAttempt(attemptId: String): InstallAttemptEntity?
 
     @Query("DELETE FROM artifacts WHERE jobId = :jobId")
     suspend fun deleteArtifacts(jobId: String)

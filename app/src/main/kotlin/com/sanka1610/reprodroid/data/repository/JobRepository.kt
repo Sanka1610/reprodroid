@@ -1,7 +1,12 @@
 package com.sanka1610.reprodroid.data.repository
 
+import android.content.Context
 import androidx.room.withTransaction
+import com.sanka1610.reprodroid.data.artifact.ApkInspector
+import com.sanka1610.reprodroid.data.artifact.ApkInstaller
+import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
 import com.sanka1610.reprodroid.data.local.ArtifactEntity
+import com.sanka1610.reprodroid.data.local.InstallAttemptStatus
 import com.sanka1610.reprodroid.data.local.JobEntity
 import com.sanka1610.reprodroid.data.local.JobRecord
 import com.sanka1610.reprodroid.data.local.LogEntity
@@ -16,17 +21,28 @@ import com.sanka1610.reprodroid.data.network.RevisionType
 import com.sanka1610.reprodroid.data.network.RunnerApiClient
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import java.time.Instant
 
 class JobRepository(
+    applicationContext: Context,
     private val database: ReproDroidDatabase,
     private val runnerApi: RunnerApiClient,
 ) {
     private val jobDao = database.jobDao()
     private val syncMutex = Mutex()
+    private val filesDirectory = applicationContext.filesDir.toPath().toAbsolutePath().normalize()
+    private val apkInspector = ApkInspector(applicationContext.packageManager)
+    private val apkInstaller = ApkInstaller(applicationContext, jobDao)
 
     fun observeJobs(): Flow<List<JobRecord>> = jobDao.observeJobs()
 
@@ -107,6 +123,7 @@ class JobRepository(
 
     private suspend fun syncJobLocked(jobId: String) {
         val existing = jobDao.getJob(jobId)
+        val existingArtifacts = jobDao.getArtifacts(jobId).associateBy(ArtifactEntity::artifactId)
         val remote = runnerApi.getJob(jobId)
         var afterSequence = existing?.latestLogSequence ?: 0L
         val newLogs = mutableListOf<LogEntity>()
@@ -133,18 +150,7 @@ class JobRepository(
             jobDao.deleteArtifacts(jobId)
             if (remote.artifacts.isNotEmpty()) {
                 jobDao.upsertArtifacts(
-                    remote.artifacts.map { artifact ->
-                        ArtifactEntity(
-                            artifactId = artifact.artifactId,
-                            jobId = jobId,
-                            fileName = artifact.fileName,
-                            sizeBytes = artifact.sizeBytes,
-                            sha256 = artifact.sha256,
-                            packageName = artifact.packageName,
-                            versionName = artifact.versionName,
-                            versionCode = artifact.versionCode,
-                        )
-                    },
+                    remote.artifacts.map { artifact -> artifact.toEntity(jobId, existingArtifacts[artifact.artifactId]) },
                 )
             }
             if (newLogs.isNotEmpty()) jobDao.upsertLogs(newLogs)
@@ -199,6 +205,125 @@ class JobRepository(
         }
     }
 
+    suspend fun downloadArtifact(jobId: String, artifactId: String) = syncMutex.withLock {
+        val job = requireNotNull(jobDao.getJob(jobId)) { "The local job does not exist." }
+        val artifact = requireNotNull(jobDao.getArtifact(jobId, artifactId)) { "The APK artifact does not exist." }
+        check(job.executionMode == ExecutionMode.REAL_TRUSTED.name && job.state == "SUCCEEDED") {
+            "Only a succeeded trusted real build can transfer APK content."
+        }
+        check(artifact.sizeBytes > 0 && SHA256.matches(artifact.sha256)) {
+            "Runner returned invalid APK size or SHA-256 metadata."
+        }
+
+        val relativeDirectory = "apks/${safeStorageName(jobId)}"
+        val artifactStorageName = safeStorageName(artifactId)
+        val finalRelativePath = "$relativeDirectory/$artifactStorageName.apk"
+        val finalPath = filesDirectory.resolve(finalRelativePath).normalize()
+        val temporaryPath = filesDirectory.resolve("$relativeDirectory/$artifactStorageName.part.apk").normalize()
+        check(finalPath.startsWith(filesDirectory) && temporaryPath.startsWith(filesDirectory)) {
+            "The APK storage path escaped app-private storage."
+        }
+        withContext(Dispatchers.IO) {
+            Files.createDirectories(finalPath.parent)
+            Files.deleteIfExists(temporaryPath)
+        }
+        jobDao.upsertArtifacts(
+            listOf(
+                artifact.copy(
+                    downloadStatus = ArtifactDownloadStatus.DOWNLOADING.name,
+                    downloadError = null,
+                ),
+            ),
+        )
+
+        try {
+            val response = withContext(Dispatchers.IO) {
+                runnerApi.downloadArtifact(jobId, artifactId, temporaryPath.toFile())
+            }
+            check(response.contentType?.substringBefore(';') == APK_CONTENT_TYPE) {
+                "Runner returned an unexpected artifact content type."
+            }
+            check(response.contentLength == artifact.sizeBytes && response.bytesWritten == artifact.sizeBytes) {
+                "Downloaded APK size does not match Runner metadata."
+            }
+            check(response.etag?.removePrefix("W/")?.trim()?.trim('"')?.lowercase() == artifact.sha256) {
+                "Runner artifact ETag does not match its registered SHA-256."
+            }
+            val downloadedSha256 = withContext(Dispatchers.IO) { sha256(temporaryPath.toFile()) }
+            check(downloadedSha256 == artifact.sha256) {
+                "Downloaded APK SHA-256 does not match Runner metadata."
+            }
+            val inspection = withContext(Dispatchers.IO) { apkInspector.inspect(temporaryPath.toFile()) }
+            withContext(Dispatchers.IO) { moveVerifiedArtifact(temporaryPath.toFile(), finalPath.toFile()) }
+            jobDao.upsertArtifacts(
+                listOf(
+                    artifact.copy(
+                        packageName = inspection.packageName,
+                        versionName = inspection.versionName,
+                        versionCode = inspection.versionCode,
+                        downloadStatus = ArtifactDownloadStatus.VERIFIED.name,
+                        downloadError = null,
+                        localContentPath = finalRelativePath,
+                        downloadedSizeBytes = response.bytesWritten,
+                        downloadedSha256 = downloadedSha256,
+                        signingCertificateSha256 = inspection.signingCertificateSha256.joinToString("\n"),
+                        currentSignerSha256 = inspection.currentSignerSha256.joinToString("\n"),
+                        existingInstallStatus = inspection.existingInstallStatus.name,
+                        installedVersionName = inspection.installedVersionName,
+                        installedVersionCode = inspection.installedVersionCode,
+                        downloadedAt = Instant.now().toString(),
+                    ),
+                ),
+            )
+        } catch (failure: Throwable) {
+            withContext(Dispatchers.IO) {
+                Files.deleteIfExists(temporaryPath)
+                Files.deleteIfExists(finalPath)
+            }
+            jobDao.upsertArtifacts(
+                listOf(
+                    artifact.copy(
+                        downloadStatus = ArtifactDownloadStatus.FAILED.name,
+                        downloadError = failure.message ?: "APK download or verification failed.",
+                        localContentPath = null,
+                        downloadedSizeBytes = null,
+                        downloadedSha256 = null,
+                        signingCertificateSha256 = null,
+                        currentSignerSha256 = null,
+                        existingInstallStatus = null,
+                        installedVersionName = null,
+                        installedVersionCode = null,
+                        downloadedAt = null,
+                    ),
+                ),
+            )
+            if (failure is CancellationException) throw failure
+            throw failure
+        }
+    }
+
+    suspend fun installArtifact(jobId: String, artifactId: String): String {
+        val artifact = requireNotNull(jobDao.getArtifact(jobId, artifactId)) { "The APK artifact does not exist." }
+        return apkInstaller.install(jobId, artifact)
+    }
+
+    suspend fun recordInstallStatus(
+        attemptId: String,
+        status: InstallAttemptStatus,
+        packageInstallerStatus: Int,
+        statusMessage: String?,
+    ) {
+        val attempt = jobDao.getInstallAttempt(attemptId) ?: return
+        jobDao.upsertInstallAttempt(
+            attempt.copy(
+                status = status.name,
+                packageInstallerStatus = packageInstallerStatus,
+                statusMessage = statusMessage,
+                updatedAt = Instant.now().toString(),
+            ),
+        )
+    }
+
     private fun JobResponse.toEntity(existing: JobEntity?, logCursor: Long): JobEntity = JobEntity(
         jobId = jobId,
         executionMode = executionMode.name,
@@ -221,6 +346,33 @@ class JobRepository(
         installResult = existing?.installResult,
     )
 
+    private fun com.sanka1610.reprodroid.data.network.ArtifactMetadata.toEntity(
+        jobId: String,
+        existing: ArtifactEntity?,
+    ): ArtifactEntity {
+        val contentIsUnchanged = existing != null &&
+            existing.fileName == fileName && existing.sizeBytes == sizeBytes && existing.sha256 == sha256
+        return if (contentIsUnchanged) {
+            existing.copy(
+                jobId = jobId,
+                fileName = fileName,
+                sizeBytes = sizeBytes,
+                sha256 = sha256,
+            )
+        } else {
+            ArtifactEntity(
+                artifactId = artifactId,
+                jobId = jobId,
+                fileName = fileName,
+                sizeBytes = sizeBytes,
+                sha256 = sha256,
+                packageName = packageName,
+                versionName = versionName,
+                versionCode = versionCode,
+            )
+        }
+    }
+
     private fun validateLogPage(
         requestedAfterSequence: Long,
         logPage: LogResponse,
@@ -235,5 +387,40 @@ class JobRepository(
         check(!logPage.hasMore || expectedCursor > requestedAfterSequence) {
             "Runner returned a non-advancing log cursor."
         }
+    }
+
+    private fun safeStorageName(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray())
+        .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1_024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read == -1) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    }
+
+    private fun moveVerifiedArtifact(temporaryFile: File, finalFile: File) {
+        try {
+            Files.move(
+                temporaryFile.toPath(),
+                finalFile.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(temporaryFile.toPath(), finalFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    private companion object {
+        val SHA256 = Regex("[0-9a-f]{64}")
+        const val APK_CONTENT_TYPE = "application/vnd.android.package-archive"
     }
 }

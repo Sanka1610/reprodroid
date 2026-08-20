@@ -1,5 +1,10 @@
 package com.sanka1610.reprodroid.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
+import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,11 +32,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanka1610.reprodroid.data.local.JobRecord
+import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
+import com.sanka1610.reprodroid.data.local.ArtifactEntity
+import com.sanka1610.reprodroid.data.local.ExistingInstallStatus
+import com.sanka1610.reprodroid.data.local.InstallAttemptEntity
+import com.sanka1610.reprodroid.data.local.InstallAttemptStatus
 import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.JobState
 import com.sanka1610.reprodroid.data.network.RevisionType
@@ -42,6 +53,7 @@ fun ReproDroidApp(viewModel: JobViewModel) {
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
     val isSubmitting by viewModel.isSubmitting.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val activeArtifactActions by viewModel.activeArtifactActions.collectAsStateWithLifecycle()
     var repositoryUrl by rememberSaveable {
         mutableStateOf("https://github.com/MorpheApp/MicroG-RE.git")
     }
@@ -64,7 +76,7 @@ fun ReproDroidApp(viewModel: JobViewModel) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("ReproDroid", style = MaterialTheme.typography.headlineMedium)
-                Text("Phase 1C · confirmed allowlisted builds", style = MaterialTheme.typography.bodyMedium)
+                Text("Phase 1D · verified APK transfer and system install", style = MaterialTheme.typography.bodyMedium)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -169,6 +181,13 @@ fun ReproDroidApp(viewModel: JobViewModel) {
                                 onConfirm = { commit ->
                                     viewModel.confirmRealBuild(record.job.jobId, commit)
                                 },
+                                activeArtifactActions = activeArtifactActions,
+                                onDownload = { artifactId ->
+                                    viewModel.downloadArtifact(record.job.jobId, artifactId)
+                                },
+                                onInstall = { artifactId ->
+                                    viewModel.installArtifact(record.job.jobId, artifactId)
+                                },
                             )
                         }
                     }
@@ -184,6 +203,9 @@ private fun JobCard(
     onCancel: () -> Unit,
     onRetry: () -> Unit,
     onConfirm: (String) -> Unit,
+    activeArtifactActions: Set<String>,
+    onDownload: (String) -> Unit,
+    onInstall: (String) -> Unit,
 ) {
     val job = record.job
     val state = remember(job.state) { JobState.valueOf(job.state) }
@@ -225,14 +247,14 @@ private fun JobCard(
             }
 
             record.artifacts.forEach { artifact ->
-                Text(
-                    if (artifact.packageName.isBlank()) {
-                        "APK: ${artifact.fileName} · ${artifact.sizeBytes} bytes · SHA-256 ${artifact.sha256}"
-                    } else {
-                        "APK metadata: ${artifact.fileName} · ${artifact.packageName} " +
-                            "${artifact.versionName} (${artifact.sizeBytes} bytes)"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
+                ArtifactCard(
+                    artifact = artifact,
+                    executionMode = job.executionMode,
+                    jobState = state,
+                    attempts = record.installAttempts.filter { it.artifactId == artifact.artifactId },
+                    actionInProgress = artifact.artifactId in activeArtifactActions,
+                    onDownload = { onDownload(artifact.artifactId) },
+                    onInstall = { onInstall(artifact.artifactId) },
                 )
             }
 
@@ -286,5 +308,174 @@ private fun JobCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ArtifactCard(
+    artifact: ArtifactEntity,
+    executionMode: String,
+    jobState: JobState,
+    attempts: List<InstallAttemptEntity>,
+    actionInProgress: Boolean,
+    onDownload: () -> Unit,
+    onInstall: () -> Unit,
+) {
+    val context = LocalContext.current
+    val downloadStatus = runCatching { ArtifactDownloadStatus.valueOf(artifact.downloadStatus) }
+        .getOrDefault(ArtifactDownloadStatus.NOT_DOWNLOADED)
+    val latestAttempt = attempts.maxByOrNull { it.updatedAt }
+    val installPending = latestAttempt?.status in setOf(
+        InstallAttemptStatus.PREPARING.name,
+        InstallAttemptStatus.COMMITTED.name,
+        InstallAttemptStatus.PENDING_USER_ACTION.name,
+    )
+    var installRiskAcknowledged by rememberSaveable(artifact.jobId, artifact.artifactId) {
+        mutableStateOf(false)
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Text("APK: ${artifact.fileName}", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Runner: ${artifact.sizeBytes} bytes · SHA-256 ${artifact.sha256}",
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+            )
+            if (executionMode != ExecutionMode.REAL_TRUSTED.name) {
+                Text("Simulated metadata has no downloadable APK content.", style = MaterialTheme.typography.bodySmall)
+                return@Column
+            }
+            if (jobState != JobState.SUCCEEDED) return@Column
+
+            if (downloadStatus != ArtifactDownloadStatus.VERIFIED) {
+                artifact.downloadError?.let { error ->
+                    Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                Button(
+                    enabled = !actionInProgress,
+                    onClick = onDownload,
+                ) {
+                    Text(
+                        when {
+                            actionInProgress -> "Downloading and verifying…"
+                            downloadStatus == ArtifactDownloadStatus.DOWNLOADING -> "Retry interrupted download"
+                            downloadStatus == ArtifactDownloadStatus.FAILED -> "Retry download"
+                            else -> "Download and verify APK"
+                        },
+                    )
+                }
+                return@Column
+            }
+
+            Text("🟡 Buildable · official APK comparison not performed", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Android SHA-256: ${artifact.downloadedSha256}",
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+            )
+            Text(
+                "Package: ${artifact.packageName}\n" +
+                    "Candidate: ${artifact.versionName.ifBlank { "(none)" }} (${artifact.versionCode})",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text("Signing certificate SHA-256", style = MaterialTheme.typography.labelLarge)
+            artifact.signingCertificateSha256.orEmpty().lineSequence().filter(String::isNotBlank).forEach { fingerprint ->
+                Text(fingerprint, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            }
+            when (artifact.existingInstallStatus) {
+                ExistingInstallStatus.NOT_INSTALLED_OR_NOT_VISIBLE.name -> Text(
+                    "No installed package with this package name was found in the current Android profile.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                ExistingInstallStatus.SIGNER_MATCH.name -> Text(
+                    "Installed: ${artifact.installedVersionName?.ifBlank { "(none)" } ?: "(none)"} " +
+                        "(${artifact.installedVersionCode ?: "unknown"})\n" +
+                        "The installed package has the same current signer fingerprint.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                ExistingInstallStatus.SIGNER_MISMATCH.name -> Text(
+                    "Installed: ${artifact.installedVersionName?.ifBlank { "(none)" } ?: "(none)"} " +
+                        "(${artifact.installedVersionCode ?: "unknown"})\n" +
+                        "Installed package signer mismatch: Android will normally reject an update. " +
+                        "ReproDroid will not uninstall the existing app or bypass signature checks.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            TextButton(
+                enabled = !actionInProgress && !installPending,
+                onClick = onDownload,
+            ) {
+                Text("Download and verify again")
+            }
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        "This APK is only Buildable. Its contents have not been compared with an official APK. Installation may also be blocked by Android Developer Verification.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = installRiskAcknowledged,
+                            onCheckedChange = { installRiskAcknowledged = it },
+                        )
+                        Text("I understand and want to use Android's standard installer.")
+                    }
+                    Button(
+                        enabled = installRiskAcknowledged && !actionInProgress && !installPending,
+                        onClick = {
+                            if (context.packageManager.canRequestPackageInstalls()) {
+                                onInstall()
+                            } else {
+                                openUnknownAppSources(context)
+                            }
+                        },
+                    ) {
+                        Text(
+                            when {
+                                actionInProgress -> "Preparing installer…"
+                                installPending -> "Waiting for installer result…"
+                                else -> "Install with system installer"
+                            },
+                        )
+                    }
+                    if (!context.packageManager.canRequestPackageInstalls()) {
+                        Text(
+                            "The first tap opens this app's ‘Install unknown apps’ setting. Return here and tap Install again after allowing it.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+
+            latestAttempt?.let { attempt ->
+                Text("Latest install result: ${attempt.status}", style = MaterialTheme.typography.labelLarge)
+                attempt.packageInstallerStatus?.let { status ->
+                    Text("PackageInstaller status: $status", style = MaterialTheme.typography.bodySmall)
+                }
+                attempt.statusMessage?.let { statusMessage ->
+                    Text(statusMessage, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+private fun openUnknownAppSources(context: Context) {
+    val packageSettings = Intent(
+        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+        "package:${context.packageName}".toUri(),
+    )
+    try {
+        context.startActivity(packageSettings)
+    } catch (_: ActivityNotFoundException) {
+        context.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
     }
 }

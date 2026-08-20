@@ -4,7 +4,7 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 ## 現在の状態
 
-Phase 1C（確認付き信頼済み実ビルド）まで実装済みです。
+Phase 1D（APK転送・標準インストール）まで実装済みです。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
@@ -15,8 +15,13 @@ Phase 1C（確認付き信頼済み実ビルド）まで実装済みです。
 - `SIMULATED`/`REAL_TRUSTED`作成モード
 - Runnerが解決したcommit SHA、固定build root/task、RCE警告の確認UI
 - 確認状態を保存するRoom v2 migration
-
-APK転送・Android側SHA-256照合・package/version/署名情報・標準インストールはPhase 1Dで実装します。Phase 1Cでは実ビルドAPKのファイル名・サイズ・Runner側SHA-256を表示しますが、APKファイルはダウンロードしません。
+- Runnerからアプリ専用領域へのstreaming APK download
+- MIME type、Content-Length、ETag、受信byte数、Android側SHA-256のfail-closed検査
+- package、version、署名証明書SHA-256 fingerprintの解析・表示
+- URLから判明した任意packageのインストール済みversion・signer比較と不一致警告
+- `PackageInstaller.Session`によるユーザー確認付き単一APKインストール
+- unknown app sources設定への誘導
+- download結果とインストール試行を分離して保存するRoom v3 migration
 
 初期実装では次の縦切りを対象にします。
 
@@ -105,10 +110,14 @@ base URLはGradle propertyで上書きできます。値には`/v1`を含めず�
 2. アプリ専用領域へ保存
 3. Android側でSHA-256を再計算
 4. 不一致なら保存・インストールを拒否
-5. package、version、署名証明書fingerprintを表示
+5. 候補APKとインストール済みpackageのversion、署名証明書fingerprintを表示
 6. 利用者の明示操作で標準`PackageInstaller`を起動
 
-Phase 1Dで標準インストーラを実装する際は、`REQUEST_INSTALL_PACKAGES`と端末側の「不明なアプリのインストール」許可が必要です。Phase 1Cでは不要なため、この権限をまだ宣言しません。既存の同一packageアプリと署名が異なる場合、通常は上書きできません。本アプリは自動アンインストール、silent install、root/Shizuku、署名検証回避を行いません。
+標準インストーラには`REQUEST_INSTALL_PACKAGES`と端末側の「不明なアプリのインストール」許可が必要です。未許可の場合はReproDroid用の`ACTION_MANAGE_UNKNOWN_APP_SOURCES`設定を開きます。既存の同一packageアプリと署名が異なる場合、通常は上書きできません。本アプリは自動アンインストール、silent install、root/Shizuku、署名検証回避を行いません。
+
+URLから登録されるアプリのpackage nameはビルド時に確定できないため、Manifestでは`QUERY_ALL_PACKAGES`を宣言しています。主目的はインストール済みアプリ一覧の表示ではなく、ダウンロードしたAPKから判明した任意のpackage nameについて、現在のインストール状態、`longVersionCode`、`versionName`、署名証明書情報を取得し、更新可否を端末内で判定することです。
+
+取得したインストール済みpackage情報と署名fingerprintはローカル判定にだけ使用し、Runner、配布元、analytics、広告、telemetryへ送信しません。ネットワーク通信には、利用者が入力したrepository URL、Job操作、artifact取得など、明示した処理に必要な情報だけを使用します。ReproDroidはanalytics、広告、crash reporting SDKを組み込んでいません。詳細な設計判断は[ADR-0008](../reprodroid-project/docs/adr/0008-query-all-packages-for-url-registered-apps.md)を参照してください。
 
 Android Developer Verificationの適用状況によっては、未登録または証明書が異なるローカルビルドAPKにadvanced flowが必要になる可能性があります。OSの拒否は回避せず、結果と必要な操作を表示します。
 
@@ -141,7 +150,7 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 ./gradlew assembleDebug
 ```
 
-Phase 1Cでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v2生成、Runner APIの確認endpointを検証します。Room schemaは`app/schemas/`でバージョン管理します。
+Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。実機またはエミュレータ上のsystem installer確認はPhase 1Eで行います。
 
 ## 初期実装で扱わないもの
 

@@ -34,6 +34,9 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
     private val _message = MutableStateFlow<String?>(null)
     val message = _message.asStateFlow()
 
+    private val _activeArtifactActions = MutableStateFlow<Set<String>>(emptySet())
+    val activeArtifactActions = _activeArtifactActions.asStateFlow()
+
     fun startVisibleSync() {
         if (visiblePollingJob?.isActive == true) return
         JobSyncWorker.enqueueImmediate(getApplication())
@@ -100,6 +103,14 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
 
     fun retryJob(jobId: String) = runAction { repository.retryJob(jobId) }
 
+    fun downloadArtifact(jobId: String, artifactId: String) = runArtifactAction(artifactId) {
+        repository.downloadArtifact(jobId, artifactId)
+    }
+
+    fun installArtifact(jobId: String, artifactId: String) = runArtifactAction(artifactId) {
+        repository.installArtifact(jobId, artifactId)
+    }
+
     fun clearMessage() {
         _message.value = null
     }
@@ -112,6 +123,22 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
                 throw cancellation
             } catch (failure: Throwable) {
                 _message.value = failure.userMessage()
+            }
+        }
+    }
+
+    private fun runArtifactAction(artifactId: String, action: suspend () -> Unit) {
+        if (artifactId in _activeArtifactActions.value) return
+        viewModelScope.launch {
+            _activeArtifactActions.value += artifactId
+            try {
+                action()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                _message.value = failure.userMessage()
+            } finally {
+                _activeArtifactActions.value -= artifactId
             }
         }
     }

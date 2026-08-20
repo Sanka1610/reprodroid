@@ -7,10 +7,12 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.HttpMethod
 import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.fail
 import org.junit.Test
+import java.nio.file.Files
 
 class RunnerApiClientTest {
     @Test
@@ -74,6 +76,40 @@ class RunnerApiClientTest {
                 riskAcknowledged = true,
             ),
         )
+    }
+
+    @Test
+    fun `artifact download streams bytes and exposes verification headers`() = runBlocking {
+        val apkBytes = "apk-transfer-content".toByteArray()
+        val expectedSha256 = "a".repeat(64)
+        val engine = MockEngine { request ->
+            assertEquals(
+                "http://127.0.0.1:8080/v1/jobs/job-1/artifacts/artifact-1/content",
+                request.url.toString(),
+            )
+            respond(
+                content = apkBytes,
+                status = HttpStatusCode.OK,
+                headers = headersOf(
+                    HttpHeaders.ContentType to listOf("application/vnd.android.package-archive"),
+                    HttpHeaders.ContentLength to listOf(apkBytes.size.toString()),
+                    HttpHeaders.ETag to listOf("\"$expectedSha256\""),
+                ),
+            )
+        }
+        val client = RunnerApiClient("http://127.0.0.1:8080", engine)
+        val destination = Files.createTempFile("reprodroid-download-test", ".apk").toFile()
+        try {
+            val downloaded = client.downloadArtifact("job-1", "artifact-1", destination)
+
+            assertEquals(apkBytes.size.toLong(), downloaded.bytesWritten)
+            assertEquals(apkBytes.size.toLong(), downloaded.contentLength)
+            assertEquals("\"$expectedSha256\"", downloaded.etag)
+            assertEquals("application/vnd.android.package-archive", downloaded.contentType)
+            assertArrayEquals(apkBytes, destination.readBytes())
+        } finally {
+            destination.delete()
+        }
     }
 
     @Test

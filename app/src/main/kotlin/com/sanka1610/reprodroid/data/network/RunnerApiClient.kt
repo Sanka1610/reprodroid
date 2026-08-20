@@ -5,15 +5,22 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.utils.io.readAvailable
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.io.FileOutputStream
 import java.net.URI
 
 class RunnerApiException(
@@ -23,6 +30,13 @@ class RunnerApiException(
 ) : RuntimeException(message)
 
 class RunnerConfigurationException(message: String) : RuntimeException(message)
+
+data class ArtifactDownloadResponse(
+    val bytesWritten: Long,
+    val contentLength: Long?,
+    val etag: String?,
+    val contentType: String?,
+)
 
 class RunnerApiClient(
     baseUrl: String,
@@ -61,6 +75,36 @@ class RunnerApiClient(
 
     suspend fun retryJob(jobId: String): CreateJobResponse =
         client.post(endpoint("/v1/jobs/$jobId/retry")).successBody()
+
+    suspend fun downloadArtifact(jobId: String, artifactId: String, destination: File): ArtifactDownloadResponse =
+        client.prepareGet(endpoint("/v1/jobs/$jobId/artifacts/$artifactId/content")) {
+            timeout {
+                requestTimeoutMillis = DOWNLOAD_REQUEST_TIMEOUT_MILLIS
+                socketTimeoutMillis = DOWNLOAD_SOCKET_TIMEOUT_MILLIS
+            }
+        }.execute { response ->
+            response.ensureSuccess()
+            val channel = response.bodyAsChannel()
+            var bytesWritten = 0L
+            FileOutputStream(destination, false).use { output ->
+                val buffer = ByteArray(DOWNLOAD_BUFFER_SIZE)
+                while (!channel.isClosedForRead) {
+                    val read = channel.readAvailable(buffer, 0, buffer.size)
+                    if (read == -1) break
+                    if (read > 0) {
+                        output.write(buffer, 0, read)
+                        bytesWritten += read
+                    }
+                }
+                output.fd.sync()
+            }
+            ArtifactDownloadResponse(
+                bytesWritten = bytesWritten,
+                contentLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull(),
+                etag = response.headers[HttpHeaders.ETag],
+                contentType = response.headers[HttpHeaders.ContentType],
+            )
+        }
 
     private fun io.ktor.client.HttpClientConfig<*>.configure() {
         expectSuccess = false
@@ -125,5 +169,8 @@ class RunnerApiClient(
         const val CONNECT_TIMEOUT_MILLIS = 5_000L
         const val REQUEST_TIMEOUT_MILLIS = 10_000L
         const val SOCKET_TIMEOUT_MILLIS = 10_000L
+        const val DOWNLOAD_REQUEST_TIMEOUT_MILLIS = 30 * 60 * 1_000L
+        const val DOWNLOAD_SOCKET_TIMEOUT_MILLIS = 30_000L
+        const val DOWNLOAD_BUFFER_SIZE = 64 * 1_024
     }
 }
