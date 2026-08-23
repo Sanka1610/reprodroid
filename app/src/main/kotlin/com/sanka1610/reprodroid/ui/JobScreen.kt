@@ -49,7 +49,7 @@ import com.sanka1610.reprodroid.data.network.RevisionType
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
 
 @Composable
-fun ReproDroidApp(viewModel: JobViewModel) {
+fun JobScreen(viewModel: JobViewModel) {
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
     val isSubmitting by viewModel.isSubmitting.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()

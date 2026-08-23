@@ -5,10 +5,13 @@ import androidx.room.Room
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.network.RunnerApiClient
 import com.sanka1610.reprodroid.data.repository.JobRepository
+import com.sanka1610.reprodroid.data.repository.ManagedAppRepository
 import com.sanka1610.reprodroid.work.JobSyncWorker
 
 class ReproDroidApplication : Application() {
     lateinit var jobRepository: JobRepository
+        private set
+    lateinit var managedAppRepository: ManagedAppRepository
         private set
 
     override fun onCreate() {
@@ -20,11 +23,16 @@ class ReproDroidApplication : Application() {
         ).addMigrations(
             ReproDroidDatabase.MIGRATION_1_2,
             ReproDroidDatabase.MIGRATION_2_3,
+            ReproDroidDatabase.MIGRATION_3_4,
         ).build()
         jobRepository = JobRepository(
             applicationContext = applicationContext,
             database = database,
             runnerApi = RunnerApiClient(BuildConfig.RUNNER_BASE_URL),
+        )
+        managedAppRepository = ManagedAppRepository(
+            context = applicationContext,
+            database = database,
         )
         JobSyncWorker.schedule(this)
     }

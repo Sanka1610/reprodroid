@@ -27,6 +27,9 @@ class ApkInspector(
     fun inspect(apkFile: File): ApkInspection {
         val archiveInfo = packageInfoFromArchive(apkFile)
             ?: throw ApkInspectionException("Android could not parse the downloaded file as a signed APK.")
+        if (!archiveInfo.splitNames.isNullOrEmpty()) {
+            throw ApkInspectionException("Split APKs are not supported in Phase 2A.")
+        }
         val packageName = archiveInfo.packageName.takeIf(String::isNotBlank)
             ?: throw ApkInspectionException("The downloaded APK does not declare a package name.")
         val archiveSigners = signerFingerprints(archiveInfo)

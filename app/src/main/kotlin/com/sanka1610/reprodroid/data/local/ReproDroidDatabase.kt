@@ -6,12 +6,21 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [JobEntity::class, ArtifactEntity::class, LogEntity::class, InstallAttemptEntity::class],
-    version = 3,
+    entities = [
+        JobEntity::class,
+        ArtifactEntity::class,
+        LogEntity::class,
+        InstallAttemptEntity::class,
+        RegisteredAppEntity::class,
+        ReleaseSnapshotEntity::class,
+        ReleaseAssetEntity::class,
+    ],
+    version = 4,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun jobDao(): JobDao
+    abstract fun managedAppDao(): ManagedAppDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -62,6 +71,111 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_install_attempts_artifactId ON install_attempts(artifactId)",
+                )
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS registered_apps (
+                        registeredAppId TEXT NOT NULL,
+                        displayName TEXT NOT NULL,
+                        repositoryUrl TEXT NOT NULL,
+                        canonicalRepositoryUrl TEXT NOT NULL,
+                        provider TEXT NOT NULL,
+                        managementMode TEXT NOT NULL,
+                        releaseDiscoveryStatus TEXT NOT NULL,
+                        releaseDiscoveryErrorCode TEXT,
+                        releaseDiscoveryErrorMessage TEXT,
+                        releaseMetadataEtag TEXT,
+                        lastReleaseCheckedAt TEXT,
+                        createdAt TEXT NOT NULL,
+                        updatedAt TEXT NOT NULL,
+                        PRIMARY KEY(registeredAppId)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_registered_apps_canonicalRepositoryUrl " +
+                        "ON registered_apps(canonicalRepositoryUrl)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS release_snapshots (
+                        releaseSnapshotId TEXT NOT NULL,
+                        registeredAppId TEXT NOT NULL,
+                        providerReleaseId INTEGER NOT NULL,
+                        tagName TEXT NOT NULL,
+                        resolvedCommitSha TEXT NOT NULL,
+                        releaseName TEXT NOT NULL,
+                        releaseUrl TEXT NOT NULL,
+                        targetCommitishRaw TEXT NOT NULL,
+                        isDraft INTEGER NOT NULL,
+                        isPrerelease INTEGER NOT NULL,
+                        isImmutable INTEGER NOT NULL,
+                        releaseCreatedAt TEXT NOT NULL,
+                        publishedAt TEXT NOT NULL,
+                        fetchedAt TEXT NOT NULL,
+                        PRIMARY KEY(releaseSnapshotId),
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_release_snapshots_registeredAppId " +
+                        "ON release_snapshots(registeredAppId)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_release_snapshots_registeredAppId_providerReleaseId " +
+                        "ON release_snapshots(registeredAppId, providerReleaseId)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS release_assets (
+                        releaseAssetId TEXT NOT NULL,
+                        releaseSnapshotId TEXT NOT NULL,
+                        providerAssetId INTEGER NOT NULL,
+                        assetName TEXT NOT NULL,
+                        stableAssetUrl TEXT NOT NULL,
+                        selectionReason TEXT NOT NULL,
+                        contentType TEXT NOT NULL,
+                        providerSizeBytes INTEGER NOT NULL,
+                        providerDigestSha256 TEXT,
+                        downloadStatus TEXT NOT NULL,
+                        downloadErrorCode TEXT,
+                        downloadErrorMessage TEXT,
+                        localContentPath TEXT,
+                        downloadedSizeBytes INTEGER,
+                        computedRawSha256 TEXT,
+                        responseEtag TEXT,
+                        finalDownloadHost TEXT,
+                        packageName TEXT,
+                        versionName TEXT,
+                        versionCode INTEGER,
+                        signingCertificateSha256 TEXT,
+                        currentSignerSha256 TEXT,
+                        existingInstallStatus TEXT,
+                        installedVersionName TEXT,
+                        installedVersionCode INTEGER,
+                        comparisonEligibility TEXT NOT NULL,
+                        incomparableReason TEXT,
+                        downloadedAt TEXT,
+                        PRIMARY KEY(releaseAssetId),
+                        FOREIGN KEY(releaseSnapshotId) REFERENCES release_snapshots(releaseSnapshotId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_release_assets_releaseSnapshotId " +
+                        "ON release_assets(releaseSnapshotId)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_release_assets_releaseSnapshotId_providerAssetId " +
+                        "ON release_assets(releaseSnapshotId, providerAssetId)",
                 )
             }
         }
