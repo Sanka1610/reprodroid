@@ -43,6 +43,14 @@ GitHub URL・ref入力
 
 実ビルド成功と転送SHA-256一致は`Buildable`を意味します。公式APKとの再現性一致を意味しません。
 
+## Phase 2の方針
+
+Phase 2では、公式APKまたは開発者公開APKをAndroidアプリ側で取得し、検証モードの参照APKと取得モードの更新候補に共通のAPK検査・保存境界を適用します。Runnerから取得したローカルビルドAPKと、配布元から取得したAPKの比較処理もAndroid側で行います。
+
+`package name`は比較対象の同一性と更新対象の特定に使用し、`longVersionCode`は端末内アプリとの新旧判定、`versionName`は表示・補助情報に使用します。signing certificateは更新可否と標準`PackageInstaller`の結果に関わる情報として、比較結果とは別に扱います。versionが新しいことやsignerが一致することだけで`Reproducible`とは判定しません。
+
+Phase 2Aでは、配布元のrelease／asset／source commit／flavor／build typeとAPK metadataの対応を先に確定します。比較不能と`Different`のUI上の区別は未決定であり、対象不一致や参照APK未取得を`Reproducible`へ昇格させないことだけを先に固定します。設計判断は[ADR-0009](../reprodroid-project/docs/adr/0009-phase-2-reference-apk-and-update-boundary.md)に記録しています。
+
 ## リポジトリ構成
 
 ReproDroidは3つの独立リポジトリで管理します。
@@ -159,11 +167,11 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 
 Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E完了時に`./gradlew testDebugUnitTest lintDebug build --rerun-tasks -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080`を実行し、113 actionable tasksすべてexecuted、`BUILD SUCCESSFUL`を確認しました。標準installerの各callbackとRoom復元はWindows Android Emulator上のE2Eで確認しています。
 
-## 初期実装で扱わないもの
+## Phase 1時点で未実装（Phase 2以降）
 
 - 公式APKとの署名除外・DEX比較
 - `Reproducible`の実判定
+- Android側の配布APK取得とObtainium的な更新候補判定
 - split APK、APKS、AAB
 - root/Shizuku特権インストール
 - silent install、自動アンインストール、署名検証回避
-- 取得モード
