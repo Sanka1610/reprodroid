@@ -227,6 +227,11 @@ private fun JobCard(
                 progress = { job.progressPercent / 100f },
                 modifier = Modifier.fillMaxWidth(),
             )
+            Text(
+                "Job ID: ${job.jobId}",
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+            )
             Text(job.repositoryUrl, style = MaterialTheme.typography.bodySmall)
             Text(
                 "${job.executionMode} · ${job.revisionType.lowercase()} ${job.revisionValue}" +

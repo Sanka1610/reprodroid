@@ -37,6 +37,18 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeArtifactActions = MutableStateFlow<Set<String>>(emptySet())
     val activeArtifactActions = _activeArtifactActions.asStateFlow()
 
+    init {
+        viewModelScope.launch {
+            try {
+                repository.recoverOrphanedInstallAttempts()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                _message.value = failure.userMessage()
+            }
+        }
+    }
+
     fun startVisibleSync() {
         if (visiblePollingJob?.isActive == true) return
         JobSyncWorker.enqueueImmediate(getApplication())

@@ -47,6 +47,14 @@ interface JobDao {
     @Query("SELECT * FROM install_attempts WHERE attemptId = :attemptId")
     suspend fun getInstallAttempt(attemptId: String): InstallAttemptEntity?
 
+    @Query(
+        """
+        SELECT * FROM install_attempts
+        WHERE status IN ('PREPARING', 'COMMITTED', 'PENDING_USER_ACTION')
+        """,
+    )
+    suspend fun getPendingInstallAttempts(): List<InstallAttemptEntity>
+
     @Query("DELETE FROM artifacts WHERE jobId = :jobId")
     suspend fun deleteArtifacts(jobId: String)
 }
