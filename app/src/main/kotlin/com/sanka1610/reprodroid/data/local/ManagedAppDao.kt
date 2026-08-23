@@ -46,6 +46,9 @@ interface ManagedAppDao {
     @Query("SELECT * FROM release_assets WHERE downloadStatus = 'DOWNLOADING'")
     suspend fun getInterruptedDownloads(): List<ReleaseAssetEntity>
 
+    @Query("SELECT * FROM release_assets WHERE downloadStatus = 'VERIFIED'")
+    suspend fun getVerifiedDownloads(): List<ReleaseAssetEntity>
+
     @Upsert
     suspend fun upsertRegisteredApp(app: RegisteredAppEntity)
 

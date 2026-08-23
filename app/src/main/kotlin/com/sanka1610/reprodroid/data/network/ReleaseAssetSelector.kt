@@ -1,6 +1,8 @@
 package com.sanka1610.reprodroid.data.provider
 
 import com.sanka1610.reprodroid.data.local.AssetSelectionReason
+import com.sanka1610.reprodroid.data.local.PreferredAbi
+import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import java.net.URI
 
 class ReleaseAssetSelectionException(val code: String, override val message: String) : RuntimeException(message)
@@ -8,7 +10,11 @@ class ReleaseAssetSelectionException(val code: String, override val message: Str
 object ReleaseAssetSelector {
     const val MAX_ASSET_SIZE_BYTES: Long = 512L * 1024L * 1024L
 
-    fun select(assets: List<GitHubReleaseAsset>): SelectedReleaseAsset {
+    fun select(
+        assets: List<GitHubReleaseAsset>,
+        preferredAbi: PreferredAbi = PreferredAbi.ARM64_V8A,
+        preferredVariant: ReleaseVariantPreference = ReleaseVariantPreference.RELEASE,
+    ): SelectedReleaseAsset {
         val uploadedApks = assets.filter { it.state == "uploaded" && it.name.lowercase().endsWith(".apk") }
         if (uploadedApks.isEmpty()) {
             throw ReleaseAssetSelectionException("NO_APK_ASSET", "The latest release has no supported APK asset.")
@@ -24,14 +30,23 @@ object ReleaseAssetSelector {
         val selected = when (candidates.size) {
             1 -> candidates.single() to AssetSelectionReason.SINGLE_APK.name
             else -> {
-                val arm64Candidates = candidates.filter { ARM64_TOKEN.containsMatchIn(it.name) }
-                if (arm64Candidates.size != 1) {
+                val abiCandidates = candidates.filter { preferredAbi.filenameToken().containsMatchIn(it.name) }
+                val variantCandidates = abiCandidates.filter { preferredVariant.matchesFilename(it.name) }
+                if (variantCandidates.size != 1) {
                     throw ReleaseAssetSelectionException(
                         "AMBIGUOUS_APK_ASSETS",
-                        "The latest release has multiple APK assets but not exactly one arm64-v8a candidate.",
+                        "Multiple APK assets do not resolve to exactly one preferred ABI and variant.",
                     )
                 }
-                arm64Candidates.single() to AssetSelectionReason.ARM64_V8A_FILENAME.name
+                val reason = if (
+                    abiCandidates.size == 1 &&
+                    !EXPLICIT_VARIANT_TOKEN.containsMatchIn(abiCandidates.single().name)
+                ) {
+                    AssetSelectionReason.PREFERRED_ABI_FILENAME.name
+                } else {
+                    AssetSelectionReason.PREFERRED_ABI_AND_VARIANT_FILENAME.name
+                }
+                variantCandidates.single() to reason
             }
         }
         return SelectedReleaseAsset(
@@ -71,5 +86,23 @@ object ReleaseAssetSelector {
 
     private const val APK_CONTENT_TYPE = "application/vnd.android.package-archive"
     private val PROVIDER_DIGEST = Regex("sha256:([0-9a-f]{64})")
-    private val ARM64_TOKEN = Regex("(^|[^a-z0-9])arm64[-_]v8a([^a-z0-9]|$)", RegexOption.IGNORE_CASE)
+    private fun PreferredAbi.filenameToken(): Regex = when (this) {
+        PreferredAbi.ARM64_V8A -> token("arm64[-_]v8a")
+        PreferredAbi.ARMEABI_V7A -> token("(?:armeabi|arm)[-_]v7a")
+        PreferredAbi.X86_64 -> token("x86[-_]64")
+        PreferredAbi.UNIVERSAL -> token("universal")
+    }
+
+    private fun ReleaseVariantPreference.matchesFilename(filename: String): Boolean = when (this) {
+        ReleaseVariantPreference.RELEASE ->
+            !PREVIEW_TOKEN.containsMatchIn(filename) && !DEBUG_TOKEN.containsMatchIn(filename)
+        ReleaseVariantPreference.PREVIEW -> PREVIEW_TOKEN.containsMatchIn(filename)
+        ReleaseVariantPreference.DEBUG -> DEBUG_TOKEN.containsMatchIn(filename)
+    }
+
+    private fun token(value: String) = Regex("(^|[^a-z0-9])$value([^a-z0-9]|$)", RegexOption.IGNORE_CASE)
+
+    private val PREVIEW_TOKEN = token("preview")
+    private val DEBUG_TOKEN = token("debug")
+    private val EXPLICIT_VARIANT_TOKEN = token("(?:release|preview|debug)")
 }

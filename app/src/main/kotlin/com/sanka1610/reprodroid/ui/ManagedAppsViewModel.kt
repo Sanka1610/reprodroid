@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.sanka1610.reprodroid.ReproDroidApplication
 import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.PreferredAbi
+import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import com.sanka1610.reprodroid.data.provider.ResolvedGitHubRelease
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,6 +82,28 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
             _activeAppIds.value += registeredAppId
             try {
                 repository.refresh(registeredAppId)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                _message.value = failure.userMessage()
+            } finally {
+                _activeAppIds.value -= registeredAppId
+            }
+        }
+    }
+
+    fun updatePreferences(
+        registeredAppId: String,
+        releaseVariant: ReleaseVariantPreference,
+        preferredAbi: PreferredAbi,
+        onSaved: () -> Unit,
+    ) {
+        if (registeredAppId in _activeAppIds.value) return
+        viewModelScope.launch {
+            _activeAppIds.value += registeredAppId
+            try {
+                repository.updatePreferences(registeredAppId, releaseVariant, preferredAbi)
+                onSaved()
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {

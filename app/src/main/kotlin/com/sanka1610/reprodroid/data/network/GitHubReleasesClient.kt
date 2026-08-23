@@ -16,6 +16,8 @@ import io.ktor.http.URLBuilder
 import io.ktor.http.appendPathSegments
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+import com.sanka1610.reprodroid.data.local.PreferredAbi
+import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 
 class GitHubProviderException(
     val statusCode: Int?,
@@ -26,7 +28,12 @@ class GitHubProviderException(
 class GitHubReleasesClient(engine: HttpClientEngine? = null) {
     private val client = if (engine == null) HttpClient(Android) { configure() } else HttpClient(engine) { configure() }
 
-    suspend fun resolveLatestRelease(repositoryUrl: String, previousEtag: String? = null): ResolvedGitHubRelease {
+    suspend fun resolveLatestRelease(
+        repositoryUrl: String,
+        previousEtag: String? = null,
+        preferredAbi: PreferredAbi = PreferredAbi.ARM64_V8A,
+        preferredVariant: ReleaseVariantPreference = ReleaseVariantPreference.RELEASE,
+    ): ResolvedGitHubRelease {
         val repository = GitHubRepositoryParser.parse(repositoryUrl)
         val response = client.get(apiUrl(repository, "releases", "latest")) {
             githubHeaders()
@@ -48,7 +55,7 @@ class GitHubReleasesClient(engine: HttpClientEngine? = null) {
             release = release,
             resolvedCommitSha = resolveTagCommit(repository, release.tagName),
             responseEtag = response.headers[HttpHeaders.ETag],
-            selectedAsset = ReleaseAssetSelector.select(release.assets),
+            selectedAsset = ReleaseAssetSelector.select(release.assets, preferredAbi, preferredVariant),
         )
     }
 

@@ -1,5 +1,6 @@
 package com.sanka1610.reprodroid.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -10,6 +11,19 @@ import androidx.room.Relation
 enum class ManagementMode {
     VERIFICATION,
     ACQUISITION,
+}
+
+enum class ReleaseVariantPreference {
+    RELEASE,
+    PREVIEW,
+    DEBUG,
+}
+
+enum class PreferredAbi {
+    ARM64_V8A,
+    ARMEABI_V7A,
+    X86_64,
+    UNIVERSAL,
 }
 
 enum class ReleaseDiscoveryStatus {
@@ -34,7 +48,8 @@ enum class ComparisonEligibility {
 
 enum class AssetSelectionReason {
     SINGLE_APK,
-    ARM64_V8A_FILENAME,
+    PREFERRED_ABI_FILENAME,
+    PREFERRED_ABI_AND_VARIANT_FILENAME,
 }
 
 @Entity(
@@ -48,6 +63,10 @@ data class RegisteredAppEntity(
     val canonicalRepositoryUrl: String,
     val provider: String,
     val managementMode: String,
+    @ColumnInfo(defaultValue = "'RELEASE'")
+    val releaseVariantPreference: String = ReleaseVariantPreference.RELEASE.name,
+    @ColumnInfo(defaultValue = "'ARM64_V8A'")
+    val preferredAbi: String = PreferredAbi.ARM64_V8A.name,
     val releaseDiscoveryStatus: String = ReleaseDiscoveryStatus.NOT_CHECKED.name,
     val releaseDiscoveryErrorCode: String? = null,
     val releaseDiscoveryErrorMessage: String? = null,
@@ -87,6 +106,7 @@ data class ReleaseSnapshotEntity(
     val releaseCreatedAt: String,
     val publishedAt: String,
     val fetchedAt: String,
+    val selectedProviderAssetId: Long? = null,
 )
 
 @Entity(
@@ -139,7 +159,15 @@ data class ReleaseSnapshotWithAssets(
     @Embedded val snapshot: ReleaseSnapshotEntity,
     @Relation(parentColumn = "releaseSnapshotId", entityColumn = "releaseSnapshotId")
     val assets: List<ReleaseAssetEntity>,
-)
+) {
+    val selectedAsset: ReleaseAssetEntity?
+        get() = assets.firstOrNull { it.providerAssetId == snapshot.selectedProviderAssetId }
+            ?: assets.maxWithOrNull(
+                compareBy<ReleaseAssetEntity> { it.downloadedAt != null }
+                    .thenBy { it.downloadedAt.orEmpty() }
+                    .thenBy { it.releaseAssetId },
+            )
+}
 
 data class RegisteredAppRecord(
     @Embedded val app: RegisteredAppEntity,

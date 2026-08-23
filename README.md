@@ -27,13 +27,14 @@ Phase 1Eを完了し、Phase 2A（public GitHub Releasesからの参照APK取得
 - fresh Runnerから`JOB_NOT_FOUND`となった古い非terminal Jobの`INTERRUPTED`化
 - public GitHub repository URLの登録とlatest stable release取得
 - release tagのGit refをannotated tagを含めてfull commit SHAへ解決
-- uploaded APKが1件なら採用し、複数なら一意な`arm64-v8a`だけを採用するfail-closed選択
+- uploaded APKが1件なら採用し、複数ならアプリ別のvariant／ABI設定で一意に絞るfail-closed選択
 - HTTPS／許可host／最大5 redirect／512 MiB／Content-Length／SHA-256を検査する参照APK取得
 - release snapshotとasset検査結果を保存するRoom v4 migration
-- 登録アプリ一覧、アプリ登録、設定の3項目を持つMaterial 3 UI
+- variant／ABI設定と現在選択中assetを保存するRoom v5 migration
+- APKから抽出・保存したアプリアイコン、アプリ別設定、登録、全体設定を持つMaterial 3 UI
 - 比較処理未実装を`Different`ではなく理由付き`INCOMPARABLE`として表示
 
-Phase 2A E2EではMicroG-RE `6.1.4`を取得し、release tagから`d8df10ab687a1c1ca05221634cfa46bad262023a`を解決しました。13,393,291 byteのAPKについて、GitHub provider digest、streaming中のAndroid計算SHA-256、保存後のAndroid `sha256sum`がすべて`907b0f1d64d4bdf2fc15df596129cdf9f140f5360f557d24ff2e987c9f586f15`で一致しました。package、version、signer、`INCOMPARABLE`理由の表示とforce-stop後のRoom復元も確認しています。
+Phase 2A E2EではMicroG-RE `6.1.4`を取得し、release tagから`d8df10ab687a1c1ca05221634cfa46bad262023a`を解決しました。13,393,291 byteのAPKについて、GitHub provider digest、streaming中のAndroid計算SHA-256、保存後のAndroid `sha256sum`がすべて`907b0f1d64d4bdf2fc15df596129cdf9f140f5360f557d24ff2e987c9f586f15`で一致しました。package、version、signer、`INCOMPARABLE`理由、APK内アイコンの一覧表示と、アプリ別variant／ABI設定のforce-stop後復元も確認しています。
 
 Phase 1EではWindows 11側のWHPX Android EmulatorとWSL2側RunnerをWindows `adb.exe reverse`で接続し、MicroG-RE実ビルド、Android側downloadとSHA-256照合、package/version/signer表示、unknown app sources、標準`PackageInstaller`、成功／platform拒否／利用者キャンセルcallback、Room再起動復元まで確認した。詳細は[Phase 1E検証レポート](../reprodroid-project/reports/2026/08/2026-08-21-phase-1e.md)、履歴と最終状態は[Phase 1E再開・完了記録](../reprodroid-project/docs/handoffs/phase-1e-resume.md)を参照してください。
 
@@ -58,7 +59,7 @@ Phase 2では、公式APKまたは開発者公開APKをAndroidアプリ側で取
 
 `package name`は比較対象の同一性と更新対象の特定に使用し、`longVersionCode`は端末内アプリとの新旧判定、`versionName`は表示・補助情報に使用します。signing certificateは更新可否と標準`PackageInstaller`の結果に関わる情報として、比較結果とは別に扱います。versionが新しいことやsignerが一致することだけで`Reproducible`とは判定しません。
 
-Phase 2Aの初期providerはpublic GitHub Releasesに限定します。`tag_name`からGit refを解決し、annotated tagをcommitまでpeelしたfull SHAを保存します。`target_commitish`は証跡として保存しますが、checkout対象にはしません。uploaded APKが1件ならそのまま、複数ならfile name上の`arm64-v8a`候補が厳密に1件の場合だけ採用します。
+Phase 2Aの初期providerはpublic GitHub Releasesに限定します。`tag_name`からGit refを解決し、annotated tagをcommitまでpeelしたfull SHAを保存します。`target_commitish`は証跡として保存しますが、checkout対象にはしません。uploaded APKが1件ならそのまま採用します。複数の場合はアプリ別設定（既定`Release`／`arm64-v8a`）でfile nameを絞り、厳密に1件となる場合だけ採用します。`Preview`／`Debug`は明示tokenを要求し、`Release`は`preview`／`debug`でないassetとして扱います。
 
 比較不能は`INCOMPARABLE`として`Different`から分離しました。Phase 2Aでは参照APKを安全に取得・検査・保存するところまでを扱い、release build recipe、Runnerによるcommit再解決とdetached checkout、APK内容比較、`MATCH`／`DIFFERENT`／`Reproducible`判定はPhase 2Bへ送ります。設計判断は[ADR-0009](../reprodroid-project/docs/adr/0009-phase-2-reference-apk-and-update-boundary.md)に記録しています。
 
@@ -183,7 +184,7 @@ Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト�
 - 公式APKとの署名除外・DEX比較
 - `Reproducible`の実判定
 - release build recipeと公式release commitのRunner側再解決／detached checkout
-- 定期更新、通知、手動asset／ABI選択、private repository／GitHub token
+- 定期更新、通知、任意assetの直接選択、private repository／GitHub token
 - split APK、APKS、AAB
 - root/Shizuku特権インストール
 - silent install、自動アンインストール、署名検証回避

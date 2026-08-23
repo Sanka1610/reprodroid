@@ -1,5 +1,7 @@
 package com.sanka1610.reprodroid.data.provider
 
+import com.sanka1610.reprodroid.data.local.PreferredAbi
+import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
@@ -43,7 +45,49 @@ class GitHubReleasesClientTest {
             listOf(asset(1, "app-x86_64.apk"), asset(2, "app-arm64-v8a.apk")),
         )
         assertEquals(2, selected.asset.id)
-        assertEquals("ARM64_V8A_FILENAME", selected.reason)
+        assertEquals("PREFERRED_ABI_FILENAME", selected.reason)
+    }
+
+    @Test
+    fun `selector uses per-app ABI and variant preferences when ABI alone is ambiguous`() {
+        val selected = ReleaseAssetSelector.select(
+            assets = listOf(
+                asset(1, "app-release-arm64-v8a.apk"),
+                asset(2, "app-preview-arm64-v8a.apk"),
+                asset(3, "app-release-armeabi-v7a.apk"),
+            ),
+            preferredAbi = PreferredAbi.ARM64_V8A,
+            preferredVariant = ReleaseVariantPreference.PREVIEW,
+        )
+        assertEquals(2, selected.asset.id)
+        assertEquals("PREFERRED_ABI_AND_VARIANT_FILENAME", selected.reason)
+    }
+
+    @Test
+    fun `selector supports armeabi-v7a preference`() {
+        val selected = ReleaseAssetSelector.select(
+            assets = listOf(
+                asset(1, "app-release-arm64-v8a.apk"),
+                asset(2, "app-release-armeabi-v7a.apk"),
+            ),
+            preferredAbi = PreferredAbi.ARMEABI_V7A,
+        )
+        assertEquals(2, selected.asset.id)
+    }
+
+    @Test
+    fun `selector does not silently use a conflicting explicit variant`() {
+        val failure = assertThrows(ReleaseAssetSelectionException::class.java) {
+            ReleaseAssetSelector.select(
+                assets = listOf(
+                    asset(1, "app-preview-arm64-v8a.apk"),
+                    asset(2, "app-release-x86_64.apk"),
+                ),
+                preferredAbi = PreferredAbi.ARM64_V8A,
+                preferredVariant = ReleaseVariantPreference.RELEASE,
+            )
+        }
+        assertEquals("AMBIGUOUS_APK_ASSETS", failure.code)
     }
 
     @Test

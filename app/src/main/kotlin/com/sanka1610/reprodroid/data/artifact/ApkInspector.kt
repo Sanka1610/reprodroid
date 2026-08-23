@@ -3,9 +3,12 @@ package com.sanka1610.reprodroid.data.artifact
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.Signature
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Build
 import com.sanka1610.reprodroid.data.local.ExistingInstallStatus
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 
 class ApkInspectionException(message: String) : RuntimeException(message)
@@ -19,6 +22,7 @@ data class ApkInspection(
     val signingCertificateSha256: List<String>,
     val currentSignerSha256: List<String>,
     val existingInstallStatus: ExistingInstallStatus,
+    val iconPng: ByteArray?,
 )
 
 class ApkInspector(
@@ -52,6 +56,7 @@ class ApkInspector(
             signingCertificateSha256 = archiveSigners.history,
             currentSignerSha256 = archiveSigners.current,
             existingInstallStatus = existingInstallStatus,
+            iconPng = extractIconPng(archiveInfo, apkFile),
         )
     }
 
@@ -112,8 +117,26 @@ class ApkInspector(
         .digest(signature.toByteArray())
         .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
+    private fun extractIconPng(packageInfo: PackageInfo, apkFile: File): ByteArray? = runCatching {
+        val applicationInfo = packageInfo.applicationInfo ?: return null
+        applicationInfo.sourceDir = apkFile.absolutePath
+        applicationInfo.publicSourceDir = apkFile.absolutePath
+        val drawable = applicationInfo.loadIcon(packageManager)
+        val bitmap = Bitmap.createBitmap(ICON_SIZE_PX, ICON_SIZE_PX, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, ICON_SIZE_PX, ICON_SIZE_PX)
+        drawable.draw(Canvas(bitmap))
+        ByteArrayOutputStream().use { output ->
+            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) return null
+            output.toByteArray()
+        }.also { bitmap.recycle() }
+    }.getOrNull()
+
     private data class SignerFingerprints(
         val current: List<String>,
         val history: List<String>,
     )
+
+    private companion object {
+        const val ICON_SIZE_PX = 192
+    }
 }

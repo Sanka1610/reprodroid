@@ -7,12 +7,14 @@ import com.sanka1610.reprodroid.data.artifact.GitHubAssetDownloader
 import com.sanka1610.reprodroid.data.local.ComparisonEligibility
 import com.sanka1610.reprodroid.data.local.ManagedAppDao
 import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.PreferredAbi
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
 import com.sanka1610.reprodroid.data.local.RegisteredAppEntity
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
 import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
 import com.sanka1610.reprodroid.data.local.ReleaseDiscoveryStatus
 import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
+import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.provider.GitHubProviderException
 import com.sanka1610.reprodroid.data.provider.GitHubReleasesClient
@@ -20,6 +22,7 @@ import com.sanka1610.reprodroid.data.provider.ResolvedGitHubRelease
 import com.sanka1610.reprodroid.data.provider.ReleaseAssetSelectionException
 import kotlinx.coroutines.flow.Flow
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -35,6 +38,7 @@ class ManagedAppRepository(
     private val dao: ManagedAppDao = database.managedAppDao()
     private val inspector = ApkInspector(context.packageManager)
     private val referenceDirectory = File(context.filesDir, "reference-apks")
+    private val iconDirectory = File(context.filesDir, "reference-icons")
 
     fun observeApps(): Flow<List<RegisteredAppRecord>> = dao.observeRegisteredApps()
 
@@ -92,7 +96,15 @@ class ManagedAppRepository(
         )
         try {
             val latest = try {
-                provider.resolveLatestRelease(app.canonicalRepositoryUrl, app.releaseMetadataEtag)
+                provider.resolveLatestRelease(
+                    repositoryUrl = app.canonicalRepositoryUrl,
+                    previousEtag = app.releaseMetadataEtag,
+                    preferredAbi = enumValueOrDefault(app.preferredAbi, PreferredAbi.ARM64_V8A),
+                    preferredVariant = enumValueOrDefault(
+                        app.releaseVariantPreference,
+                        ReleaseVariantPreference.RELEASE,
+                    ),
+                )
             } catch (notModified: GitHubProviderException) {
                 if (notModified.code != "NOT_MODIFIED") throw notModified
                 val now = Instant.now().toString()
@@ -155,6 +167,37 @@ class ManagedAppRepository(
                 ),
             )
         }
+        dao.getVerifiedDownloads().forEach { asset ->
+            val expectedApk = finalFile(asset.releaseAssetId).canonicalFile
+            val storedApk = asset.localContentPath?.let(::File)?.canonicalFile
+            if (
+                !iconFile(asset.releaseAssetId).isFile &&
+                storedApk == expectedApk &&
+                expectedApk.isFile
+            ) {
+                inspector.inspect(expectedApk).iconPng?.let { icon ->
+                    saveIcon(asset.releaseAssetId, icon)
+                    dao.upsertReleaseAsset(asset)
+                }
+            }
+        }
+    }
+
+    suspend fun updatePreferences(
+        registeredAppId: String,
+        releaseVariant: ReleaseVariantPreference,
+        preferredAbi: PreferredAbi,
+    ) {
+        val app = dao.getRegisteredApp(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        dao.upsertRegisteredApp(
+            app.copy(
+                releaseVariantPreference = releaseVariant.name,
+                preferredAbi = preferredAbi.name,
+                releaseMetadataEtag = null,
+                updatedAt = Instant.now().toString(),
+            ),
+        )
     }
 
     private suspend fun downloadReference(assetId: String) {
@@ -176,6 +219,7 @@ class ManagedAppRepository(
                 destinationPart = partFile,
             )
             val inspection = inspector.inspect(partFile)
+            inspection.iconPng?.let { icon -> saveIcon(assetId, icon) }
             Files.move(
                 partFile.toPath(),
                 finalFile.toPath(),
@@ -232,6 +276,7 @@ class ManagedAppRepository(
             releaseCreatedAt = release.createdAt,
             publishedAt = requireNotNull(release.publishedAt),
             fetchedAt = now,
+            selectedProviderAssetId = selectedAsset.asset.id,
         )
 
     private fun ResolvedGitHubRelease.toAsset(snapshotId: String, assetId: String) = ReleaseAssetEntity(
@@ -249,8 +294,29 @@ class ManagedAppRepository(
     private fun stableId(value: String): String =
         UUID.nameUUIDFromBytes(value.toByteArray(StandardCharsets.UTF_8)).toString()
 
+    private inline fun <reified T : Enum<T>> enumValueOrDefault(value: String, fallback: T): T =
+        enumValues<T>().firstOrNull { it.name == value } ?: fallback
+
     private fun partFile(assetId: String) = File(referenceDirectory, "$assetId.part.apk")
     private fun finalFile(assetId: String) = File(referenceDirectory, "$assetId.apk")
+    private fun iconFile(assetId: String) = File(iconDirectory, "$assetId.png")
+
+    private fun saveIcon(assetId: String, png: ByteArray) {
+        if ((!iconDirectory.exists() && !iconDirectory.mkdirs()) || !iconDirectory.isDirectory) {
+            throw IllegalStateException("Reference icon storage directory could not be created.")
+        }
+        val partIcon = File(iconDirectory, "$assetId.part.png")
+        FileOutputStream(partIcon, false).use { output ->
+            output.write(png)
+            output.fd.sync()
+        }
+        Files.move(
+            partIcon.toPath(),
+            iconFile(assetId).toPath(),
+            StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING,
+        )
+    }
 
     private fun Throwable.errorCode(): String = when (this) {
         is GitHubProviderException -> code

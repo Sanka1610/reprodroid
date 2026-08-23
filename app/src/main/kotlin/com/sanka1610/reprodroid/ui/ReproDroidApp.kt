@@ -1,6 +1,8 @@
 package com.sanka1610.reprodroid.ui
 
+import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,15 +44,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.PreferredAbi
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
+import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
+import androidx.compose.ui.platform.LocalContext
+import java.io.File
+import java.util.UUID
 
 private enum class MainDestination { APPS, ADD, SETTINGS }
 
@@ -74,6 +84,7 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
     val activeAppIds by managedViewModel.activeAppIds.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(MainDestination.APPS) }
     var selectedAppId by rememberSaveable { mutableStateOf<String?>(null) }
+    var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var showRunnerJobs by rememberSaveable { mutableStateOf(false) }
 
     MaterialTheme(colorScheme = ReproDroidColors) {
@@ -83,19 +94,19 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                     NavigationBar {
                         NavigationBarItem(
                             selected = destination == MainDestination.APPS,
-                            onClick = { destination = MainDestination.APPS; selectedAppId = null },
+                            onClick = { destination = MainDestination.APPS; selectedAppId = null; settingsAppId = null },
                             icon = { NavigationGlyph("▦") },
                             label = { Text("Apps") },
                         )
                         NavigationBarItem(
                             selected = destination == MainDestination.ADD,
-                            onClick = { destination = MainDestination.ADD; selectedAppId = null },
+                            onClick = { destination = MainDestination.ADD; selectedAppId = null; settingsAppId = null },
                             icon = { NavigationGlyph("＋") },
                             label = { Text("Add") },
                         )
                         NavigationBarItem(
                             selected = destination == MainDestination.SETTINGS,
-                            onClick = { destination = MainDestination.SETTINGS; selectedAppId = null },
+                            onClick = { destination = MainDestination.SETTINGS; selectedAppId = null; settingsAppId = null },
                             icon = { NavigationGlyph("⚙") },
                             label = { Text("Settings") },
                         )
@@ -124,6 +135,23 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                         }
                     }
                     when {
+                        destination == MainDestination.APPS && settingsAppId != null -> {
+                            val app = apps.firstOrNull { it.app.registeredAppId == settingsAppId }
+                            if (app != null) {
+                                AppPreferencesScreen(
+                                    record = app,
+                                    saving = app.app.registeredAppId in activeAppIds,
+                                    onBack = { settingsAppId = null },
+                                    onSave = { variant, abi ->
+                                        managedViewModel.updatePreferences(
+                                            app.app.registeredAppId,
+                                            variant,
+                                            abi,
+                                        ) { settingsAppId = null }
+                                    },
+                                )
+                            }
+                        }
                         destination == MainDestination.APPS && selectedAppId != null -> {
                             val app = apps.firstOrNull { it.app.registeredAppId == selectedAppId }
                             if (app == null) {
@@ -137,7 +165,11 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                 )
                             }
                         }
-                        destination == MainDestination.APPS -> AppsScreen(apps) { selectedAppId = it }
+                        destination == MainDestination.APPS -> AppsScreen(
+                            apps = apps,
+                            onSelect = { selectedAppId = it },
+                            onSettings = { settingsAppId = it },
+                        )
                         destination == MainDestination.ADD -> AddAppScreen(
                             preview = preview,
                             onPreview = managedViewModel::preview,
@@ -170,7 +202,11 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
 }
 
 @Composable
-private fun AppsScreen(apps: List<RegisteredAppRecord>, onSelect: (String) -> Unit) {
+private fun AppsScreen(
+    apps: List<RegisteredAppRecord>,
+    onSelect: (String) -> Unit,
+    onSettings: (String) -> Unit,
+) {
     var query by rememberSaveable { mutableStateOf("") }
     val filtered = remember(apps, query) {
         apps.filter { it.app.displayName.contains(query, true) || it.app.repositoryUrl.contains(query, true) }
@@ -196,7 +232,7 @@ private fun AppsScreen(apps: List<RegisteredAppRecord>, onSelect: (String) -> Un
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(filtered, key = { it.app.registeredAppId }) { record ->
                     val latest = record.latestRelease
-                    val asset = latest?.assets?.singleOrNull()
+                    val asset = latest?.selectedAsset
                     Card(
                         modifier = Modifier.fillMaxWidth().clickable { onSelect(record.app.registeredAppId) },
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -205,15 +241,7 @@ private fun AppsScreen(apps: List<RegisteredAppRecord>, onSelect: (String) -> Un
                             modifier = Modifier.fillMaxWidth().padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Surface(
-                                modifier = Modifier.size(52.dp),
-                                shape = MaterialTheme.shapes.large,
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(record.app.displayName.take(2).uppercase(), color = MaterialTheme.colorScheme.primary)
-                                }
-                            }
+                            ManagedAppIcon(record)
                             Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                                 Text(record.app.displayName, style = MaterialTheme.typography.titleMedium)
                                 Text(
@@ -227,7 +255,9 @@ private fun AppsScreen(apps: List<RegisteredAppRecord>, onSelect: (String) -> Un
                                     color = statusColor(asset?.downloadStatus),
                                 )
                             }
-                            NavigationGlyph("⋮")
+                            IconButton(onClick = { onSettings(record.app.registeredAppId) }) {
+                                NavigationGlyph("⋮")
+                            }
                         }
                     }
                 }
@@ -328,7 +358,7 @@ private fun AppDetailScreen(
 ) {
     BackHandler(onBack = onBack)
     val latest = record.latestRelease
-    val asset = latest?.assets?.singleOrNull()
+    val asset = latest?.selectedAsset
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(record.app.displayName) },
@@ -357,6 +387,8 @@ private fun AppDetailScreen(
                     DetailValue("Provider", record.app.provider)
                     DetailValue("URL", record.app.canonicalRepositoryUrl)
                     DetailValue("Last checked", record.app.lastReleaseCheckedAt ?: "Never")
+                    DetailValue("Variant preference", record.app.releaseVariantPreference)
+                    DetailValue("ABI preference", record.app.preferredAbi)
                 }
             }
             latest?.let { release ->
@@ -389,6 +421,141 @@ private fun AppDetailScreen(
             item { Spacer(Modifier.height(12.dp)) }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppPreferencesScreen(
+    record: RegisteredAppRecord,
+    saving: Boolean,
+    onBack: () -> Unit,
+    onSave: (ReleaseVariantPreference, PreferredAbi) -> Unit,
+) {
+    BackHandler(onBack = onBack)
+    var variant by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(
+            ReleaseVariantPreference.entries.firstOrNull {
+                it.name == record.app.releaseVariantPreference
+            } ?: ReleaseVariantPreference.RELEASE,
+        )
+    }
+    var abi by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(
+            PreferredAbi.entries.firstOrNull { it.name == record.app.preferredAbi }
+                ?: PreferredAbi.ARM64_V8A,
+        )
+    }
+    Column(Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("${record.app.displayName} settings") },
+            navigationIcon = {
+                IconButton(onClick = onBack) { NavigationGlyph("‹") }
+            },
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Text("Release variant", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Used to disambiguate APK filenames when a release contains multiple files.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            items(ReleaseVariantPreference.entries) { candidate ->
+                PreferenceOption(
+                    selected = variant == candidate,
+                    label = candidate.name.lowercase().replaceFirstChar(Char::uppercase),
+                    onSelect = { variant = candidate },
+                )
+            }
+            item {
+                HorizontalDivider()
+                Text("Preferred ABI", style = MaterialTheme.typography.titleMedium)
+            }
+            items(PreferredAbi.entries) { candidate ->
+                PreferenceOption(
+                    selected = abi == candidate,
+                    label = candidate.displayName(),
+                    onSelect = { abi = candidate },
+                )
+            }
+            item {
+                Text(
+                    "Saving clears the release metadata cache. Use Refresh on the app detail screen to apply the new selection. Ambiguous matches fail closed.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    enabled = !saving,
+                    onClick = { onSave(variant, abi) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (saving) "Saving…" else "Save app settings") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreferenceOption(selected: Boolean, label: String, onSelect: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        ),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(selected = selected, onClick = onSelect)
+            Text(label)
+        }
+    }
+}
+
+@Composable
+private fun ManagedAppIcon(record: RegisteredAppRecord) {
+    val context = LocalContext.current
+    val assetId = record.latestRelease?.selectedAsset?.releaseAssetId
+    val iconFile = remember(context.filesDir, assetId) {
+        val safeId = assetId?.let { runCatching { UUID.fromString(it).toString() }.getOrNull() }
+        safeId?.let { File(context.filesDir, "reference-icons/$it.png") }
+    }
+    val lastModified = iconFile?.takeIf(File::isFile)?.lastModified() ?: 0L
+    val image = remember(iconFile?.absolutePath, lastModified) {
+        iconFile?.takeIf(File::isFile)?.let { BitmapFactory.decodeFile(it.absolutePath) }?.asImageBitmap()
+    }
+    Surface(
+        modifier = Modifier.size(52.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.primaryContainer,
+    ) {
+        if (image != null) {
+            Image(
+                bitmap = image,
+                contentDescription = "${record.app.displayName} icon",
+                modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.large),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Box(contentAlignment = Alignment.Center) {
+                Text(record.app.displayName.take(2).uppercase(), color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+private fun PreferredAbi.displayName(): String = when (this) {
+    PreferredAbi.ARM64_V8A -> "arm64-v8a"
+    PreferredAbi.ARMEABI_V7A -> "armeabi-v7a"
+    PreferredAbi.X86_64 -> "x86_64"
+    PreferredAbi.UNIVERSAL -> "universal"
 }
 
 @Composable

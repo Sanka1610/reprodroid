@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReleaseSnapshotEntity::class,
         ReleaseAssetEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -176,6 +176,30 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS index_release_assets_releaseSnapshotId_providerAssetId " +
                         "ON release_assets(releaseSnapshotId, providerAssetId)",
+                )
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE registered_apps ADD COLUMN releaseVariantPreference " +
+                        "TEXT NOT NULL DEFAULT 'RELEASE'",
+                )
+                db.execSQL(
+                    "ALTER TABLE registered_apps ADD COLUMN preferredAbi " +
+                        "TEXT NOT NULL DEFAULT 'ARM64_V8A'",
+                )
+                db.execSQL(
+                    "ALTER TABLE release_snapshots ADD COLUMN selectedProviderAssetId INTEGER",
+                )
+                db.execSQL(
+                    "UPDATE release_snapshots SET selectedProviderAssetId = (" +
+                        "SELECT providerAssetId FROM release_assets " +
+                        "WHERE release_assets.releaseSnapshotId = release_snapshots.releaseSnapshotId " +
+                        "ORDER BY (downloadedAt IS NOT NULL) DESC, downloadedAt DESC, providerAssetId DESC " +
+                        "LIMIT 1" +
+                        ")",
                 )
             }
         }
