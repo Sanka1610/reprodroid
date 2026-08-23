@@ -15,10 +15,12 @@ import com.sanka1610.reprodroid.data.network.CreateJobRequest
 import com.sanka1610.reprodroid.data.network.ConfirmJobRequest
 import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.JobResponse
+import com.sanka1610.reprodroid.data.network.JobState
 import com.sanka1610.reprodroid.data.network.LogResponse
 import com.sanka1610.reprodroid.data.network.RequestedRevision
 import com.sanka1610.reprodroid.data.network.RevisionType
 import com.sanka1610.reprodroid.data.network.RunnerApiClient
+import com.sanka1610.reprodroid.data.network.RunnerApiException
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +43,7 @@ class JobRepository(
     private val jobDao = database.jobDao()
     private val syncMutex = Mutex()
     private val filesDirectory = applicationContext.filesDir.toPath().toAbsolutePath().normalize()
+    private val packageInstaller = applicationContext.packageManager.packageInstaller
     private val apkInspector = ApkInspector(applicationContext.packageManager)
     private val apkInstaller = ApkInstaller(applicationContext, jobDao)
 
@@ -110,11 +113,34 @@ class JobRepository(
                 syncJob(jobId)
             } catch (cancellation: CancellationException) {
                 throw cancellation
+            } catch (failure: RunnerApiException) {
+                if (failure.statusCode == 404 && failure.errorCode == "JOB_NOT_FOUND") {
+                    markRemoteJobMissing(jobId, failure)
+                } else if (firstFailure == null) {
+                    firstFailure = failure
+                }
             } catch (failure: Throwable) {
                 if (firstFailure == null) firstFailure = failure
             }
         }
         firstFailure?.let { throw it }
+    }
+
+    private suspend fun markRemoteJobMissing(jobId: String, failure: RunnerApiException) {
+        syncMutex.withLock {
+            val existing = jobDao.getJob(jobId) ?: return@withLock
+            val state = runCatching { JobState.valueOf(existing.state) }.getOrNull()
+            if (state?.isTerminal == true) return@withLock
+            jobDao.upsertJob(
+                existing.copy(
+                    state = JobState.INTERRUPTED.name,
+                    errorCode = failure.errorCode,
+                    errorMessage =
+                        "Runner no longer has this job. Local polling stopped; retry it as a new job if needed.",
+                    updatedAt = Instant.now().toString(),
+                ),
+            )
+        }
     }
 
     suspend fun syncJob(jobId: String) = syncMutex.withLock {
@@ -324,6 +350,28 @@ class JobRepository(
         )
     }
 
+    suspend fun recoverOrphanedInstallAttempts() {
+        val now = Instant.now()
+        val activeSessionIds = packageInstaller.mySessions.mapTo(mutableSetOf()) { it.sessionId }
+        jobDao.getPendingInstallAttempts()
+            .filter { attempt ->
+                val stale = runCatching {
+                    Instant.parse(attempt.updatedAt).plusSeconds(INSTALL_CALLBACK_GRACE_SECONDS) <= now
+                }.getOrDefault(false)
+                stale && attempt.packageInstallerSessionId !in activeSessionIds
+            }
+            .forEach { attempt ->
+                jobDao.upsertInstallAttempt(
+                    attempt.copy(
+                        status = InstallAttemptStatus.FAILED.name,
+                        statusMessage =
+                            "The PackageInstaller session is no longer active, but no terminal callback was received.",
+                        updatedAt = now.toString(),
+                    ),
+                )
+            }
+    }
+
     private fun JobResponse.toEntity(existing: JobEntity?, logCursor: Long): JobEntity = JobEntity(
         jobId = jobId,
         executionMode = executionMode.name,
@@ -422,5 +470,6 @@ class JobRepository(
     private companion object {
         val SHA256 = Regex("[0-9a-f]{64}")
         const val APK_CONTENT_TYPE = "application/vnd.android.package-archive"
+        const val INSTALL_CALLBACK_GRACE_SECONDS = 30L
     }
 }

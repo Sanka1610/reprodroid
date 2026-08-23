@@ -4,7 +4,7 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 ## 現在の状態
 
-Phase 1D（APK転送・標準インストール）まで実装済みで、Phase 1Eは検証途中です。
+Phase 1E（実機相当Emulator検証）まで完了しています。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
@@ -22,8 +22,11 @@ Phase 1D（APK転送・標準インストール）まで実装済みで、Phase 
 - `PackageInstaller.Session`によるユーザー確認付き単一APKインストール
 - unknown app sources設定への誘導
 - download結果とインストール試行を分離して保存するRoom v3 migration
+- Android 14以降のPackageInstaller status PendingIntentに必要なcreator-side BAL opt-in
+- callbackを失ってsessionも消失した非terminal install attemptの起動時回収
+- fresh Runnerから`JOB_NOT_FOUND`となった古い非terminal Jobの`INTERRUPTED`化
 
-Phase 1Eではemulatorへのdebug APK導入、Android UIからの`REAL_TRUSTED` Job作成・確認・実ビルド、アプリ／AVD再起動後のRoom復元まで確認した。中断時点のartifactは`NOT_DOWNLOADED`、install attemptは0件であり、Android側download、APK解析、unknown app sources、標準`PackageInstaller`とcallbackは未確認。詳細は[Phase 1E検証レポート](../reprodroid-project/reports/2026/08/2026-08-21-phase-1e.md)、保持中のJobと再接続手順は[Phase 1E再開手順](../reprodroid-project/docs/handoffs/phase-1e-resume.md)を参照してください。
+Phase 1EではWindows 11側のWHPX Android EmulatorとWSL2側RunnerをWindows `adb.exe reverse`で接続し、MicroG-RE実ビルド、Android側downloadとSHA-256照合、package/version/signer表示、unknown app sources、標準`PackageInstaller`、成功／platform拒否／利用者キャンセルcallback、Room再起動復元まで確認した。詳細は[Phase 1E検証レポート](../reprodroid-project/reports/2026/08/2026-08-21-phase-1e.md)、履歴と最終状態は[Phase 1E再開・完了記録](../reprodroid-project/docs/handoffs/phase-1e-resume.md)を参照してください。
 
 初期実装では次の縦切りを対象にします。
 
@@ -117,6 +120,8 @@ base URLはGradle propertyで上書きできます。値には`/v1`を含めず�
 
 標準インストーラには`REQUEST_INSTALL_PACKAGES`と端末側の「不明なアプリのインストール」許可が必要です。未許可の場合はReproDroid用の`ACTION_MANAGE_UNKNOWN_APP_SOURCES`設定を開きます。既存の同一packageアプリと署名が異なる場合、通常は上書きできません。本アプリは自動アンインストール、silent install、root/Shizuku、署名検証回避を行いません。
 
+Android 14以降では、systemから返るstatus `PendingIntent`経由で標準確認UIを開くため、明示的な内部activityにcreator-side background activity launch opt-inを設定します。これはuser confirmationを成立させるためのplatform要件であり、確認画面を省略するものではありません。terminal callbackを失いPackageInstaller sessionも消失したattemptは、30秒の猶予後に起動時回収します。platformから受信していないstatus codeは作らず、回収理由だけを保存します。
+
 URLから登録されるアプリのpackage nameはビルド時に確定できないため、Manifestでは`QUERY_ALL_PACKAGES`を宣言しています。主目的はインストール済みアプリ一覧の表示ではなく、ダウンロードしたAPKから判明した任意のpackage nameについて、現在のインストール状態、`longVersionCode`、`versionName`、署名証明書情報を取得し、更新可否を端末内で判定することです。
 
 取得したインストール済みpackage情報と署名fingerprintはローカル判定にだけ使用し、Runner、配布元、analytics、広告、telemetryへ送信しません。ネットワーク通信には、利用者が入力したrepository URL、Job操作、artifact取得など、明示した処理に必要な情報だけを使用します。ReproDroidはanalytics、広告、crash reporting SDKを組み込んでいません。詳細な設計判断は[ADR-0008](../reprodroid-project/docs/adr/0008-query-all-packages-for-url-registered-apps.md)を参照してください。
@@ -152,7 +157,7 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 ./gradlew assembleDebug
 ```
 
-Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E中断時点では`./gradlew testDebugUnitTest lintDebug build`が成功し、113 tasks中3 executed、110 up-to-dateだった。`--rerun-tasks`による全テスト再実行はしていません。実機または安定したemulator上のsystem installer確認はPhase 1Eの残件です。
+Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E完了時に`./gradlew testDebugUnitTest lintDebug build --rerun-tasks -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080`を実行し、113 actionable tasksすべてexecuted、`BUILD SUCCESSFUL`を確認しました。標準installerの各callbackとRoom復元はWindows Android Emulator上のE2Eで確認しています。
 
 ## 初期実装で扱わないもの
 

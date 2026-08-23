@@ -1,5 +1,6 @@
 package com.sanka1610.reprodroid.data.artifact
 
+import android.app.ActivityOptions
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -110,6 +111,7 @@ class ApkInstaller(
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun statusIntent(attemptId: String, sessionId: Int): PendingIntent {
         val intent = Intent(applicationContext, InstallResultActivity::class.java).apply {
             data = "reprodroid://install/$attemptId".toUri()
@@ -120,7 +122,22 @@ class ApkInstaller(
         } else {
             0
         }
-        return PendingIntent.getActivity(applicationContext, sessionId, intent, flags)
+        val activityOptions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // Android 14+ requires the creator to opt in when the system sends this explicit,
+            // app-private status PendingIntent to open PackageInstaller's confirmation UI.
+            ActivityOptions.makeBasic()
+                .setPendingIntentCreatorBackgroundActivityStartMode(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE
+                    } else {
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                    },
+                )
+                .toBundle()
+        } else {
+            null
+        }
+        return PendingIntent.getActivity(applicationContext, sessionId, intent, flags, activityOptions)
     }
 
     private fun sha256(file: File): String {
