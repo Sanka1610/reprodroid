@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.ComparisonRunStatus
 import com.sanka1610.reprodroid.data.local.PreferredAbi
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
@@ -159,9 +160,18 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                             } else {
                                 AppDetailScreen(
                                     record = app,
-                                    refreshing = app.app.registeredAppId in activeAppIds,
+                                    active = app.app.registeredAppId in activeAppIds,
                                     onBack = { selectedAppId = null },
                                     onRefresh = { managedViewModel.refresh(app.app.registeredAppId) },
+                                    onStartComparison = {
+                                        managedViewModel.startComparison(app.app.registeredAppId)
+                                    },
+                                    onRefreshComparison = { comparisonRunId ->
+                                        managedViewModel.refreshComparison(app.app.registeredAppId, comparisonRunId)
+                                    },
+                                    onConfirmComparison = { comparisonRunId ->
+                                        managedViewModel.confirmComparison(app.app.registeredAppId, comparisonRunId)
+                                    },
                                 )
                             }
                         }
@@ -283,7 +293,7 @@ private fun AddAppScreen(
         item {
             Spacer(Modifier.height(16.dp))
             Text("Register an app", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-            Text("Phase 2A · public GitHub Releases", style = MaterialTheme.typography.bodyMedium)
+            Text("Phase 2B · public GitHub Releases", style = MaterialTheme.typography.bodyMedium)
         }
         item {
             OutlinedTextField(
@@ -352,9 +362,12 @@ private fun AddAppScreen(
 @Composable
 private fun AppDetailScreen(
     record: RegisteredAppRecord,
-    refreshing: Boolean,
+    active: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
+    onStartComparison: () -> Unit,
+    onRefreshComparison: (String) -> Unit,
+    onConfirmComparison: (String) -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val latest = record.latestRelease
@@ -366,12 +379,12 @@ private fun AppDetailScreen(
                 IconButton(onClick = onBack) { NavigationGlyph("‹") }
             },
             actions = {
-                IconButton(enabled = !refreshing, onClick = onRefresh) {
+                IconButton(enabled = !active, onClick = onRefresh) {
                     NavigationGlyph("↻")
                 }
             },
         )
-        if (refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -415,6 +428,55 @@ private fun AppDetailScreen(
                         DetailValue("Comparison", current.comparisonEligibility)
                         current.incomparableReason?.let { DetailValue("Reason", it) }
                         current.downloadErrorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
+            if (record.app.managementMode == ManagementMode.VERIFICATION.name) {
+                val comparison = record.latestComparison
+                item {
+                    DetailCard("Reproducibility comparison") {
+                        if (comparison == null) {
+                            Text(
+                                "Build the fixed release profile from the independently resolved release tag, then compare DEX and native libraries.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Button(
+                                enabled = !active && asset?.downloadStatus == ReferenceDownloadStatus.VERIFIED.name,
+                                onClick = onStartComparison,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Build and compare") }
+                        } else {
+                            DetailValue("Status", comparison.status)
+                            DetailValue("Outcome", comparison.outcome)
+                            DetailValue("Expected recipe", comparison.expectedRecipeId)
+                            DetailValue("Expected commit", comparison.expectedCommitSha, true)
+                            comparison.runnerResolvedCommitSha?.let { DetailValue("Runner commit", it, true) }
+                            comparison.incomparableReason?.let { DetailValue("Reason", it) }
+                            when (comparison.status) {
+                                ComparisonRunStatus.AWAITING_CONFIRMATION.name -> {
+                                    Text(
+                                        "The commit and fixed release profile match. Continuing runs Gradle build scripts as arbitrary code on the Runner host.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                    Button(
+                                        enabled = !active,
+                                        onClick = { onConfirmComparison(comparison.comparisonRunId) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) { Text("Confirm commit and host RCE risk") }
+                                }
+                                ComparisonRunStatus.COMPLETED.name -> Button(
+                                    enabled = !active,
+                                    onClick = onStartComparison,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Run another comparison") }
+                                else -> Button(
+                                    enabled = !active,
+                                    onClick = { onRefreshComparison(comparison.comparisonRunId) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Refresh comparison") }
+                            }
+                        }
                     }
                 }
             }
@@ -579,7 +641,7 @@ private fun SettingsScreen(onOpenRunnerJobs: () -> Unit) {
                 Text("Open Runner jobs and Phase 1 tools")
             }
         }
-        item { SettingRow("ReproDroid", "0.1.0-alpha01 · Phase 2A") }
+        item { SettingRow("ReproDroid", "0.1.0-alpha01 · Phase 2B") }
     }
 }
 

@@ -25,6 +25,7 @@ class ReproDroidApplication : Application() {
             ReproDroidDatabase.MIGRATION_2_3,
             ReproDroidDatabase.MIGRATION_3_4,
             ReproDroidDatabase.MIGRATION_4_5,
+            ReproDroidDatabase.MIGRATION_5_6,
         ).build()
         jobRepository = JobRepository(
             applicationContext = applicationContext,
@@ -34,6 +35,7 @@ class ReproDroidApplication : Application() {
         managedAppRepository = ManagedAppRepository(
             context = applicationContext,
             database = database,
+            jobRepository = jobRepository,
         )
         JobSyncWorker.schedule(this)
     }

@@ -16,6 +16,10 @@ interface ManagedAppDao {
     @Query("SELECT * FROM registered_apps WHERE registeredAppId = :registeredAppId")
     fun observeRegisteredApp(registeredAppId: String): Flow<RegisteredAppRecord?>
 
+    @Transaction
+    @Query("SELECT * FROM registered_apps WHERE registeredAppId = :registeredAppId")
+    suspend fun getRegisteredAppRecord(registeredAppId: String): RegisteredAppRecord?
+
     @Query("SELECT * FROM registered_apps WHERE registeredAppId = :registeredAppId")
     suspend fun getRegisteredApp(registeredAppId: String): RegisteredAppEntity?
 
@@ -49,6 +53,12 @@ interface ManagedAppDao {
     @Query("SELECT * FROM release_assets WHERE downloadStatus = 'VERIFIED'")
     suspend fun getVerifiedDownloads(): List<ReleaseAssetEntity>
 
+    @Query("SELECT * FROM comparison_runs WHERE comparisonRunId = :comparisonRunId")
+    suspend fun getComparisonRun(comparisonRunId: String): ComparisonRunEntity?
+
+    @Query("SELECT * FROM comparison_entries WHERE comparisonRunId = :comparisonRunId ORDER BY entryName")
+    suspend fun getComparisonEntries(comparisonRunId: String): List<ComparisonEntryEntity>
+
     @Upsert
     suspend fun upsertRegisteredApp(app: RegisteredAppEntity)
 
@@ -57,4 +67,13 @@ interface ManagedAppDao {
 
     @Upsert
     suspend fun upsertReleaseAsset(asset: ReleaseAssetEntity)
+
+    @Upsert
+    suspend fun upsertComparisonRun(comparisonRun: ComparisonRunEntity)
+
+    @Upsert
+    suspend fun upsertComparisonEntries(entries: List<ComparisonEntryEntity>)
+
+    @Query("DELETE FROM comparison_entries WHERE comparisonRunId = :comparisonRunId")
+    suspend fun deleteComparisonEntries(comparisonRunId: String)
 }

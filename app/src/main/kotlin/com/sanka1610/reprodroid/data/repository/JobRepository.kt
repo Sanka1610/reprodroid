@@ -49,6 +49,10 @@ class JobRepository(
 
     fun observeJobs(): Flow<List<JobRecord>> = jobDao.observeJobs()
 
+    suspend fun getJob(jobId: String): JobEntity? = jobDao.getJob(jobId)
+
+    suspend fun getArtifacts(jobId: String): List<ArtifactEntity> = jobDao.getArtifacts(jobId)
+
     suspend fun createSimulatedJob(
         repositoryUrl: String,
         revisionType: RevisionType,
@@ -220,6 +224,9 @@ class JobRepository(
                     requiresConfirmation = false,
                     effectiveBuildRoot = null,
                     effectiveBuildTasks = null,
+                    effectiveRecipeId = null,
+                    effectiveVariantName = null,
+                    effectiveJavaMajor = null,
                     createdAt = now,
                     updatedAt = now,
                     downloadResult = null,
@@ -231,7 +238,17 @@ class JobRepository(
         }
     }
 
-    suspend fun downloadArtifact(jobId: String, artifactId: String) = syncMutex.withLock {
+    suspend fun downloadArtifact(jobId: String, artifactId: String) =
+        downloadArtifact(jobId, artifactId, requireSigningCertificate = true)
+
+    suspend fun downloadArtifactForComparison(jobId: String, artifactId: String) =
+        downloadArtifact(jobId, artifactId, requireSigningCertificate = false)
+
+    private suspend fun downloadArtifact(
+        jobId: String,
+        artifactId: String,
+        requireSigningCertificate: Boolean,
+    ) = syncMutex.withLock {
         val job = requireNotNull(jobDao.getJob(jobId)) { "The local job does not exist." }
         val artifact = requireNotNull(jobDao.getArtifact(jobId, artifactId)) { "The APK artifact does not exist." }
         check(job.executionMode == ExecutionMode.REAL_TRUSTED.name && job.state == "SUCCEEDED") {
@@ -279,7 +296,12 @@ class JobRepository(
             check(downloadedSha256 == artifact.sha256) {
                 "Downloaded APK SHA-256 does not match Runner metadata."
             }
-            val inspection = withContext(Dispatchers.IO) { apkInspector.inspect(temporaryPath.toFile()) }
+            val inspection = withContext(Dispatchers.IO) {
+                apkInspector.inspect(
+                    apkFile = temporaryPath.toFile(),
+                    requireSigningCertificate = requireSigningCertificate,
+                )
+            }
             withContext(Dispatchers.IO) { moveVerifiedArtifact(temporaryPath.toFile(), finalPath.toFile()) }
             jobDao.upsertArtifacts(
                 listOf(
@@ -294,7 +316,7 @@ class JobRepository(
                         downloadedSha256 = downloadedSha256,
                         signingCertificateSha256 = inspection.signingCertificateSha256.joinToString("\n"),
                         currentSignerSha256 = inspection.currentSignerSha256.joinToString("\n"),
-                        existingInstallStatus = inspection.existingInstallStatus.name,
+                        existingInstallStatus = inspection.existingInstallStatus?.name,
                         installedVersionName = inspection.installedVersionName,
                         installedVersionCode = inspection.installedVersionCode,
                         downloadedAt = Instant.now().toString(),
@@ -330,6 +352,12 @@ class JobRepository(
 
     suspend fun installArtifact(jobId: String, artifactId: String): String {
         val artifact = requireNotNull(jobDao.getArtifact(jobId, artifactId)) { "The APK artifact does not exist." }
+        check(
+            !artifact.signingCertificateSha256.isNullOrBlank() &&
+                !artifact.currentSignerSha256.isNullOrBlank(),
+        ) {
+            "Only an APK with verified signing certificate information can be installed."
+        }
         return apkInstaller.install(jobId, artifact)
     }
 
@@ -381,7 +409,10 @@ class JobRepository(
         simulationOutcome = existing?.simulationOutcome,
         resolvedCommitSha = resolvedCommitSha,
         requiresConfirmation = requiresConfirmation,
+        effectiveRecipeId = effectiveBuild?.recipeId,
+        effectiveVariantName = effectiveBuild?.variantName,
         effectiveBuildRoot = effectiveBuild?.buildRoot,
+        effectiveJavaMajor = effectiveBuild?.javaMajor,
         effectiveBuildTasks = effectiveBuild?.tasks?.joinToString("\n"),
         state = state.name,
         progressPercent = progressPercent,

@@ -4,7 +4,7 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 ## 現在の状態
 
-Phase 1Eを完了し、Phase 2A（public GitHub Releasesからの参照APK取得）の初期Android実装とAndroid 16 Emulator E2Eまで完了しています。
+Phase 2B（固定release再ビルドとDEX／native library比較）まで実装し、Android 16 Emulator E2Eを検証しています。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
@@ -32,9 +32,17 @@ Phase 1Eを完了し、Phase 2A（public GitHub Releasesからの参照APK取得
 - release snapshotとasset検査結果を保存するRoom v4 migration
 - variant／ABI設定と現在選択中assetを保存するRoom v5 migration
 - APKから抽出・保存したアプリアイコン、アプリ別設定、登録、全体設定を持つMaterial 3 UI
-- 比較処理未実装を`Different`ではなく理由付き`INCOMPARABLE`として表示
+- Runnerのcommit／recipe／variant／Java／taskとAPKのpackage／versionを先に照合する対象同一性gate
+- `classes*.dex`と`lib/<abi>/*.so`の非圧縮bytesをentry単位で比較するfail-closed comparator
+- path traversal、重複entry、malformed ZIP、展開量上限、保存後改ざんの拒否
+- comparison runとentry結果を保存するRoom v6 migration
+- Build-and-compare、full SHA／host RCE確認、状態／結果／理由を表示する最小UI
 
 Phase 2A E2EではMicroG-RE `6.1.4`を取得し、release tagから`d8df10ab687a1c1ca05221634cfa46bad262023a`を解決しました。13,393,291 byteのAPKについて、GitHub provider digest、streaming中のAndroid計算SHA-256、保存後のAndroid `sha256sum`がすべて`907b0f1d64d4bdf2fc15df596129cdf9f140f5360f557d24ff2e987c9f586f15`で一致しました。package、version、signer、`INCOMPARABLE`理由、APK内アイコンの一覧表示と、アプリ別variant／ABI設定のforce-stop後復元も確認しています。
+
+Phase 2Bでは同じtag／full SHAをTemurin 18、`clean :play-services-core:assembleDefaultRelease`で再ビルドしました。ローカルAPKのraw SHA-256は公式APKと異なりますが、package `app.revanced.android.gms`、version `6.1.4`、versionCode `255034004`が一致し、`classes.dex`、`classes2.dex`、4 ABIのnative libraryはsize／SHA-256が全件一致しました。Phase 2Bの限定比較結果は`MATCH`です。
+
+ローカルrelease APKは上流workflowの後段sign action前なのでunsignedです。comparison専用downloadだけがunsigned APKのidentity解析を許容し、通常のinstall用downloadと`installArtifact`はsigner metadata必須を維持します。Runner Job UIではcomparison-onlyと表示し、installer導線を出しません。
 
 Phase 1EではWindows 11側のWHPX Android EmulatorとWSL2側RunnerをWindows `adb.exe reverse`で接続し、MicroG-RE実ビルド、Android側downloadとSHA-256照合、package/version/signer表示、unknown app sources、標準`PackageInstaller`、成功／platform拒否／利用者キャンセルcallback、Room再起動復元まで確認した。詳細は[Phase 1E検証レポート](../reprodroid-project/reports/2026/08/2026-08-21-phase-1e.md)、履歴と最終状態は[Phase 1E再開・完了記録](../reprodroid-project/docs/handoffs/phase-1e-resume.md)を参照してください。
 
@@ -61,7 +69,7 @@ Phase 2では、公式APKまたは開発者公開APKをAndroidアプリ側で取
 
 Phase 2Aの初期providerはpublic GitHub Releasesに限定します。`tag_name`からGit refを解決し、annotated tagをcommitまでpeelしたfull SHAを保存します。`target_commitish`は証跡として保存しますが、checkout対象にはしません。uploaded APKが1件ならそのまま採用します。複数の場合はアプリ別設定（既定`Release`／`arm64-v8a`）でfile nameを絞り、厳密に1件となる場合だけ採用します。`Preview`／`Debug`は明示tokenを要求し、`Release`は`preview`／`debug`でないassetとして扱います。
 
-比較不能は`INCOMPARABLE`として`Different`から分離しました。Phase 2Aでは参照APKを安全に取得・検査・保存するところまでを扱い、release build recipe、Runnerによるcommit再解決とdetached checkout、APK内容比較、`MATCH`／`DIFFERENT`／`Reproducible`判定はPhase 2Bへ送ります。設計判断は[ADR-0009](../reprodroid-project/docs/adr/0009-phase-2-reference-apk-and-update-boundary.md)に記録しています。
+比較不能は`INCOMPARABLE`として`Different`から分離します。Phase 2BはMicroG-RE `6.1.4`だけを許可し、Runnerがtagを独立解決した後、保存済みfull SHAと一致した場合だけ利用者がbuildを確認できます。Androidは取得したRunner artifactを再検査し、対象同一性確認後にDEX／native libraryだけを比較します。`MATCH`はこの限定範囲の一致であり、APK全体やsourceの安全性を証明しません。設計判断は[ADR-0009](../reprodroid-project/docs/adr/0009-phase-2-reference-apk-and-update-boundary.md)と[ADR-0010](../reprodroid-project/docs/adr/0010-phase-2b-executable-apk-content-comparison.md)に記録しています。
 
 ## リポジトリ構成
 
@@ -156,12 +164,13 @@ WSL2共通環境は次のスクリプトで構築します。
 ../reprodroid-project/scripts/setup-env.sh
 ```
 
-スクリプトはJDK 21.0.12.1+1、Android SDK API 36、build-tools 36.0.0、platform-tools、emulator、Google APIs x86_64 system image、SDKライセンスを扱います。環境変数は実行結果に表示し、shell設定ファイルを自動変更しません。
+スクリプトはJDK 21.0.12.1+1、MicroG-RE release build専用JDK 18.0.2.1+1、Android SDK API 36、build-tools 36.0.0、platform-tools、emulator、Google APIs x86_64 system image、SDKライセンスを扱います。環境変数は実行結果に表示し、shell設定ファイルを自動変更しません。
 
 初回構築後の例:
 
 ```bash
 export JAVA_HOME="$HOME/.local/share/reprodroid/jdk-21.0.12.1+1"
+export REPRODROID_JDK_18_HOME="$HOME/.local/share/reprodroid/jdk-18.0.2.1+1"
 export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
 export LD_LIBRARY_PATH="$HOME/.local/share/reprodroid/emulator-host-libs/usr/lib/x86_64-linux-gnu:$HOME/.local/share/reprodroid/emulator-host-libs/usr/lib/x86_64-linux-gnu/pulseaudio${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/cmdline-tools/15859902/bin:$PATH"
@@ -179,11 +188,11 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 
 Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E完了時に`./gradlew testDebugUnitTest lintDebug build --rerun-tasks -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080`を実行し、113 actionable tasksすべてexecuted、`BUILD SUCCESSFUL`を確認しました。標準installerの各callbackとRoom復元はWindows Android Emulator上のE2Eで確認しています。
 
-## Phase 2A時点で未実装
+## Phase 2B時点で未実装
 
-- 公式APKとの署名除外・DEX比較
-- `Reproducible`の実判定
-- release build recipeと公式release commitのRunner側再解決／detached checkout
+- manifest／resources／assetsを含むAPK全内容の正規化比較
+- Phase 2Cの最終trust-level／更新候補／install policy統合
+- MicroG-RE `6.1.4`以外のrelease comparison profile
 - 定期更新、通知、任意assetの直接選択、private repository／GitHub token
 - split APK、APKS、AAB
 - root/Shizuku特権インストール

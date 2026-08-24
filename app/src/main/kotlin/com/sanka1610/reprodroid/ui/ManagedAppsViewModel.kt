@@ -114,8 +114,34 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun startComparison(registeredAppId: String) = runAppAction(registeredAppId) {
+        repository.startComparison(registeredAppId)
+    }
+
+    fun refreshComparison(registeredAppId: String, comparisonRunId: String) =
+        runAppAction(registeredAppId) { repository.refreshComparison(comparisonRunId) }
+
+    fun confirmComparison(registeredAppId: String, comparisonRunId: String) =
+        runAppAction(registeredAppId) { repository.confirmComparison(comparisonRunId) }
+
     fun clearPreview() { _preview.value = ReleasePreviewState() }
     fun clearMessage() { _message.value = null }
 
-    private fun Throwable.userMessage(): String = message ?: "GitHub Releases operation failed."
+    private fun runAppAction(registeredAppId: String, action: suspend () -> Unit) {
+        if (registeredAppId in _activeAppIds.value) return
+        viewModelScope.launch {
+            _activeAppIds.value += registeredAppId
+            try {
+                action()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                _message.value = failure.userMessage()
+            } finally {
+                _activeAppIds.value -= registeredAppId
+            }
+        }
+    }
+
+    private fun Throwable.userMessage(): String = message ?: "ReproDroid operation failed."
 }

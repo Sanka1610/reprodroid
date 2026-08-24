@@ -18,7 +18,10 @@ data class JobEntity(
     val resolvedCommitSha: String? = null,
     @ColumnInfo(defaultValue = "0")
     val requiresConfirmation: Boolean = false,
+    val effectiveRecipeId: String? = null,
+    val effectiveVariantName: String? = null,
     val effectiveBuildRoot: String? = null,
+    val effectiveJavaMajor: Int? = null,
     val effectiveBuildTasks: String? = null,
     val state: String,
     val progressPercent: Int,

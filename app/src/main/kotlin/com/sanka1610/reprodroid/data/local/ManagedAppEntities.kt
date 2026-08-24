@@ -177,7 +177,12 @@ data class RegisteredAppRecord(
         entityColumn = "registeredAppId",
     )
     val releases: List<ReleaseSnapshotWithAssets>,
+    @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
+    val comparisons: List<ComparisonRunEntity>,
 ) {
     val latestRelease: ReleaseSnapshotWithAssets?
         get() = releases.maxByOrNull { it.snapshot.publishedAt }
+
+    val latestComparison: ComparisonRunEntity?
+        get() = comparisons.maxWithOrNull(compareBy<ComparisonRunEntity> { it.createdAt }.thenBy { it.comparisonRunId })
 }

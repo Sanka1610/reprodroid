@@ -14,8 +14,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RegisteredAppEntity::class,
         ReleaseSnapshotEntity::class,
         ReleaseAssetEntity::class,
+        ComparisonRunEntity::class,
+        ComparisonEntryEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -200,6 +202,71 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                         "ORDER BY (downloadedAt IS NOT NULL) DESC, downloadedAt DESC, providerAssetId DESC " +
                         "LIMIT 1" +
                         ")",
+                )
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE jobs ADD COLUMN effectiveRecipeId TEXT")
+                db.execSQL("ALTER TABLE jobs ADD COLUMN effectiveVariantName TEXT")
+                db.execSQL("ALTER TABLE jobs ADD COLUMN effectiveJavaMajor INTEGER")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS comparison_runs (
+                        comparisonRunId TEXT NOT NULL,
+                        registeredAppId TEXT NOT NULL,
+                        releaseSnapshotId TEXT NOT NULL,
+                        referenceAssetId TEXT NOT NULL,
+                        runnerJobId TEXT NOT NULL,
+                        localArtifactId TEXT,
+                        expectedCommitSha TEXT NOT NULL,
+                        runnerResolvedCommitSha TEXT,
+                        expectedRecipeId TEXT NOT NULL,
+                        runnerRecipeId TEXT,
+                        expectedVariantName TEXT NOT NULL,
+                        runnerVariantName TEXT,
+                        status TEXT NOT NULL,
+                        outcome TEXT NOT NULL,
+                        incomparableReason TEXT,
+                        createdAt TEXT NOT NULL,
+                        updatedAt TEXT NOT NULL,
+                        completedAt TEXT,
+                        PRIMARY KEY(comparisonRunId),
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(releaseSnapshotId) REFERENCES release_snapshots(releaseSnapshotId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(referenceAssetId) REFERENCES release_assets(releaseAssetId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(runnerJobId) REFERENCES jobs(jobId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_comparison_runs_registeredAppId ON comparison_runs(registeredAppId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_comparison_runs_releaseSnapshotId ON comparison_runs(releaseSnapshotId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_comparison_runs_referenceAssetId ON comparison_runs(referenceAssetId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_comparison_runs_runnerJobId ON comparison_runs(runnerJobId)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS comparison_entries (
+                        comparisonRunId TEXT NOT NULL,
+                        entryName TEXT NOT NULL,
+                        result TEXT NOT NULL,
+                        referenceSizeBytes INTEGER,
+                        localSizeBytes INTEGER,
+                        referenceSha256 TEXT,
+                        localSha256 TEXT,
+                        PRIMARY KEY(comparisonRunId, entryName),
+                        FOREIGN KEY(comparisonRunId) REFERENCES comparison_runs(comparisonRunId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_comparison_entries_comparisonRunId " +
+                        "ON comparison_entries(comparisonRunId)",
                 )
             }
         }

@@ -21,28 +21,38 @@ data class ApkInspection(
     val installedVersionCode: Long?,
     val signingCertificateSha256: List<String>,
     val currentSignerSha256: List<String>,
-    val existingInstallStatus: ExistingInstallStatus,
+    val existingInstallStatus: ExistingInstallStatus?,
     val iconPng: ByteArray?,
 )
 
 class ApkInspector(
     private val packageManager: PackageManager,
 ) {
-    fun inspect(apkFile: File): ApkInspection {
-        val archiveInfo = packageInfoFromArchive(apkFile)
-            ?: throw ApkInspectionException("Android could not parse the downloaded file as a signed APK.")
+    fun inspect(
+        apkFile: File,
+        requireSigningCertificate: Boolean = true,
+    ): ApkInspection {
+        val archiveInfo = packageInfoFromArchive(apkFile, requireSigningCertificate)
+            ?: throw ApkInspectionException(
+                if (requireSigningCertificate) {
+                    "Android could not parse the downloaded file as a signed APK."
+                } else {
+                    "Android could not parse the downloaded file as an APK."
+                },
+            )
         if (!archiveInfo.splitNames.isNullOrEmpty()) {
             throw ApkInspectionException("Split APKs are not supported in Phase 2A.")
         }
         val packageName = archiveInfo.packageName.takeIf(String::isNotBlank)
             ?: throw ApkInspectionException("The downloaded APK does not declare a package name.")
         val archiveSigners = signerFingerprints(archiveInfo)
-        if (archiveSigners.current.isEmpty()) {
+        if (requireSigningCertificate && archiveSigners.current.isEmpty()) {
             throw ApkInspectionException("The downloaded APK has no signing certificate information.")
         }
         val installedPackage = installedPackageInfo(packageName)
         val installedSigners = installedPackage?.let(::signerFingerprints)
         val existingInstallStatus = when {
+            archiveSigners.current.isEmpty() -> null
             installedSigners == null -> ExistingInstallStatus.NOT_INSTALLED_OR_NOT_VISIBLE
             installedSigners.current.toSet() == archiveSigners.current.toSet() -> ExistingInstallStatus.SIGNER_MATCH
             else -> ExistingInstallStatus.SIGNER_MISMATCH
@@ -61,9 +71,11 @@ class ApkInspector(
     }
 
     @Suppress("DEPRECATION")
-    private fun packageInfoFromArchive(apkFile: File): PackageInfo? = packageManager.getPackageArchiveInfo(
+    private fun packageInfoFromArchive(apkFile: File, includeSigningCertificates: Boolean): PackageInfo? = packageManager.getPackageArchiveInfo(
         apkFile.absolutePath,
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        if (!includeSigningCertificates) {
+            0
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             PackageManager.GET_SIGNING_CERTIFICATES
         } else {
             PackageManager.GET_SIGNATURES

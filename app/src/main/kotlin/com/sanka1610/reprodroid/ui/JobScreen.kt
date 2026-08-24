@@ -375,7 +375,16 @@ private fun ArtifactCard(
                 return@Column
             }
 
-            Text("🟡 Buildable · official APK comparison not performed", style = MaterialTheme.typography.titleSmall)
+            val hasVerifiedSigner = !artifact.signingCertificateSha256.isNullOrBlank() &&
+                !artifact.currentSignerSha256.isNullOrBlank()
+            Text(
+                if (hasVerifiedSigner) {
+                    "🟡 Buildable · official APK comparison not performed"
+                } else {
+                    "Comparison-only artifact · unsigned"
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
             Text(
                 "Android SHA-256: ${artifact.downloadedSha256}",
                 style = MaterialTheme.typography.bodySmall,
@@ -389,6 +398,15 @@ private fun ArtifactCard(
             Text("Signing certificate SHA-256", style = MaterialTheme.typography.labelLarge)
             artifact.signingCertificateSha256.orEmpty().lineSequence().filter(String::isNotBlank).forEach { fingerprint ->
                 Text(fingerprint, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            }
+            if (!hasVerifiedSigner) {
+                Text(
+                    "This unsigned release artifact is retained only for reproducibility comparison. " +
+                        "It cannot be passed to the installer.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                return@Column
             }
             when (artifact.existingInstallStatus) {
                 ExistingInstallStatus.NOT_INSTALLED_OR_NOT_VISIBLE.name -> Text(
