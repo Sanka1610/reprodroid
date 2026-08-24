@@ -70,6 +70,76 @@ class ManagedAppPolicyTest {
         assertEquals(TrustLevel.BUILDABLE, buildable.trustLevel)
     }
 
+    @Test
+    fun `repeated build protocol requires all three exact comparisons to match`() {
+        val exact = record(
+            listOf(
+                repeatedComparison(
+                    officialPrimary = ComparisonOutcome.MATCH,
+                    officialRepeat = ComparisonOutcome.MATCH,
+                    localRepeatability = ComparisonOutcome.MATCH,
+                ),
+            ),
+        )
+        assertEquals(TrustLevel.REPRODUCIBLE, exact.trustLevel)
+
+        val nondeterministic = record(
+            listOf(
+                repeatedComparison(
+                    officialPrimary = ComparisonOutcome.MATCH,
+                    officialRepeat = ComparisonOutcome.DIFFERENT,
+                    localRepeatability = ComparisonOutcome.DIFFERENT,
+                ),
+            ),
+        )
+        assertEquals(TrustLevel.DIFFERENT, nondeterministic.trustLevel)
+    }
+
+    @Test
+    fun `repeated build remains buildable until repeat evidence is complete`() {
+        val pending = record(
+            listOf(
+                repeatedComparison(
+                    officialPrimary = ComparisonOutcome.MATCH,
+                    officialRepeat = ComparisonOutcome.NOT_EVALUATED,
+                    localRepeatability = ComparisonOutcome.NOT_EVALUATED,
+                ),
+            ),
+        )
+
+        assertEquals(TrustLevel.BUILDABLE, pending.trustLevel)
+    }
+
+    @Test
+    fun `repeat comparison failure is incomparable even when the first build matched`() {
+        val incomparable = record(
+            listOf(
+                repeatedComparison(
+                    officialPrimary = ComparisonOutcome.MATCH,
+                    officialRepeat = ComparisonOutcome.INCOMPARABLE,
+                    localRepeatability = ComparisonOutcome.INCOMPARABLE,
+                ).copy(repeatIncomparableReason = "REPEAT_LOCAL_ARTIFACT_MISSING"),
+            ),
+        )
+
+        assertEquals(TrustLevel.INCOMPARABLE, incomparable.trustLevel)
+    }
+
+    @Test
+    fun `established content difference is retained when repeat evidence is unavailable`() {
+        val different = record(
+            listOf(
+                repeatedComparison(
+                    officialPrimary = ComparisonOutcome.DIFFERENT,
+                    officialRepeat = ComparisonOutcome.INCOMPARABLE,
+                    localRepeatability = ComparisonOutcome.INCOMPARABLE,
+                ).copy(repeatIncomparableReason = "RUNNER_JOB_FAILED_REPEAT"),
+            ),
+        )
+
+        assertEquals(TrustLevel.DIFFERENT, different.trustLevel)
+    }
+
     private fun record(comparisons: List<ComparisonRunEntity>): RegisteredAppRecord {
         val app = RegisteredAppEntity(
             registeredAppId = "app",
@@ -135,5 +205,18 @@ class ManagedAppPolicyTest {
         outcome = outcome.name,
         createdAt = "2026-08-24T00:00:00Z",
         updatedAt = "2026-08-24T00:00:00Z",
+    )
+
+    private fun repeatedComparison(
+        officialPrimary: ComparisonOutcome,
+        officialRepeat: ComparisonOutcome,
+        localRepeatability: ComparisonOutcome,
+    ) = comparison("release", "asset", "sha", officialPrimary).copy(
+        protocolVersion = 2,
+        localArtifactId = "artifact-a",
+        repeatRunnerJobId = "job-b",
+        repeatLocalArtifactId = if (officialRepeat == ComparisonOutcome.NOT_EVALUATED) null else "artifact-b",
+        repeatOfficialOutcome = officialRepeat.name,
+        repeatabilityOutcome = localRepeatability.name,
     )
 }

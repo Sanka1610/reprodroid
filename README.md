@@ -4,7 +4,7 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 ## 現在の状態
 
-Phase 2C（trust表示、更新関係、公式APK install、設定継承）は実装とAndroid 16 Emulator E2Eまで完了しています。
+Phase 2C（trust表示、更新関係、公式APK install、設定継承）は実装とAndroid 16 Emulator E2Eまで完了しています。Phase 2D-1の独立再ビルド比較も、Room migrationとMicroG-RE `6.1.4`の2回実ビルドを含むAndroid 16 Emulator E2Eまで完了しています。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
@@ -43,6 +43,9 @@ Phase 2C（trust表示、更新関係、公式APK install、設定継承）は�
 - 未インストール時だけ選択できる署名済みlocal comparison artifactのinstall source
 - theme、release variant、ABI、APK download limit、登録時management mode／install sourceを変更できる全般設定
 - global default追従とアプリ別override、およびRoom v7 migration
+- 同一tag／full SHA／固定recipeからBuild AとBuild Bを独立Jobとして作るprotocol v2
+- 公式APK対Build A、公式APK対Build B、Build A対Build Bを別軸で保存するRoom v8 migration
+- Build Bにもcommit／host RCE確認を要求し、3軸raw一致だけを`Reproducible`へするPhase 2D-1 UI／policy
 
 Phase 2A E2EではMicroG-RE `6.1.4`を取得し、release tagから`d8df10ab687a1c1ca05221634cfa46bad262023a`を解決しました。13,393,291 byteのAPKについて、GitHub provider digest、streaming中のAndroid計算SHA-256、保存後のAndroid `sha256sum`がすべて`907b0f1d64d4bdf2fc15df596129cdf9f140f5360f557d24ff2e987c9f586f15`で一致しました。package、version、signer、`INCOMPARABLE`理由、APK内アイコンの一覧表示と、アプリ別variant／ABI設定のforce-stop後復元も確認しています。
 
@@ -80,6 +83,10 @@ Phase 2Aの初期providerはpublic GitHub Releasesに限定します。`tag_name
 比較不能は`INCOMPARABLE`として`Different`から分離します。Phase 2BはMicroG-RE `6.1.4`だけを許可し、Runnerがtagを独立解決した後、保存済みfull SHAと一致した場合だけ利用者がbuildを確認できます。Androidは取得したRunner artifactを再検査し、対象同一性確認後にDEX／native libraryだけを比較します。`MATCH`はこの限定範囲の一致であり、APK全体やsourceの安全性を証明しません。設計判断は[ADR-0009](../reprodroid-project/docs/adr/0009-phase-2-reference-apk-and-update-boundary.md)と[ADR-0010](../reprodroid-project/docs/adr/0010-phase-2b-executable-apk-content-comparison.md)に記録しています。
 
 Phase 2Cでは、現在選択中のrelease snapshot、asset、expected full commit SHAに一致するcomparison runだけをtrust表示へ使います。検証モードのinstall sourceは署名済み公式APKが既定です。local buildは未インストール時に明示選択し、現在runに結び付いた署名済みartifactだけを許可します。現行MicroG-RE comparison artifactはunsignedなのでfail closedで拒否します。将来のReproDroid鍵は候補ですが、Phase 2への採用は確定していません。詳細は[ADR-0011](../reprodroid-project/docs/adr/0011-phase-2c-trust-update-and-install-policy.md)を参照してください。
+
+Phase 2Dは小フェーズへ分割します。2D-1は同じMicroG-RE `6.1.4` tagをRunnerがJobごとに独立解決し、Build AとBuild Bの両方で固定profileとhost RCE確認を要求します。公式対A、公式対B、A対Bの3軸がすべてDEX／native library raw bytesで一致した場合だけprotocol v2の`Reproducible`とします。2D-2以降のAPK内部差異分類、DEX構造比較、Manifest／resources正規化はraw差異を上書きしない補助証跡として追加します。詳細は[ADR-0012](../reprodroid-project/docs/adr/0012-phase-2d-repeat-build-and-advanced-comparison.md)を参照してください。
+
+Phase 2D-1 E2Eでは、Build AとBuild Bが別Job／別作業領域で同じfull SHA `d8df10ab687a1c1ca05221634cfa46bad262023a`を解決し、個別のhost RCE確認後に成功しました。両artifactは13,258,872 byte、SHA-256 `30de03caea3da52c9febbeebb5d7f0d3246811d288d81b522bb456da19e7b033`で一致しました。Android側で転送後metadataを再検証し、公式対A、公式対B、A対Bの各6 entryがすべて`MATCH`、protocol v2のtrustが`Reproducible`となり、cold start後にも復元されることを確認しています。
 
 ## リポジトリ構成
 
@@ -200,9 +207,9 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 
 Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E完了時に`./gradlew testDebugUnitTest lintDebug build --rerun-tasks -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080`を実行し、113 actionable tasksすべてexecuted、`BUILD SUCCESSFUL`を確認しました。標準installerの各callbackとRoom復元はWindows Android Emulator上のE2Eで確認しています。
 
-## Phase 2C実装後も対象外／未実装
+## Phase 2D-1実装後も対象外／未実装
 
-- manifest／resources／assetsを含むAPK全内容の正規化比較
+- APK内部差異inventory／分類、DEX構造比較、manifest／resources／assets正規化
 - ReproDroid鍵によるlocal comparison artifactの署名
 - MicroG-RE `6.1.4`以外のrelease comparison profile
 - 定期更新、通知、任意assetの直接選択、private repository／GitHub token

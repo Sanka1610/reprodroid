@@ -13,6 +13,9 @@ import com.sanka1610.reprodroid.data.artifact.GitHubAssetDownloader
 import com.sanka1610.reprodroid.data.artifact.ReleaseApkInstaller
 import com.sanka1610.reprodroid.data.artifact.ReferenceAssetDownloadException
 import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
+import com.sanka1610.reprodroid.data.local.ArtifactEntity
+import com.sanka1610.reprodroid.data.local.AdvancedComparisonAxis
+import com.sanka1610.reprodroid.data.local.AdvancedComparisonEntryEntity
 import com.sanka1610.reprodroid.data.local.AppSettingsUpdate
 import com.sanka1610.reprodroid.data.local.ComparisonEntryEntity
 import com.sanka1610.reprodroid.data.local.ComparisonOutcome
@@ -42,6 +45,7 @@ import com.sanka1610.reprodroid.data.provider.ReleaseAssetSelectionException
 import com.sanka1610.reprodroid.data.network.JobState
 import com.sanka1610.reprodroid.data.network.RevisionType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -528,6 +532,7 @@ class ManagedAppRepository(
                 expectedCommitSha = release.snapshot.resolvedCommitSha,
                 expectedRecipeId = profile.recipeId,
                 expectedVariantName = profile.variantName,
+                protocolVersion = REPEATED_BUILD_PROTOCOL_VERSION,
                 createdAt = now,
                 updatedAt = now,
             ),
@@ -540,18 +545,28 @@ class ManagedAppRepository(
         refreshComparison(comparisonRunId)
         val run = dao.getComparisonRun(comparisonRunId)
             ?: throw IllegalArgumentException("Comparison run was not found.")
-        check(run.status == ComparisonRunStatus.AWAITING_CONFIRMATION.name) {
+        val repeatConfirmation = run.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name
+        check(repeatConfirmation || run.status == ComparisonRunStatus.AWAITING_CONFIRMATION.name) {
             "The comparison build is not awaiting confirmation."
         }
-        val job = jobRepository.getJob(run.runnerJobId) ?: error("Runner Job is missing locally.")
+        val jobId = if (repeatConfirmation) {
+            run.repeatRunnerJobId ?: error("The repeat Runner Job is missing from the comparison.")
+        } else {
+            run.runnerJobId
+        }
+        val job = jobRepository.getJob(jobId) ?: error("Runner Job is missing locally.")
         val resolvedCommit = job.resolvedCommitSha ?: error("Runner has not resolved the comparison commit.")
         check(resolvedCommit == run.expectedCommitSha) {
             "Runner resolved a different commit; build confirmation is blocked."
         }
-        jobRepository.confirmRealBuild(run.runnerJobId, resolvedCommit)
+        jobRepository.confirmRealBuild(jobId, resolvedCommit)
         dao.upsertComparisonRun(
             run.copy(
-                status = ComparisonRunStatus.BUILDING.name,
+                status = if (repeatConfirmation) {
+                    ComparisonRunStatus.REPEAT_BUILDING.name
+                } else {
+                    ComparisonRunStatus.BUILDING.name
+                },
                 updatedAt = Instant.now().toString(),
             ),
         )
@@ -561,6 +576,14 @@ class ManagedAppRepository(
         val run = dao.getComparisonRun(comparisonRunId)
             ?: throw IllegalArgumentException("Comparison run was not found.")
         if (run.status == ComparisonRunStatus.COMPLETED.name) return
+        if (run.repeatRunnerJobId != null) {
+            refreshRepeatComparison(run)
+            return
+        }
+        refreshPrimaryComparison(run)
+    }
+
+    private suspend fun refreshPrimaryComparison(run: ComparisonRunEntity) {
         jobRepository.syncJob(run.runnerJobId)
         val job = jobRepository.getJob(run.runnerJobId)
             ?: return markIncomparable(run, "RUNNER_JOB_MISSING")
@@ -598,6 +621,63 @@ class ManagedAppRepository(
         }
     }
 
+    private suspend fun refreshRepeatComparison(run: ComparisonRunEntity) {
+        val repeatJobId = run.repeatRunnerJobId
+            ?: return markRepeatIncomparable(run, "REPEAT_RUNNER_JOB_MISSING")
+        jobRepository.syncJob(repeatJobId)
+        val job = jobRepository.getJob(repeatJobId)
+            ?: return markRepeatIncomparable(run, "REPEAT_RUNNER_JOB_MISSING")
+        val targetMismatch = comparisonTargetMismatch(run, job)
+        if (targetMismatch != null && job.resolvedCommitSha != null) {
+            markRepeatIncomparable(
+                run,
+                "REPEAT_$targetMismatch",
+                job.resolvedCommitSha,
+                job.effectiveRecipeId,
+                job.effectiveVariantName,
+            )
+            return
+        }
+        when (JobState.valueOf(job.state)) {
+            JobState.AWAITING_CONFIRMATION -> dao.upsertComparisonRun(
+                run.copy(
+                    repeatRunnerResolvedCommitSha = job.resolvedCommitSha,
+                    repeatRunnerRecipeId = job.effectiveRecipeId,
+                    repeatRunnerVariantName = job.effectiveVariantName,
+                    status = ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name,
+                    updatedAt = Instant.now().toString(),
+                ),
+            )
+            JobState.SUCCEEDED -> completeRepeatComparison(
+                run,
+                job.resolvedCommitSha,
+                job.effectiveRecipeId,
+                job.effectiveVariantName,
+            )
+            JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED ->
+                markRepeatIncomparable(
+                    run,
+                    "RUNNER_JOB_${job.state}_REPEAT",
+                    job.resolvedCommitSha,
+                    job.effectiveRecipeId,
+                    job.effectiveVariantName,
+                )
+            else -> dao.upsertComparisonRun(
+                run.copy(
+                    repeatRunnerResolvedCommitSha = job.resolvedCommitSha,
+                    repeatRunnerRecipeId = job.effectiveRecipeId,
+                    repeatRunnerVariantName = job.effectiveVariantName,
+                    status = if (job.state == JobState.RESOLVING_SOURCE.name) {
+                        ComparisonRunStatus.RESOLVING_REPEAT_RUNNER.name
+                    } else {
+                        ComparisonRunStatus.REPEAT_BUILDING.name
+                    },
+                    updatedAt = Instant.now().toString(),
+                ),
+            )
+        }
+    }
+
     private suspend fun completeComparison(
         run: ComparisonRunEntity,
         resolvedCommitSha: String?,
@@ -617,15 +697,7 @@ class ManagedAppRepository(
             local = jobRepository.getArtifacts(run.runnerJobId).singleOrNull()
                 ?: return markIncomparable(run, "LOCAL_ARTIFACT_MISSING", resolvedCommitSha, recipeId, variantName)
         }
-        val identityMismatch = when {
-            reference.packageName.isNullOrBlank() || local.packageName.isBlank() -> "PACKAGE_METADATA_MISSING"
-            reference.packageName != local.packageName -> "PACKAGE_MISMATCH"
-            reference.versionName.isNullOrBlank() || local.versionName.isBlank() -> "VERSION_NAME_MISSING"
-            reference.versionName != local.versionName -> "VERSION_NAME_MISMATCH"
-            reference.versionCode == null || local.versionCode <= 0 -> "VERSION_CODE_MISSING"
-            reference.versionCode != local.versionCode -> "VERSION_CODE_MISMATCH"
-            else -> null
-        }
+        val identityMismatch = comparisonIdentityMismatch(reference, local)
         if (identityMismatch != null) {
             markIncomparable(run, identityMismatch, resolvedCommitSha, recipeId, variantName, local.artifactId)
             return
@@ -670,6 +742,22 @@ class ManagedAppRepository(
         }
         val now = Instant.now().toString()
         val outcome = if (comparison.isMatch) ComparisonOutcome.MATCH else ComparisonOutcome.DIFFERENT
+        val continueWithRepeat = run.protocolVersion >= REPEATED_BUILD_PROTOCOL_VERSION
+        val primaryResult = run.copy(
+            localArtifactId = local.artifactId,
+            runnerResolvedCommitSha = resolvedCommitSha,
+            runnerRecipeId = recipeId,
+            runnerVariantName = variantName,
+            status = if (continueWithRepeat) {
+                ComparisonRunStatus.COMPARING.name
+            } else {
+                ComparisonRunStatus.COMPLETED.name
+            },
+            outcome = outcome.name,
+            incomparableReason = null,
+            updatedAt = now,
+            completedAt = if (continueWithRepeat) null else now,
+        )
         database.withTransaction {
             dao.deleteComparisonEntries(run.comparisonRunId)
             dao.upsertComparisonEntries(
@@ -686,17 +774,7 @@ class ManagedAppRepository(
                 },
             )
             dao.upsertComparisonRun(
-                run.copy(
-                    localArtifactId = local.artifactId,
-                    runnerResolvedCommitSha = resolvedCommitSha,
-                    runnerRecipeId = recipeId,
-                    runnerVariantName = variantName,
-                    status = ComparisonRunStatus.COMPLETED.name,
-                    outcome = outcome.name,
-                    incomparableReason = null,
-                    updatedAt = now,
-                    completedAt = now,
-                ),
+                primaryResult,
             )
             dao.upsertReleaseAsset(
                 reference.copy(
@@ -705,7 +783,200 @@ class ManagedAppRepository(
                 ),
             )
         }
+        if (continueWithRepeat) startRepeatComparison(primaryResult)
     }
+
+    private suspend fun startRepeatComparison(run: ComparisonRunEntity) {
+        val snapshot = dao.getReleaseSnapshot(run.releaseSnapshotId)
+            ?: return markRepeatIncomparable(run, "REPEAT_RELEASE_SNAPSHOT_MISSING")
+        val app = dao.getRegisteredApp(run.registeredAppId)
+            ?: return markRepeatIncomparable(run, "REPEAT_REGISTERED_APP_MISSING")
+        val repeatJobId = try {
+            jobRepository.createRealTrustedJob(
+                repositoryUrl = app.canonicalRepositoryUrl,
+                revisionType = RevisionType.TAG,
+                revisionValue = snapshot.tagName,
+            )
+        } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
+            return markRepeatIncomparable(run, "REPEAT_JOB_CREATE_FAILED")
+        }
+        dao.upsertComparisonRun(
+            run.copy(
+                repeatRunnerJobId = repeatJobId,
+                status = ComparisonRunStatus.RESOLVING_REPEAT_RUNNER.name,
+                updatedAt = Instant.now().toString(),
+            ),
+        )
+        refreshComparison(run.comparisonRunId)
+    }
+
+    private suspend fun completeRepeatComparison(
+        run: ComparisonRunEntity,
+        resolvedCommitSha: String?,
+        recipeId: String?,
+        variantName: String?,
+    ) {
+        val reference = dao.getReleaseAsset(run.referenceAssetId)
+            ?: return markRepeatIncomparable(run, "REPEAT_REFERENCE_ASSET_MISSING", resolvedCommitSha, recipeId, variantName)
+        val repeatJobId = run.repeatRunnerJobId
+            ?: return markRepeatIncomparable(run, "REPEAT_RUNNER_JOB_MISSING", resolvedCommitSha, recipeId, variantName)
+        val primaryArtifactId = run.localArtifactId
+            ?: return markRepeatIncomparable(run, "PRIMARY_LOCAL_ARTIFACT_MISSING", resolvedCommitSha, recipeId, variantName)
+        val primary = jobRepository.getArtifacts(run.runnerJobId).singleOrNull { it.artifactId == primaryArtifactId }
+            ?: return markRepeatIncomparable(run, "PRIMARY_LOCAL_ARTIFACT_MISSING", resolvedCommitSha, recipeId, variantName)
+        var repeat = jobRepository.getArtifacts(repeatJobId).singleOrNull()
+            ?: return markRepeatIncomparable(run, "REPEAT_LOCAL_ARTIFACT_COUNT_INVALID", resolvedCommitSha, recipeId, variantName)
+        if (repeat.downloadStatus != ArtifactDownloadStatus.VERIFIED.name) {
+            jobRepository.downloadArtifactForComparison(repeatJobId, repeat.artifactId)
+            repeat = jobRepository.getArtifacts(repeatJobId).singleOrNull()
+                ?: return markRepeatIncomparable(run, "REPEAT_LOCAL_ARTIFACT_MISSING", resolvedCommitSha, recipeId, variantName)
+        }
+        val identityMismatch = comparisonIdentityMismatch(reference, repeat)
+        if (identityMismatch != null) {
+            markRepeatIncomparable(
+                run,
+                "REPEAT_$identityMismatch",
+                resolvedCommitSha,
+                recipeId,
+                variantName,
+                repeat.artifactId,
+            )
+            return
+        }
+        val referenceInput = referenceComparisonInput(reference)
+            ?: return markRepeatIncomparable(run, "REPEAT_VERIFIED_REFERENCE_CONTENT_MISSING", resolvedCommitSha, recipeId, variantName, repeat.artifactId)
+        val primaryInput = localComparisonInput(primary)
+            ?: return markRepeatIncomparable(run, "PRIMARY_VERIFIED_APK_CONTENT_MISSING", resolvedCommitSha, recipeId, variantName, repeat.artifactId)
+        val repeatInput = localComparisonInput(repeat)
+            ?: return markRepeatIncomparable(run, "REPEAT_VERIFIED_APK_CONTENT_MISSING", resolvedCommitSha, recipeId, variantName, repeat.artifactId)
+        dao.upsertComparisonRun(
+            run.copy(
+                repeatLocalArtifactId = repeat.artifactId,
+                repeatRunnerResolvedCommitSha = resolvedCommitSha,
+                repeatRunnerRecipeId = recipeId,
+                repeatRunnerVariantName = variantName,
+                status = ComparisonRunStatus.COMPARING_REPEAT.name,
+                updatedAt = Instant.now().toString(),
+            ),
+        )
+        val officialRepeat = try {
+            withContext(Dispatchers.IO) {
+                comparator.compare(
+                    referenceApk = referenceInput.file,
+                    referenceRoot = referenceDirectory,
+                    expectedReference = referenceInput.expected,
+                    localApk = repeatInput.file,
+                    localRoot = File(context.filesDir, "apks"),
+                    expectedLocal = repeatInput.expected,
+                )
+            }
+        } catch (failure: ApkComparisonException) {
+            return markRepeatIncomparable(
+                run,
+                "OFFICIAL_REPEAT_${failure.code}",
+                resolvedCommitSha,
+                recipeId,
+                variantName,
+                repeat.artifactId,
+            )
+        }
+        val localRepeatability = try {
+            withContext(Dispatchers.IO) {
+                comparator.compare(
+                    referenceApk = primaryInput.file,
+                    referenceRoot = File(context.filesDir, "apks"),
+                    expectedReference = primaryInput.expected,
+                    localApk = repeatInput.file,
+                    localRoot = File(context.filesDir, "apks"),
+                    expectedLocal = repeatInput.expected,
+                )
+            }
+        } catch (failure: ApkComparisonException) {
+            return markRepeatIncomparable(
+                run,
+                "LOCAL_REPEATABILITY_${failure.code}",
+                resolvedCommitSha,
+                recipeId,
+                variantName,
+                repeat.artifactId,
+            )
+        }
+        val officialOutcome = comparisonOutcome(officialRepeat.isMatch)
+        val repeatabilityOutcome = comparisonOutcome(localRepeatability.isMatch)
+        val now = Instant.now().toString()
+        database.withTransaction {
+            dao.deleteAdvancedComparisonEntries(run.comparisonRunId)
+            dao.upsertAdvancedComparisonEntries(
+                advancedEntries(run.comparisonRunId, AdvancedComparisonAxis.OFFICIAL_REPEAT, officialRepeat) +
+                    advancedEntries(
+                        run.comparisonRunId,
+                        AdvancedComparisonAxis.LOCAL_REPEATABILITY,
+                        localRepeatability,
+                    ),
+            )
+            dao.upsertComparisonRun(
+                run.copy(
+                    repeatLocalArtifactId = repeat.artifactId,
+                    repeatRunnerResolvedCommitSha = resolvedCommitSha,
+                    repeatRunnerRecipeId = recipeId,
+                    repeatRunnerVariantName = variantName,
+                    repeatOfficialOutcome = officialOutcome.name,
+                    repeatabilityOutcome = repeatabilityOutcome.name,
+                    repeatIncomparableReason = null,
+                    status = ComparisonRunStatus.COMPLETED.name,
+                    updatedAt = now,
+                    completedAt = now,
+                ),
+            )
+        }
+    }
+
+    private fun comparisonIdentityMismatch(reference: ReleaseAssetEntity, local: ArtifactEntity): String? = when {
+        reference.packageName.isNullOrBlank() || local.packageName.isBlank() -> "PACKAGE_METADATA_MISSING"
+        reference.packageName != local.packageName -> "PACKAGE_MISMATCH"
+        reference.versionName.isNullOrBlank() || local.versionName.isBlank() -> "VERSION_NAME_MISSING"
+        reference.versionName != local.versionName -> "VERSION_NAME_MISMATCH"
+        reference.versionCode == null || local.versionCode <= 0 -> "VERSION_CODE_MISSING"
+        reference.versionCode != local.versionCode -> "VERSION_CODE_MISMATCH"
+        else -> null
+    }
+
+    private fun referenceComparisonInput(reference: ReleaseAssetEntity): ComparisonInput? {
+        val path = reference.localContentPath?.let(::File) ?: return null
+        val size = reference.downloadedSizeBytes ?: return null
+        val sha = reference.computedRawSha256 ?: return null
+        return ComparisonInput(path, ExpectedApkFile(size, sha))
+    }
+
+    private fun localComparisonInput(artifact: ArtifactEntity): ComparisonInput? {
+        val path = artifact.localContentPath?.let { File(context.filesDir, it) } ?: return null
+        val size = artifact.downloadedSizeBytes ?: return null
+        val sha = artifact.downloadedSha256 ?: return null
+        return ComparisonInput(path, ExpectedApkFile(size, sha))
+    }
+
+    private fun advancedEntries(
+        comparisonRunId: String,
+        axis: AdvancedComparisonAxis,
+        comparison: com.sanka1610.reprodroid.data.artifact.ApkContentComparison,
+    ): List<AdvancedComparisonEntryEntity> = comparison.entries.map { entry ->
+        AdvancedComparisonEntryEntity(
+            comparisonRunId = comparisonRunId,
+            axis = axis.name,
+            entryName = entry.entryName,
+            result = entry.result,
+            leftSizeBytes = entry.referenceSizeBytes,
+            rightSizeBytes = entry.localSizeBytes,
+            leftSha256 = entry.referenceSha256,
+            rightSha256 = entry.localSha256,
+        )
+    }
+
+    private fun comparisonOutcome(isMatch: Boolean): ComparisonOutcome =
+        if (isMatch) ComparisonOutcome.MATCH else ComparisonOutcome.DIFFERENT
+
+    private data class ComparisonInput(val file: File, val expected: ExpectedApkFile)
 
     private suspend fun comparisonTargetMismatch(
         run: ComparisonRunEntity,
@@ -770,6 +1041,34 @@ class ManagedAppRepository(
                     ),
                 )
             }
+        }
+    }
+
+    private suspend fun markRepeatIncomparable(
+        run: ComparisonRunEntity,
+        reason: String,
+        resolvedCommitSha: String? = run.repeatRunnerResolvedCommitSha,
+        recipeId: String? = run.repeatRunnerRecipeId,
+        variantName: String? = run.repeatRunnerVariantName,
+        artifactId: String? = run.repeatLocalArtifactId,
+    ) {
+        val now = Instant.now().toString()
+        database.withTransaction {
+            dao.deleteAdvancedComparisonEntries(run.comparisonRunId)
+            dao.upsertComparisonRun(
+                run.copy(
+                    repeatLocalArtifactId = artifactId,
+                    repeatRunnerResolvedCommitSha = resolvedCommitSha,
+                    repeatRunnerRecipeId = recipeId,
+                    repeatRunnerVariantName = variantName,
+                    repeatOfficialOutcome = ComparisonOutcome.INCOMPARABLE.name,
+                    repeatabilityOutcome = ComparisonOutcome.INCOMPARABLE.name,
+                    repeatIncomparableReason = reason,
+                    status = ComparisonRunStatus.COMPLETED.name,
+                    updatedAt = now,
+                    completedAt = now,
+                ),
+            )
         }
     }
 
@@ -1025,6 +1324,7 @@ class ManagedAppRepository(
         const val MICROG_REPOSITORY = "https://github.com/morpheapp/microg-re"
         const val MICROG_RELEASE_TAG = "6.1.4"
         const val EXPECTED_BUILD_JAVA_MAJOR = 18
+        const val REPEATED_BUILD_PROTOCOL_VERSION = 2
         const val EXPECTED_RELEASE_TASKS = "clean\n:play-services-core:assembleDefaultRelease"
         const val INSTALL_CALLBACK_GRACE_SECONDS = 30L
         val SUPPORTED_APK_LIMITS = setOf(

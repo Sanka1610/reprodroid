@@ -586,8 +586,10 @@ private fun AppDetailScreen(
                     DetailCard("Reproducibility comparison") {
                         DetailValue("Trust", trustLabel(record))
                         Text(
-                            "Reproducible is limited to the current release identity and matching DEX/native-library bytes. " +
-                                "Resources, manifest, assets, signer trust, and source safety are outside this scope.",
+                            "Phase 2D exact reproducibility requires two independent builds of the same commit and recipe. " +
+                                "The official APK must match both builds, and both local builds must match each other, " +
+                                "within the DEX/native-library byte scope. Resources, manifest, assets, signer trust, " +
+                                "and source safety remain outside this slice.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         if (comparison == null) {
@@ -605,15 +607,30 @@ private fun AppDetailScreen(
                             ) { Text("Build and compare") }
                         } else {
                             DetailValue("Status", comparison.status)
-                            DetailValue("Outcome", comparison.outcome)
+                            DetailValue("Official vs Build A", comparison.outcome)
+                            if (comparison.protocolVersion >= 2) {
+                                DetailValue("Official vs Build B", comparison.repeatOfficialOutcome)
+                                DetailValue("Build A vs Build B", comparison.repeatabilityOutcome)
+                            }
                             DetailValue("Expected recipe", comparison.expectedRecipeId)
                             DetailValue("Expected commit", comparison.expectedCommitSha, true)
                             comparison.runnerResolvedCommitSha?.let { DetailValue("Runner commit", it, true) }
+                            comparison.repeatRunnerResolvedCommitSha?.let {
+                                DetailValue("Repeat Runner commit", it, true)
+                            }
                             comparison.incomparableReason?.let { DetailValue("Reason", it) }
+                            comparison.repeatIncomparableReason?.let { DetailValue("Repeat reason", it) }
                             when (comparison.status) {
-                                ComparisonRunStatus.AWAITING_CONFIRMATION.name -> {
+                                ComparisonRunStatus.AWAITING_CONFIRMATION.name,
+                                ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name -> {
                                     Text(
-                                        "The commit and fixed release profile match. Continuing runs Gradle build scripts as arbitrary code on the Runner host.",
+                                        if (comparison.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name) {
+                                            "Build A completed. The repeat Job independently resolved the same commit and fixed " +
+                                                "profile. Continuing runs Gradle build scripts again as arbitrary code on the Runner host."
+                                        } else {
+                                            "The commit and fixed release profile match. Continuing runs Gradle build scripts " +
+                                                "as arbitrary code on the Runner host."
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error,
                                     )
@@ -621,7 +638,15 @@ private fun AppDetailScreen(
                                         enabled = !active,
                                         onClick = { onConfirmComparison(comparison.comparisonRunId) },
                                         modifier = Modifier.fillMaxWidth(),
-                                    ) { Text("Confirm commit and host RCE risk") }
+                                    ) {
+                                        Text(
+                                            if (comparison.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name) {
+                                                "Confirm repeat build and host RCE risk"
+                                            } else {
+                                                "Confirm commit and host RCE risk"
+                                            },
+                                        )
+                                    }
                                 }
                                 ComparisonRunStatus.COMPLETED.name -> Button(
                                     enabled = !active,
@@ -1092,9 +1117,12 @@ private fun trustLabel(record: RegisteredAppRecord): String = when (record.trust
     TrustLevel.INCOMPARABLE -> "Incomparable"
     TrustLevel.FAILED -> "Failed"
     null -> when (record.currentComparison?.status) {
-        ComparisonRunStatus.BUILDING.name -> "Building"
-        ComparisonRunStatus.COMPARING.name -> "Comparing"
-        ComparisonRunStatus.AWAITING_CONFIRMATION.name -> "Confirmation required"
+        ComparisonRunStatus.BUILDING.name,
+        ComparisonRunStatus.REPEAT_BUILDING.name -> "Building"
+        ComparisonRunStatus.COMPARING.name,
+        ComparisonRunStatus.COMPARING_REPEAT.name -> "Comparing"
+        ComparisonRunStatus.AWAITING_CONFIRMATION.name,
+        ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name -> "Confirmation required"
         else -> "Not evaluated"
     }
 }

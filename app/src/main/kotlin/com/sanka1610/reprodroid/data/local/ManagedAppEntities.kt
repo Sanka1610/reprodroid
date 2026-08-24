@@ -302,6 +302,9 @@ data class RegisteredAppRecord(
 
     val trustLevel: TrustLevel?
         get() = currentComparison?.let { comparison ->
+            if (comparison.protocolVersion >= REPEATED_BUILD_PROTOCOL_VERSION) {
+                return@let repeatedBuildTrustLevel(comparison)
+            }
             when (comparison.outcome) {
                 ComparisonOutcome.MATCH.name -> TrustLevel.REPRODUCIBLE
                 ComparisonOutcome.DIFFERENT.name -> TrustLevel.DIFFERENT
@@ -321,8 +324,40 @@ data class RegisteredAppRecord(
             }
         }
 
+    private fun repeatedBuildTrustLevel(comparison: ComparisonRunEntity): TrustLevel? {
+        val failureReason = comparison.incomparableReason ?: comparison.repeatIncomparableReason
+        if (
+            comparison.outcome == ComparisonOutcome.DIFFERENT.name ||
+            comparison.repeatOfficialOutcome == ComparisonOutcome.DIFFERENT.name ||
+            comparison.repeatabilityOutcome == ComparisonOutcome.DIFFERENT.name
+        ) {
+            return TrustLevel.DIFFERENT
+        }
+        if (
+            comparison.outcome == ComparisonOutcome.INCOMPARABLE.name ||
+            comparison.repeatOfficialOutcome == ComparisonOutcome.INCOMPARABLE.name ||
+            comparison.repeatabilityOutcome == ComparisonOutcome.INCOMPARABLE.name
+        ) {
+            return if (failureReason?.startsWith("RUNNER_JOB_FAILED") == true) {
+                TrustLevel.FAILED
+            } else {
+                TrustLevel.INCOMPARABLE
+            }
+        }
+        if (
+            comparison.outcome == ComparisonOutcome.MATCH.name &&
+            comparison.repeatOfficialOutcome == ComparisonOutcome.MATCH.name &&
+            comparison.repeatabilityOutcome == ComparisonOutcome.MATCH.name
+        ) {
+            return TrustLevel.REPRODUCIBLE
+        }
+        return if (comparison.localArtifactId != null) TrustLevel.BUILDABLE else null
+    }
+
     val latestReleaseInstallAttempt: ReleaseInstallAttemptEntity?
         get() = releaseInstallAttempts.maxWithOrNull(
             compareBy<ReleaseInstallAttemptEntity> { it.createdAt }.thenBy { it.attemptId },
         )
 }
+
+private const val REPEATED_BUILD_PROTOCOL_VERSION = 2

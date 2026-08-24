@@ -16,10 +16,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReleaseAssetEntity::class,
         ComparisonRunEntity::class,
         ComparisonEntryEntity::class,
+        AdvancedComparisonEntryEntity::class,
         GlobalSettingsEntity::class,
         ReleaseInstallAttemptEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -354,6 +355,51 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_release_install_attempts_releaseAssetId " +
                         "ON release_install_attempts(releaseAssetId)",
+                )
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE comparison_runs ADD COLUMN protocolVersion INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE comparison_runs ADD COLUMN repeatRunnerJobId TEXT")
+                db.execSQL("ALTER TABLE comparison_runs ADD COLUMN repeatLocalArtifactId TEXT")
+                db.execSQL("ALTER TABLE comparison_runs ADD COLUMN repeatRunnerResolvedCommitSha TEXT")
+                db.execSQL("ALTER TABLE comparison_runs ADD COLUMN repeatRunnerRecipeId TEXT")
+                db.execSQL("ALTER TABLE comparison_runs ADD COLUMN repeatRunnerVariantName TEXT")
+                db.execSQL(
+                    "ALTER TABLE comparison_runs ADD COLUMN repeatOfficialOutcome " +
+                        "TEXT NOT NULL DEFAULT 'NOT_EVALUATED'",
+                )
+                db.execSQL(
+                    "ALTER TABLE comparison_runs ADD COLUMN repeatabilityOutcome " +
+                        "TEXT NOT NULL DEFAULT 'NOT_EVALUATED'",
+                )
+                db.execSQL("ALTER TABLE comparison_runs ADD COLUMN repeatIncomparableReason TEXT")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_comparison_runs_repeatRunnerJobId " +
+                        "ON comparison_runs(repeatRunnerJobId)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS advanced_comparison_entries (
+                        comparisonRunId TEXT NOT NULL,
+                        axis TEXT NOT NULL,
+                        entryName TEXT NOT NULL,
+                        result TEXT NOT NULL,
+                        leftSizeBytes INTEGER,
+                        rightSizeBytes INTEGER,
+                        leftSha256 TEXT,
+                        rightSha256 TEXT,
+                        PRIMARY KEY(comparisonRunId, axis, entryName),
+                        FOREIGN KEY(comparisonRunId) REFERENCES comparison_runs(comparisonRunId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_advanced_comparison_entries_comparisonRunId " +
+                        "ON advanced_comparison_entries(comparisonRunId)",
                 )
             }
         }

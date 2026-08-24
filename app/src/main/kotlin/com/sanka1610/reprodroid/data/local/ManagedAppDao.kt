@@ -77,6 +77,12 @@ interface ManagedAppDao {
     @Query("SELECT * FROM comparison_entries WHERE comparisonRunId = :comparisonRunId ORDER BY entryName")
     suspend fun getComparisonEntries(comparisonRunId: String): List<ComparisonEntryEntity>
 
+    @Query(
+        "SELECT * FROM advanced_comparison_entries WHERE comparisonRunId = :comparisonRunId " +
+            "ORDER BY axis, entryName",
+    )
+    suspend fun getAdvancedComparisonEntries(comparisonRunId: String): List<AdvancedComparisonEntryEntity>
+
     @Upsert
     suspend fun upsertRegisteredApp(app: RegisteredAppEntity)
 
@@ -93,6 +99,9 @@ interface ManagedAppDao {
     suspend fun upsertComparisonEntries(entries: List<ComparisonEntryEntity>)
 
     @Upsert
+    suspend fun upsertAdvancedComparisonEntries(entries: List<AdvancedComparisonEntryEntity>)
+
+    @Upsert
     suspend fun upsertGlobalSettings(settings: GlobalSettingsEntity)
 
     @Upsert
@@ -100,6 +109,9 @@ interface ManagedAppDao {
 
     @Query("DELETE FROM comparison_entries WHERE comparisonRunId = :comparisonRunId")
     suspend fun deleteComparisonEntries(comparisonRunId: String)
+
+    @Query("DELETE FROM advanced_comparison_entries WHERE comparisonRunId = :comparisonRunId")
+    suspend fun deleteAdvancedComparisonEntries(comparisonRunId: String)
 
     @Query("DELETE FROM registered_apps WHERE registeredAppId = :registeredAppId")
     suspend fun deleteRegisteredApp(registeredAppId: String)
