@@ -45,6 +45,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +63,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.net.toUri
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.AppSettingsUpdate
@@ -479,7 +483,20 @@ private fun AppDetailScreen(
     val latest = record.latestRelease
     val asset = latest?.selectedAsset
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var installRiskConfirmed by rememberSaveable(record.app.registeredAppId) { mutableStateOf(false) }
+    var canRequestPackageInstalls by remember {
+        mutableStateOf(context.packageManager.canRequestPackageInstalls())
+    }
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                canRequestPackageInstalls = context.packageManager.canRequestPackageInstalls()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val canInstall = asset?.updateStatus in setOf(
         UpdateStatus.NOT_INSTALLED.name,
         UpdateStatus.UPDATE_AVAILABLE.name,
@@ -644,7 +661,7 @@ private fun AppDetailScreen(
                             )
                         }
                     }
-                    if (!context.packageManager.canRequestPackageInstalls()) {
+                    if (!canRequestPackageInstalls) {
                         TextButton(
                             onClick = {
                                 context.startActivity(
@@ -659,7 +676,7 @@ private fun AppDetailScreen(
                     }
                     Button(
                         enabled = !active && canInstall &&
-                            context.packageManager.canRequestPackageInstalls() &&
+                            canRequestPackageInstalls &&
                             (!warningRequired || installRiskConfirmed),
                         onClick = { onInstall(installRiskConfirmed) },
                         modifier = Modifier.fillMaxWidth(),

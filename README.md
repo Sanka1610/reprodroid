@@ -4,7 +4,7 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 ## 現在の状態
 
-Phase 2C（trust表示、更新関係、公式APK install、設定継承）を実装中です。Phase 2Bの固定release再ビルドとDEX／native library比較まではAndroid 16 Emulator E2Eを完了しています。
+Phase 2C（trust表示、更新関係、公式APK install、設定継承）は実装とAndroid 16 Emulator E2Eまで完了しています。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
@@ -49,6 +49,8 @@ Phase 2A E2EではMicroG-RE `6.1.4`を取得し、release tagから`d8df10ab687a
 Phase 2Bでは同じtag／full SHAをTemurin 18、`clean :play-services-core:assembleDefaultRelease`で再ビルドしました。ローカルAPKのraw SHA-256は公式APKと異なりますが、package `app.revanced.android.gms`、version `6.1.4`、versionCode `255034004`が一致し、`classes.dex`、`classes2.dex`、4 ABIのnative libraryはsize／SHA-256が全件一致しました。Phase 2Bの限定比較結果は`MATCH`です。
 
 ローカルrelease APKは上流workflowの後段sign action前なのでunsignedです。comparison専用downloadだけがunsigned APKのidentity解析を許容し、通常のinstall用downloadと`installArtifact`はsigner metadata必須を維持します。Runner Job UIではcomparison-onlyと表示し、installer導線を出しません。
+
+Phase 2C E2Eでは、unknown app sources設定への誘導、設定画面から復帰した際の権限再評価、公式APKの利用者キャンセル／成功callback、force-stop後のattempt復元、同version再install抑止、インストール中のsource lockを確認しました。MicroG-REを一時的に未インストールへ戻して固定releaseを再ビルドし、`COMPLETED`／`MATCH`／`Reproducible`まで到達したうえで、unsigned local artifactが`PackageInstaller`起動前にfail closedで拒否されることも確認しています。最後に公式APKをReproDroid経由で再導入し、version `6.1.4`、installer package `com.sanka1610.reprodroid`を確認しました。
 
 Phase 1EではWindows 11側のWHPX Android EmulatorとWSL2側RunnerをWindows `adb.exe reverse`で接続し、MicroG-RE実ビルド、Android側downloadとSHA-256照合、package/version/signer表示、unknown app sources、標準`PackageInstaller`、成功／platform拒否／利用者キャンセルcallback、Room再起動復元まで確認した。詳細は[Phase 1E検証レポート](../reprodroid-project/reports/2026/08/2026-08-21-phase-1e.md)、履歴と最終状態は[Phase 1E再開・完了記録](../reprodroid-project/docs/handoffs/phase-1e-resume.md)を参照してください。
 
@@ -201,7 +203,6 @@ Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト�
 ## Phase 2C実装後も対象外／未実装
 
 - manifest／resources／assetsを含むAPK全内容の正規化比較
-- Phase 2Cの公式APK install callbackを含む端末UI E2E完了
 - ReproDroid鍵によるlocal comparison artifactの署名
 - MicroG-RE `6.1.4`以外のrelease comparison profile
 - 定期更新、通知、任意assetの直接選択、private repository／GitHub token
