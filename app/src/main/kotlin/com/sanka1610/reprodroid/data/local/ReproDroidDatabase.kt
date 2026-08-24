@@ -16,8 +16,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReleaseAssetEntity::class,
         ComparisonRunEntity::class,
         ComparisonEntryEntity::class,
+        GlobalSettingsEntity::class,
+        ReleaseInstallAttemptEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -267,6 +269,91 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_comparison_entries_comparisonRunId " +
                         "ON comparison_entries(comparisonRunId)",
+                )
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE registered_apps ADD COLUMN installationSource " +
+                        "TEXT NOT NULL DEFAULT 'OFFICIAL_RELEASE'",
+                )
+                db.execSQL(
+                    "ALTER TABLE registered_apps ADD COLUMN maxApkSizeBytes " +
+                        "INTEGER NOT NULL DEFAULT 536870912",
+                )
+                db.execSQL(
+                    "ALTER TABLE registered_apps ADD COLUMN useGlobalReleaseVariant " +
+                        "INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    "ALTER TABLE registered_apps ADD COLUMN useGlobalPreferredAbi " +
+                        "INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    "ALTER TABLE registered_apps ADD COLUMN useGlobalMaxApkSize " +
+                        "INTEGER NOT NULL DEFAULT 1",
+                )
+                db.execSQL(
+                    "ALTER TABLE release_assets ADD COLUMN updateStatus " +
+                        "TEXT NOT NULL DEFAULT 'NOT_EVALUATED'",
+                )
+                db.execSQL("ALTER TABLE release_assets ADD COLUMN updateEvaluatedAt TEXT")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS global_settings (
+                        singletonId INTEGER NOT NULL,
+                        themeMode TEXT NOT NULL,
+                        defaultManagementMode TEXT NOT NULL,
+                        defaultInstallationSource TEXT NOT NULL,
+                        defaultReleaseVariantPreference TEXT NOT NULL,
+                        defaultPreferredAbi TEXT NOT NULL,
+                        defaultMaxApkSizeBytes INTEGER NOT NULL,
+                        updatedAt TEXT NOT NULL,
+                        PRIMARY KEY(singletonId)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO global_settings (
+                        singletonId, themeMode, defaultManagementMode, defaultInstallationSource,
+                        defaultReleaseVariantPreference, defaultPreferredAbi,
+                        defaultMaxApkSizeBytes, updatedAt
+                    ) VALUES (
+                        1, 'DARK', 'VERIFICATION', 'OFFICIAL_RELEASE',
+                        'RELEASE', 'ARM64_V8A', 536870912, '1970-01-01T00:00:00Z'
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS release_install_attempts (
+                        attemptId TEXT NOT NULL,
+                        registeredAppId TEXT NOT NULL,
+                        releaseAssetId TEXT NOT NULL,
+                        packageInstallerSessionId INTEGER,
+                        status TEXT NOT NULL,
+                        packageInstallerStatus INTEGER,
+                        statusMessage TEXT,
+                        createdAt TEXT NOT NULL,
+                        updatedAt TEXT NOT NULL,
+                        PRIMARY KEY(attemptId),
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(releaseAssetId) REFERENCES release_assets(releaseAssetId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_release_install_attempts_registeredAppId " +
+                        "ON release_install_attempts(registeredAppId)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_release_install_attempts_releaseAssetId " +
+                        "ON release_install_attempts(releaseAssetId)",
                 )
             }
         }

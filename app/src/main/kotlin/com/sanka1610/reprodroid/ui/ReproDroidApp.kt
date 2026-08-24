@@ -1,9 +1,12 @@
 package com.sanka1610.reprodroid.ui
 
 import android.graphics.BitmapFactory
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +23,13 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -29,14 +37,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,19 +62,28 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.net.toUri
 import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.AppSettingsUpdate
+import com.sanka1610.reprodroid.data.local.ComparisonEligibility
 import com.sanka1610.reprodroid.data.local.ComparisonRunStatus
+import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
+import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.PreferredAbi
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
+import com.sanka1610.reprodroid.data.local.ReleaseDiscoveryStatus
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
 import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
+import com.sanka1610.reprodroid.data.local.ThemeMode
+import com.sanka1610.reprodroid.data.local.TrustLevel
+import com.sanka1610.reprodroid.data.local.UpdateStatus
 import androidx.compose.ui.platform.LocalContext
 import java.io.File
 import java.util.UUID
 
 private enum class MainDestination { APPS, ADD, SETTINGS }
 
-private val ReproDroidColors: ColorScheme = darkColorScheme(
+private val DarkColors: ColorScheme = darkColorScheme(
     primary = Color(0xFFB69CFF),
     onPrimary = Color(0xFF24124D),
     primaryContainer = Color(0xFF352762),
@@ -77,9 +95,17 @@ private val ReproDroidColors: ColorScheme = darkColorScheme(
     error = Color(0xFFFFB4AB),
 )
 
+private val LightColors: ColorScheme = lightColorScheme(
+    primary = Color(0xFF6042A6),
+    primaryContainer = Color(0xFFE9DDFF),
+    secondary = Color(0xFF625B71),
+    surfaceVariant = Color(0xFFE8E0EC),
+)
+
 @Composable
 fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewModel) {
     val apps by managedViewModel.apps.collectAsStateWithLifecycle()
+    val globalSettings by managedViewModel.settings.collectAsStateWithLifecycle()
     val preview by managedViewModel.preview.collectAsStateWithLifecycle()
     val message by managedViewModel.message.collectAsStateWithLifecycle()
     val activeAppIds by managedViewModel.activeAppIds.collectAsStateWithLifecycle()
@@ -87,8 +113,13 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
     var selectedAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var showRunnerJobs by rememberSaveable { mutableStateOf(false) }
+    val useDark = when (enumValue(globalSettings.themeMode, ThemeMode.DARK)) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
 
-    MaterialTheme(colorScheme = ReproDroidColors) {
+    MaterialTheme(colorScheme = if (useDark) DarkColors else LightColors) {
         Surface(modifier = Modifier.fillMaxSize()) {
             Scaffold(
                 bottomBar = {
@@ -141,13 +172,13 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                             if (app != null) {
                                 AppPreferencesScreen(
                                     record = app,
+                                    globalSettings = globalSettings,
                                     saving = app.app.registeredAppId in activeAppIds,
                                     onBack = { settingsAppId = null },
-                                    onSave = { variant, abi ->
+                                    onSave = { update ->
                                         managedViewModel.updatePreferences(
                                             app.app.registeredAppId,
-                                            variant,
-                                            abi,
+                                            update,
                                         ) { settingsAppId = null }
                                     },
                                 )
@@ -158,11 +189,19 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                             if (app == null) {
                                 selectedAppId = null
                             } else {
+                                LaunchedEffect(app.app.registeredAppId) {
+                                    managedViewModel.refreshInstalledState(app.app.registeredAppId)
+                                }
                                 AppDetailScreen(
                                     record = app,
+                                    globalSettings = globalSettings,
                                     active = app.app.registeredAppId in activeAppIds,
                                     onBack = { selectedAppId = null },
+                                    onSettings = { settingsAppId = app.app.registeredAppId },
                                     onRefresh = { managedViewModel.refresh(app.app.registeredAppId) },
+                                    onInstall = { confirmed ->
+                                        managedViewModel.install(app.app.registeredAppId, confirmed)
+                                    },
                                     onStartComparison = {
                                         managedViewModel.startComparison(app.app.registeredAppId)
                                     },
@@ -178,13 +217,13 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                         destination == MainDestination.APPS -> AppsScreen(
                             apps = apps,
                             onSelect = { selectedAppId = it },
-                            onSettings = { settingsAppId = it },
                         )
                         destination == MainDestination.ADD -> AddAppScreen(
                             preview = preview,
+                            globalSettings = globalSettings,
                             onPreview = managedViewModel::preview,
-                            onRegister = { mode ->
-                                managedViewModel.register(mode) { registeredAppId ->
+                            onRegister = { mode, source, confirmed ->
+                                managedViewModel.register(mode, source, confirmed) { registeredAppId ->
                                     destination = MainDestination.APPS
                                     selectedAppId = registeredAppId
                                 }
@@ -203,7 +242,11 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                 JobScreen(jobViewModel)
                             }
                         }
-                        else -> SettingsScreen(onOpenRunnerJobs = { showRunnerJobs = true })
+                        else -> SettingsScreen(
+                            settings = globalSettings,
+                            onUpdate = managedViewModel::updateGlobalSettings,
+                            onOpenRunnerJobs = { showRunnerJobs = true },
+                        )
                     }
                 }
             }
@@ -215,7 +258,6 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
 private fun AppsScreen(
     apps: List<RegisteredAppRecord>,
     onSelect: (String) -> Unit,
-    onSettings: (String) -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val filtered = remember(apps, query) {
@@ -252,21 +294,43 @@ private fun AppsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             ManagedAppIcon(record)
-                            Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                                Text(record.app.displayName, style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    latest?.snapshot?.tagName ?: "Release not resolved",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    asset?.downloadStatus ?: record.app.releaseDiscoveryStatus,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = statusColor(asset?.downloadStatus),
-                                )
-                            }
-                            IconButton(onClick = { onSettings(record.app.registeredAppId) }) {
-                                NavigationGlyph("⋮")
+                            Column(
+                                modifier = Modifier.weight(1f).padding(start = 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        record.app.displayName,
+                                        modifier = Modifier.weight(1f),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(asset?.versionName ?: latest?.snapshot?.tagName ?: "—")
+                                    Text(
+                                        updateLabel(asset?.updateStatus),
+                                        color = updateColor(asset?.updateStatus),
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    AssistChip(onClick = {}, label = { Text(modeLabel(record.app.managementMode)) })
+                                    if (record.app.managementMode == ManagementMode.VERIFICATION.name) {
+                                        AssistChip(onClick = {}, label = { Text(trustLabel(record)) })
+                                    } else {
+                                        AssistChip(
+                                            onClick = {},
+                                            label = { Text(signerLabel(asset?.existingInstallStatus)) },
+                                        )
+                                    }
+                                    if (record.app.installationSource == InstallationSource.LOCAL_BUILD.name) {
+                                        AssistChip(onClick = {}, label = { Text("Local build") })
+                                    }
+                                }
                             }
                         }
                     }
@@ -280,12 +344,21 @@ private fun AppsScreen(
 @Composable
 private fun AddAppScreen(
     preview: ReleasePreviewState,
+    globalSettings: GlobalSettingsEntity,
     onPreview: (String) -> Unit,
-    onRegister: (ManagementMode) -> Unit,
+    onRegister: (ManagementMode, InstallationSource, Boolean) -> Unit,
     onUrlChanged: () -> Unit,
 ) {
     var repositoryUrl by rememberSaveable { mutableStateOf("https://github.com/MorpheApp/MicroG-RE") }
-    var mode by rememberSaveable { mutableStateOf(ManagementMode.VERIFICATION) }
+    var mode by rememberSaveable(globalSettings.defaultManagementMode) {
+        mutableStateOf(enumValue(globalSettings.defaultManagementMode, ManagementMode.VERIFICATION))
+    }
+    var installationSource by rememberSaveable(globalSettings.defaultInstallationSource) {
+        mutableStateOf(
+            enumValue(globalSettings.defaultInstallationSource, InstallationSource.OFFICIAL_RELEASE),
+        )
+    }
+    var localRiskConfirmed by rememberSaveable { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -293,7 +366,7 @@ private fun AddAppScreen(
         item {
             Spacer(Modifier.height(16.dp))
             Text("Register an app", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-            Text("Phase 2B · public GitHub Releases", style = MaterialTheme.typography.bodyMedium)
+            Text("Phase 2C · public GitHub Releases", style = MaterialTheme.typography.bodyMedium)
         }
         item {
             OutlinedTextField(
@@ -306,16 +379,45 @@ private fun AddAppScreen(
             )
         }
         item {
-            Text("Mode", style = MaterialTheme.typography.titleSmall)
-            ManagementMode.entries.forEach { candidate ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = mode == candidate, onClick = { mode = candidate })
-                    Column {
-                        Text(if (candidate == ManagementMode.VERIFICATION) "Verification" else "Acquisition")
+            DropdownSetting(
+                label = "Management mode",
+                value = mode,
+                options = ManagementMode.entries.associateWith(::modeLabel),
+                onSelect = {
+                    mode = it
+                    if (it == ManagementMode.ACQUISITION) {
+                        installationSource = InstallationSource.OFFICIAL_RELEASE
+                        localRiskConfirmed = false
+                    }
+                },
+            )
+        }
+        item {
+            DropdownSetting(
+                label = "Installation source",
+                value = installationSource,
+                options = InstallationSource.entries
+                    .filter { mode == ManagementMode.VERIFICATION || it == InstallationSource.OFFICIAL_RELEASE }
+                    .associateWith(::installationSourceLabel),
+                onSelect = {
+                    installationSource = it
+                    if (it != InstallationSource.LOCAL_BUILD) localRiskConfirmed = false
+                },
+                supportingText = "Copied at registration; existing apps do not follow later global changes.",
+            )
+        }
+        if (installationSource == InstallationSource.LOCAL_BUILD) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Checkbox(checked = localRiskConfirmed, onCheckedChange = { localRiskConfirmed = it })
                         Text(
-                            if (candidate == ManagementMode.VERIFICATION) "Prepare an official reference APK for Phase 2B comparison."
-                            else "Track and acquire the latest official release APK.",
-                            style = MaterialTheme.typography.bodySmall,
+                            "I understand that a local build may use a different signer, cannot replace an " +
+                                "installed official app, and is installable only when the compared artifact is signed.",
+                            modifier = Modifier.padding(top = 10.dp),
                         )
                     }
                 }
@@ -346,10 +448,11 @@ private fun AddAppScreen(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Button(
-                            enabled = !preview.isLoading,
-                            onClick = { onRegister(mode) },
+                            enabled = !preview.isLoading &&
+                                (installationSource != InstallationSource.LOCAL_BUILD || localRiskConfirmed),
+                            onClick = { onRegister(mode, installationSource, localRiskConfirmed) },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text(if (preview.isLoading) "Downloading and verifying…" else "Register and download APK") }
+                        ) { Text(if (preview.isLoading) "Downloading and verifying…" else "Register and verify APK") }
                     }
                 }
             }
@@ -362,9 +465,12 @@ private fun AddAppScreen(
 @Composable
 private fun AppDetailScreen(
     record: RegisteredAppRecord,
+    globalSettings: GlobalSettingsEntity,
     active: Boolean,
     onBack: () -> Unit,
+    onSettings: () -> Unit,
     onRefresh: () -> Unit,
+    onInstall: (Boolean) -> Unit,
     onStartComparison: () -> Unit,
     onRefreshComparison: (String) -> Unit,
     onConfirmComparison: (String) -> Unit,
@@ -372,6 +478,17 @@ private fun AppDetailScreen(
     BackHandler(onBack = onBack)
     val latest = record.latestRelease
     val asset = latest?.selectedAsset
+    val context = LocalContext.current
+    var installRiskConfirmed by rememberSaveable(record.app.registeredAppId) { mutableStateOf(false) }
+    val canInstall = asset?.updateStatus in setOf(
+        UpdateStatus.NOT_INSTALLED.name,
+        UpdateStatus.UPDATE_AVAILABLE.name,
+    )
+    val warningRequired = (
+        record.app.managementMode == ManagementMode.VERIFICATION.name &&
+            record.trustLevel != TrustLevel.REPRODUCIBLE
+        ) ||
+        asset?.existingInstallStatus == "SIGNER_MISMATCH"
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(record.app.displayName) },
@@ -382,6 +499,7 @@ private fun AppDetailScreen(
                 IconButton(enabled = !active, onClick = onRefresh) {
                     NavigationGlyph("↻")
                 }
+                IconButton(onClick = onSettings) { NavigationGlyph("⚙") }
             },
         )
         if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -391,8 +509,14 @@ private fun AppDetailScreen(
         ) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AssistChip(onClick = {}, label = { Text(record.app.managementMode) })
-                    AssistChip(onClick = {}, label = { Text(asset?.downloadStatus ?: record.app.releaseDiscoveryStatus) })
+                    AssistChip(onClick = {}, label = { Text(modeLabel(record.app.managementMode)) })
+                    if (record.app.managementMode == ManagementMode.VERIFICATION.name) {
+                        AssistChip(onClick = {}, label = { Text(trustLabel(record)) })
+                    }
+                    AssistChip(
+                        onClick = {},
+                        label = { Text(installationSourceLabel(record.app.installationSource)) },
+                    )
                 }
             }
             item {
@@ -400,8 +524,9 @@ private fun AppDetailScreen(
                     DetailValue("Provider", record.app.provider)
                     DetailValue("URL", record.app.canonicalRepositoryUrl)
                     DetailValue("Last checked", record.app.lastReleaseCheckedAt ?: "Never")
-                    DetailValue("Variant preference", record.app.releaseVariantPreference)
-                    DetailValue("ABI preference", record.app.preferredAbi)
+                    DetailValue("Release variant", effectiveVariant(record, globalSettings).displayName())
+                    DetailValue("ABI", effectiveAbi(record, globalSettings).displayName())
+                    DetailValue("APK limit", "${effectiveLimit(record, globalSettings) / MIB} MiB")
                 }
             }
             latest?.let { release ->
@@ -424,6 +549,13 @@ private fun AppDetailScreen(
                         DetailValue("Computed SHA-256", current.computedRawSha256 ?: "Not downloaded", true)
                         DetailValue("Package", current.packageName ?: "Not inspected")
                         DetailValue("Version", current.versionName ?: "—")
+                        DetailValue(
+                            "Installed",
+                            current.installedVersionName?.let { "$it (${current.installedVersionCode})" }
+                                ?: "Not installed",
+                        )
+                        DetailValue("Update", updateLabel(current.updateStatus))
+                        DetailValue("Signer relation", signerLabel(current.existingInstallStatus))
                         DetailValue("Signer", current.currentSignerSha256 ?: "Not inspected", true)
                         DetailValue("Comparison", current.comparisonEligibility)
                         current.incomparableReason?.let { DetailValue("Reason", it) }
@@ -432,16 +564,25 @@ private fun AppDetailScreen(
                 }
             }
             if (record.app.managementMode == ManagementMode.VERIFICATION.name) {
-                val comparison = record.latestComparison
+                val comparison = record.currentComparison
                 item {
                     DetailCard("Reproducibility comparison") {
+                        DetailValue("Trust", trustLabel(record))
+                        Text(
+                            "Reproducible is limited to the current release identity and matching DEX/native-library bytes. " +
+                                "Resources, manifest, assets, signer trust, and source safety are outside this scope.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                         if (comparison == null) {
                             Text(
                                 "Build the fixed release profile from the independently resolved release tag, then compare DEX and native libraries.",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Button(
-                                enabled = !active && asset?.downloadStatus == ReferenceDownloadStatus.VERIFIED.name,
+                                enabled = !active &&
+                                    record.app.releaseDiscoveryStatus == ReleaseDiscoveryStatus.AVAILABLE.name &&
+                                    asset?.downloadStatus == ReferenceDownloadStatus.VERIFIED.name &&
+                                    asset.comparisonEligibility != ComparisonEligibility.INCOMPARABLE.name,
                                 onClick = onStartComparison,
                                 modifier = Modifier.fillMaxWidth(),
                             ) { Text("Build and compare") }
@@ -480,6 +621,57 @@ private fun AppDetailScreen(
                     }
                 }
             }
+            item {
+                DetailCard("Installation") {
+                    DetailValue("Source", installationSourceLabel(record.app.installationSource))
+                    if (record.app.installationSource == InstallationSource.LOCAL_BUILD.name) {
+                        Text(
+                            "Only an already-signed local artifact from the current comparison can be installed. " +
+                                "Phase 2C does not generate or manage a ReproDroid signing key.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (warningRequired && canInstall) {
+                        Row(verticalAlignment = Alignment.Top) {
+                            Checkbox(
+                                checked = installRiskConfirmed,
+                                onCheckedChange = { installRiskConfirmed = it },
+                            )
+                            Text(
+                                "I understand that signer compatibility or reproducibility is not confirmed; Android " +
+                                    "PackageInstaller makes the final signing-lineage decision.",
+                                modifier = Modifier.padding(top = 10.dp),
+                            )
+                        }
+                    }
+                    if (!context.packageManager.canRequestPackageInstalls()) {
+                        TextButton(
+                            onClick = {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                        "package:${context.packageName}".toUri(),
+                                    ),
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Allow installs from ReproDroid") }
+                    }
+                    Button(
+                        enabled = !active && canInstall &&
+                            context.packageManager.canRequestPackageInstalls() &&
+                            (!warningRequired || installRiskConfirmed),
+                        onClick = { onInstall(installRiskConfirmed) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (asset?.updateStatus == UpdateStatus.UPDATE_AVAILABLE.name) "Update" else "Install")
+                    }
+                    record.latestReleaseInstallAttempt?.let { attempt ->
+                        DetailValue("Latest install attempt", attempt.status)
+                        attempt.statusMessage?.let { DetailValue("Installer message", it) }
+                    }
+                }
+            }
             item { Spacer(Modifier.height(12.dp)) }
         }
     }
@@ -489,24 +681,31 @@ private fun AppDetailScreen(
 @Composable
 private fun AppPreferencesScreen(
     record: RegisteredAppRecord,
+    globalSettings: GlobalSettingsEntity,
     saving: Boolean,
     onBack: () -> Unit,
-    onSave: (ReleaseVariantPreference, PreferredAbi) -> Unit,
+    onSave: (AppSettingsUpdate) -> Unit,
 ) {
     BackHandler(onBack = onBack)
-    var variant by rememberSaveable(record.app.registeredAppId) {
-        mutableStateOf(
-            ReleaseVariantPreference.entries.firstOrNull {
-                it.name == record.app.releaseVariantPreference
-            } ?: ReleaseVariantPreference.RELEASE,
-        )
+    var mode by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(enumValue(record.app.managementMode, ManagementMode.VERIFICATION))
     }
-    var abi by rememberSaveable(record.app.registeredAppId) {
-        mutableStateOf(
-            PreferredAbi.entries.firstOrNull { it.name == record.app.preferredAbi }
-                ?: PreferredAbi.ARM64_V8A,
-        )
+    var source by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(enumValue(record.app.installationSource, InstallationSource.OFFICIAL_RELEASE))
     }
+    var variantChoice by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(if (record.app.useGlobalReleaseVariant) "GLOBAL" else record.app.releaseVariantPreference)
+    }
+    var abiChoice by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(if (record.app.useGlobalPreferredAbi) "GLOBAL" else record.app.preferredAbi)
+    }
+    var limitChoice by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(if (record.app.useGlobalMaxApkSize) -1L else record.app.maxApkSizeBytes)
+    }
+    var localRiskConfirmed by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(source == InstallationSource.LOCAL_BUILD)
+    }
+    val sourceLocked = record.latestRelease?.selectedAsset?.installedVersionCode != null
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("${record.app.displayName} settings") },
@@ -519,64 +718,127 @@ private fun AppPreferencesScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text("Release variant", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Used to disambiguate APK filenames when a release contains multiple files.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            items(ReleaseVariantPreference.entries) { candidate ->
-                PreferenceOption(
-                    selected = variant == candidate,
-                    label = candidate.name.lowercase().replaceFirstChar(Char::uppercase),
-                    onSelect = { variant = candidate },
+                SectionTitle(
+                    "Registration settings",
+                    "These values do not follow later global changes.",
                 )
             }
             item {
-                HorizontalDivider()
-                Text("Preferred ABI", style = MaterialTheme.typography.titleMedium)
+                DropdownSetting(
+                    "Management mode",
+                    mode,
+                    ManagementMode.entries
+                        .filter {
+                            !sourceLocked || source != InstallationSource.LOCAL_BUILD ||
+                                it == ManagementMode.VERIFICATION
+                        }
+                        .associateWith(::modeLabel),
+                    onSelect = {
+                        mode = it
+                        if (it == ManagementMode.ACQUISITION && !sourceLocked) {
+                            source = InstallationSource.OFFICIAL_RELEASE
+                        }
+                    },
+                )
             }
-            items(PreferredAbi.entries) { candidate ->
-                PreferenceOption(
-                    selected = abi == candidate,
-                    label = candidate.displayName(),
-                    onSelect = { abi = candidate },
+            item {
+                DropdownSetting(
+                    "Installation source",
+                    source,
+                    InstallationSource.entries
+                        .filter { mode == ManagementMode.VERIFICATION || it == InstallationSource.OFFICIAL_RELEASE }
+                        .associateWith(::installationSourceLabel),
+                    onSelect = {
+                        source = it
+                        if (it == InstallationSource.LOCAL_BUILD) localRiskConfirmed = false
+                    },
+                    enabled = !sourceLocked,
+                    supportingText = if (sourceLocked) {
+                        "Locked while ${record.latestRelease?.selectedAsset?.packageName ?: "the target package"} is installed."
+                    } else {
+                        "Local build is allowed only in Verification mode and while the package is not installed."
+                    },
+                )
+            }
+            if (source == InstallationSource.LOCAL_BUILD && !sourceLocked) {
+                item {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Checkbox(checked = localRiskConfirmed, onCheckedChange = { localRiskConfirmed = it })
+                        Text("I accept the local signing and future-update risks.", Modifier.padding(top = 10.dp))
+                    }
+                }
+            }
+            item { HorizontalDivider() }
+            item { SectionTitle("Inherited defaults", "Use global default follows future changes.") }
+            item {
+                DropdownSetting(
+                    "Release variant",
+                    variantChoice,
+                    linkedMapOf(
+                        "GLOBAL" to
+                            "Use global default (${globalSettings.defaultReleaseVariantPreference.displayEnum()})",
+                    ) + ReleaseVariantPreference.entries.associate { it.name to it.displayName() },
+                    onSelect = { variantChoice = it },
+                )
+            }
+            item {
+                DropdownSetting(
+                    "Preferred ABI",
+                    abiChoice,
+                    linkedMapOf(
+                        "GLOBAL" to "Use global default (${globalSettings.defaultPreferredAbi.displayEnum()})",
+                    ) + PreferredAbi.entries.associate { it.name to it.displayName() },
+                    onSelect = { abiChoice = it },
+                )
+            }
+            item {
+                DropdownSetting(
+                    "APK download limit",
+                    limitChoice,
+                    linkedMapOf(
+                        -1L to "Use global default (${globalSettings.defaultMaxApkSizeBytes / MIB} MiB)",
+                    ) + APK_LIMITS.associateWith { "${it / MIB} MiB" },
+                    onSelect = { limitChoice = it },
                 )
             }
             item {
                 Text(
-                    "Saving clears the release metadata cache. Use Refresh on the app detail screen to apply the new selection. Ambiguous matches fail closed.",
+                    "Changing variant or ABI clears the release metadata cache. Refresh before trusting a new selection.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Spacer(Modifier.height(8.dp))
                 Button(
-                    enabled = !saving,
-                    onClick = { onSave(variant, abi) },
+                    enabled = !saving && (source != InstallationSource.LOCAL_BUILD || localRiskConfirmed),
+                    onClick = {
+                        onSave(
+                            AppSettingsUpdate(
+                                managementMode = mode,
+                                installationSource = source,
+                                releaseVariantPreference = enumValue(
+                                    variantChoice.takeUnless { it == "GLOBAL" }
+                                        ?: globalSettings.defaultReleaseVariantPreference,
+                                    ReleaseVariantPreference.RELEASE,
+                                ),
+                                useGlobalReleaseVariant = variantChoice == "GLOBAL",
+                                preferredAbi = enumValue(
+                                    abiChoice.takeUnless { it == "GLOBAL" }
+                                        ?: globalSettings.defaultPreferredAbi,
+                                    PreferredAbi.ARM64_V8A,
+                                ),
+                                useGlobalPreferredAbi = abiChoice == "GLOBAL",
+                                maxApkSizeBytes = if (limitChoice == -1L) {
+                                    globalSettings.defaultMaxApkSizeBytes
+                                } else {
+                                    limitChoice
+                                },
+                                useGlobalMaxApkSize = limitChoice == -1L,
+                                localBuildRiskConfirmed = localRiskConfirmed,
+                            ),
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (saving) "Saving…" else "Save app settings") }
             }
-        }
-    }
-}
-
-@Composable
-private fun PreferenceOption(selected: Boolean, label: String, onSelect: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
-        ),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RadioButton(selected = selected, onClick = onSelect)
-            Text(label)
         }
     }
 }
@@ -621,7 +883,11 @@ private fun PreferredAbi.displayName(): String = when (this) {
 }
 
 @Composable
-private fun SettingsScreen(onOpenRunnerJobs: () -> Unit) {
+private fun SettingsScreen(
+    settings: GlobalSettingsEntity,
+    onUpdate: (GlobalSettingsEntity) -> Unit,
+    onOpenRunnerJobs: () -> Unit,
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -630,23 +896,146 @@ private fun SettingsScreen(onOpenRunnerJobs: () -> Unit) {
             Spacer(Modifier.height(16.dp))
             Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
         }
-        item { SettingRow("Theme", "Dark") }
-        item { SettingRow("Release provider", "Public GitHub Releases") }
-        item { SettingRow("Default ABI", "arm64-v8a") }
-        item { SettingRow("Maximum APK size", "512 MiB") }
-        item { SettingRow("Rate limit", "Unauthenticated GitHub API") }
+        item { SectionTitle("Appearance", "Applied immediately to ReproDroid.") }
+        item {
+            DropdownSetting(
+                "Theme",
+                enumValue(settings.themeMode, ThemeMode.DARK),
+                ThemeMode.entries.associateWith { it.name.displayEnum() },
+                onSelect = { onUpdate(settings.copy(themeMode = it.name)) },
+            )
+        }
+        item { HorizontalDivider() }
+        item {
+            SectionTitle(
+                "Inherited app defaults",
+                "Apps set to Use global default follow future changes.",
+            )
+        }
+        item {
+            DropdownSetting(
+                "Default release variant",
+                enumValue(settings.defaultReleaseVariantPreference, ReleaseVariantPreference.RELEASE),
+                ReleaseVariantPreference.entries.associateWith { it.displayName() },
+                onSelect = { onUpdate(settings.copy(defaultReleaseVariantPreference = it.name)) },
+            )
+        }
+        item {
+            DropdownSetting(
+                "Default ABI",
+                enumValue(settings.defaultPreferredAbi, PreferredAbi.ARM64_V8A),
+                PreferredAbi.entries.associateWith { it.displayName() },
+                onSelect = { onUpdate(settings.copy(defaultPreferredAbi = it.name)) },
+            )
+        }
+        item {
+            DropdownSetting(
+                "Default APK download limit",
+                settings.defaultMaxApkSizeBytes,
+                APK_LIMITS.associateWith { "${it / MIB} MiB" },
+                onSelect = { onUpdate(settings.copy(defaultMaxApkSizeBytes = it)) },
+                supportingText = "The security hard limit remains 512 MiB.",
+            )
+        }
+        item { HorizontalDivider() }
+        item {
+            SectionTitle(
+                "Registration defaults",
+                "Copied into new apps. Existing registered apps do not follow changes.",
+            )
+        }
+        item {
+            DropdownSetting(
+                "Default management mode",
+                enumValue(settings.defaultManagementMode, ManagementMode.VERIFICATION),
+                ManagementMode.entries.associateWith(::modeLabel),
+                onSelect = { mode ->
+                    onUpdate(
+                        settings.copy(
+                            defaultManagementMode = mode.name,
+                            defaultInstallationSource = if (mode == ManagementMode.ACQUISITION) {
+                                InstallationSource.OFFICIAL_RELEASE.name
+                            } else {
+                                settings.defaultInstallationSource
+                            },
+                        ),
+                    )
+                },
+            )
+        }
+        item {
+            val mode = enumValue(settings.defaultManagementMode, ManagementMode.VERIFICATION)
+            DropdownSetting(
+                "Default installation source",
+                enumValue(settings.defaultInstallationSource, InstallationSource.OFFICIAL_RELEASE),
+                InstallationSource.entries
+                    .filter { mode == ManagementMode.VERIFICATION || it == InstallationSource.OFFICIAL_RELEASE }
+                    .associateWith(::installationSourceLabel),
+                onSelect = { onUpdate(settings.copy(defaultInstallationSource = it.name)) },
+                supportingText = "Local build still requires explicit acknowledgement for every registration.",
+            )
+        }
+        item { HorizontalDivider() }
+        item { SettingInfo("Release provider", "Public GitHub Releases") }
+        item { SettingInfo("GitHub API", "Unauthenticated · manual refresh") }
         item {
             HorizontalDivider()
             TextButton(onClick = onOpenRunnerJobs, modifier = Modifier.fillMaxWidth()) {
                 Text("Open Runner jobs and Phase 1 tools")
             }
         }
-        item { SettingRow("ReproDroid", "0.1.0-alpha01 · Phase 2B") }
+        item { SettingInfo("ReproDroid", "0.1.0-alpha01 · Phase 2C") }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> DropdownSetting(
+    label: String,
+    value: T,
+    options: Map<T, String>,
+    onSelect: (T) -> Unit,
+    enabled: Boolean = true,
+    supportingText: String? = null,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { if (enabled) expanded = !expanded },
+    ) {
+        OutlinedTextField(
+            value = options[value] ?: value.toString(),
+            onValueChange = {},
+            readOnly = true,
+            enabled = enabled,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            supportingText = supportingText?.let { text -> ({ Text(text) }) },
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
+                .fillMaxWidth(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (candidate, candidateLabel) ->
+                DropdownMenuItem(
+                    text = { Text(candidateLabel) },
+                    onClick = { expanded = false; onSelect(candidate) },
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun SettingRow(label: String, value: String) {
+private fun SectionTitle(title: String, explanation: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(explanation, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun SettingInfo(label: String, value: String) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Text(label, style = MaterialTheme.typography.labelLarge)
@@ -679,14 +1068,85 @@ private fun DetailValue(label: String, value: String, monospace: Boolean = false
     }
 }
 
+private fun trustLabel(record: RegisteredAppRecord): String = when (record.trustLevel) {
+    TrustLevel.REPRODUCIBLE -> "Reproducible"
+    TrustLevel.BUILDABLE -> "Buildable"
+    TrustLevel.DIFFERENT -> "Different"
+    TrustLevel.INCOMPARABLE -> "Incomparable"
+    TrustLevel.FAILED -> "Failed"
+    null -> when (record.currentComparison?.status) {
+        ComparisonRunStatus.BUILDING.name -> "Building"
+        ComparisonRunStatus.COMPARING.name -> "Comparing"
+        ComparisonRunStatus.AWAITING_CONFIRMATION.name -> "Confirmation required"
+        else -> "Not evaluated"
+    }
+}
+
+private fun updateLabel(status: String?): String = when (status) {
+    UpdateStatus.NOT_INSTALLED.name -> "Not installed"
+    UpdateStatus.UPDATE_AVAILABLE.name -> "Update available"
+    UpdateStatus.UP_TO_DATE.name -> "Up to date"
+    UpdateStatus.OLDER_THAN_INSTALLED.name -> "Older release"
+    UpdateStatus.UNKNOWN.name -> "Unknown"
+    else -> "Not evaluated"
+}
+
 @Composable
-private fun statusColor(status: String?): Color = when (status) {
-    ReferenceDownloadStatus.VERIFIED.name -> Color(0xFF78DC9A)
-    ReferenceDownloadStatus.FAILED.name -> MaterialTheme.colorScheme.error
+private fun updateColor(status: String?): Color = when (status) {
+    UpdateStatus.UPDATE_AVAILABLE.name -> MaterialTheme.colorScheme.primary
+    UpdateStatus.UNKNOWN.name -> MaterialTheme.colorScheme.error
     else -> MaterialTheme.colorScheme.secondary
 }
+
+private fun signerLabel(status: String?): String = when (status) {
+    "SIGNER_MATCH" -> "Signer match"
+    "SIGNER_MISMATCH" -> "Signer mismatch"
+    "NOT_INSTALLED_OR_NOT_VISIBLE" -> "New install"
+    else -> "Signer unknown"
+}
+
+private fun modeLabel(mode: ManagementMode): String =
+    if (mode == ManagementMode.VERIFICATION) "Verification" else "Acquisition"
+
+private fun modeLabel(mode: String): String = modeLabel(enumValue(mode, ManagementMode.VERIFICATION))
+
+private fun installationSourceLabel(source: InstallationSource): String =
+    if (source == InstallationSource.OFFICIAL_RELEASE) "Official release APK" else "Local ReproDroid build"
+
+private fun installationSourceLabel(source: String): String =
+    installationSourceLabel(enumValue(source, InstallationSource.OFFICIAL_RELEASE))
+
+private fun ReleaseVariantPreference.displayName(): String = name.lowercase().replaceFirstChar(Char::uppercase)
+
+private fun effectiveVariant(
+    record: RegisteredAppRecord,
+    settings: GlobalSettingsEntity,
+): ReleaseVariantPreference = enumValue(
+    if (record.app.useGlobalReleaseVariant) {
+        settings.defaultReleaseVariantPreference
+    } else {
+        record.app.releaseVariantPreference
+    },
+    ReleaseVariantPreference.RELEASE,
+)
+
+private fun effectiveAbi(record: RegisteredAppRecord, settings: GlobalSettingsEntity): PreferredAbi = enumValue(
+    if (record.app.useGlobalPreferredAbi) settings.defaultPreferredAbi else record.app.preferredAbi,
+    PreferredAbi.ARM64_V8A,
+)
+
+private fun effectiveLimit(record: RegisteredAppRecord, settings: GlobalSettingsEntity): Long =
+    if (record.app.useGlobalMaxApkSize) settings.defaultMaxApkSizeBytes else record.app.maxApkSizeBytes
+
+private inline fun <reified T : Enum<T>> enumValue(value: String, fallback: T): T =
+    enumValues<T>().firstOrNull { it.name == value } ?: fallback
+
+private fun String.displayEnum(): String = lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
 @Composable
 private fun NavigationGlyph(value: String) {
     Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
+
+private const val MIB = 1024L * 1024L
+private val APK_LIMITS = listOf(64L * MIB, 128L * MIB, 256L * MIB, 512L * MIB)

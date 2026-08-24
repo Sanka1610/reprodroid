@@ -8,9 +8,18 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ManagedAppDao {
+    @Query("SELECT * FROM global_settings WHERE singletonId = 1")
+    fun observeGlobalSettings(): Flow<GlobalSettingsEntity?>
+
+    @Query("SELECT * FROM global_settings WHERE singletonId = 1")
+    suspend fun getGlobalSettings(): GlobalSettingsEntity?
+
     @Transaction
     @Query("SELECT * FROM registered_apps ORDER BY displayName COLLATE NOCASE, createdAt")
     fun observeRegisteredApps(): Flow<List<RegisteredAppRecord>>
+
+    @Query("SELECT * FROM registered_apps")
+    suspend fun getRegisteredApps(): List<RegisteredAppEntity>
 
     @Transaction
     @Query("SELECT * FROM registered_apps WHERE registeredAppId = :registeredAppId")
@@ -53,6 +62,15 @@ interface ManagedAppDao {
     @Query("SELECT * FROM release_assets WHERE downloadStatus = 'VERIFIED'")
     suspend fun getVerifiedDownloads(): List<ReleaseAssetEntity>
 
+    @Query("SELECT * FROM release_install_attempts WHERE attemptId = :attemptId")
+    suspend fun getReleaseInstallAttempt(attemptId: String): ReleaseInstallAttemptEntity?
+
+    @Query(
+        "SELECT * FROM release_install_attempts WHERE status IN " +
+            "('PREPARING', 'COMMITTED', 'PENDING_USER_ACTION')",
+    )
+    suspend fun getPendingReleaseInstallAttempts(): List<ReleaseInstallAttemptEntity>
+
     @Query("SELECT * FROM comparison_runs WHERE comparisonRunId = :comparisonRunId")
     suspend fun getComparisonRun(comparisonRunId: String): ComparisonRunEntity?
 
@@ -74,6 +92,15 @@ interface ManagedAppDao {
     @Upsert
     suspend fun upsertComparisonEntries(entries: List<ComparisonEntryEntity>)
 
+    @Upsert
+    suspend fun upsertGlobalSettings(settings: GlobalSettingsEntity)
+
+    @Upsert
+    suspend fun upsertReleaseInstallAttempt(attempt: ReleaseInstallAttemptEntity)
+
     @Query("DELETE FROM comparison_entries WHERE comparisonRunId = :comparisonRunId")
     suspend fun deleteComparisonEntries(comparisonRunId: String)
+
+    @Query("DELETE FROM registered_apps WHERE registeredAppId = :registeredAppId")
+    suspend fun deleteRegisteredApp(registeredAppId: String)
 }

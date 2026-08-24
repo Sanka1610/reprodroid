@@ -4,7 +4,7 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 ## 現在の状態
 
-Phase 2B（固定release再ビルドとDEX／native library比較）まで実装し、Android 16 Emulator E2Eを検証しています。
+Phase 2C（trust表示、更新関係、公式APK install、設定継承）を実装中です。Phase 2Bの固定release再ビルドとDEX／native library比較まではAndroid 16 Emulator E2Eを完了しています。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
@@ -37,6 +37,12 @@ Phase 2B（固定release再ビルドとDEX／native library比較）まで実装
 - path traversal、重複entry、malformed ZIP、展開量上限、保存後改ざんの拒否
 - comparison runとentry結果を保存するRoom v6 migration
 - Build-and-compare、full SHA／host RCE確認、状態／結果／理由を表示する最小UI
+- 現在のrelease／asset／full SHAだけに限定した`Reproducible`／`Buildable`／`Different`／`Incomparable`／`Failed`表示
+- official APKとinstalled packageの`longVersionCode`から独立して保存する更新関係
+- 署名済み公式APKを既定にしたInstall／Updateと、専用のrelease install attempt履歴
+- 未インストール時だけ選択できる署名済みlocal comparison artifactのinstall source
+- theme、release variant、ABI、APK download limit、登録時management mode／install sourceを変更できる全般設定
+- global default追従とアプリ別override、およびRoom v7 migration
 
 Phase 2A E2EではMicroG-RE `6.1.4`を取得し、release tagから`d8df10ab687a1c1ca05221634cfa46bad262023a`を解決しました。13,393,291 byteのAPKについて、GitHub provider digest、streaming中のAndroid計算SHA-256、保存後のAndroid `sha256sum`がすべて`907b0f1d64d4bdf2fc15df596129cdf9f140f5360f557d24ff2e987c9f586f15`で一致しました。package、version、signer、`INCOMPARABLE`理由、APK内アイコンの一覧表示と、アプリ別variant／ABI設定のforce-stop後復元も確認しています。
 
@@ -70,6 +76,8 @@ Phase 2では、公式APKまたは開発者公開APKをAndroidアプリ側で取
 Phase 2Aの初期providerはpublic GitHub Releasesに限定します。`tag_name`からGit refを解決し、annotated tagをcommitまでpeelしたfull SHAを保存します。`target_commitish`は証跡として保存しますが、checkout対象にはしません。uploaded APKが1件ならそのまま採用します。複数の場合はアプリ別設定（既定`Release`／`arm64-v8a`）でfile nameを絞り、厳密に1件となる場合だけ採用します。`Preview`／`Debug`は明示tokenを要求し、`Release`は`preview`／`debug`でないassetとして扱います。
 
 比較不能は`INCOMPARABLE`として`Different`から分離します。Phase 2BはMicroG-RE `6.1.4`だけを許可し、Runnerがtagを独立解決した後、保存済みfull SHAと一致した場合だけ利用者がbuildを確認できます。Androidは取得したRunner artifactを再検査し、対象同一性確認後にDEX／native libraryだけを比較します。`MATCH`はこの限定範囲の一致であり、APK全体やsourceの安全性を証明しません。設計判断は[ADR-0009](../reprodroid-project/docs/adr/0009-phase-2-reference-apk-and-update-boundary.md)と[ADR-0010](../reprodroid-project/docs/adr/0010-phase-2b-executable-apk-content-comparison.md)に記録しています。
+
+Phase 2Cでは、現在選択中のrelease snapshot、asset、expected full commit SHAに一致するcomparison runだけをtrust表示へ使います。検証モードのinstall sourceは署名済み公式APKが既定です。local buildは未インストール時に明示選択し、現在runに結び付いた署名済みartifactだけを許可します。現行MicroG-RE comparison artifactはunsignedなのでfail closedで拒否します。将来のReproDroid鍵は候補ですが、Phase 2への採用は確定していません。詳細は[ADR-0011](../reprodroid-project/docs/adr/0011-phase-2c-trust-update-and-install-policy.md)を参照してください。
 
 ## リポジトリ構成
 
@@ -139,12 +147,12 @@ base URLはGradle propertyで上書きできます。値には`/v1`を含めず�
 
 初期実装は単一APKに限定します。split APK、APKS、AABは対象外です。
 
-1. RunnerからAPKと期待SHA-256を取得
-2. アプリ専用領域へ保存
-3. Android側でSHA-256を再計算
+1. Runner artifactまたは公式release APKと期待SHA-256を取得
+2. 用途別のアプリ専用領域へ保存
+3. Android側でsize、SHA-256、package、version、signerを検査
 4. 不一致なら保存・インストールを拒否
-5. 候補APKとインストール済みpackageのversion、署名証明書fingerprintを表示
-6. 利用者の明示操作で標準`PackageInstaller`を起動
+5. 公式APKの`longVersionCode`とインストール済みpackageから更新関係を判定し、signer relationとは別に表示
+6. 未インストールまたは新しいversionだけ、利用者の明示操作で標準`PackageInstaller`を起動
 
 標準インストーラには`REQUEST_INSTALL_PACKAGES`と端末側の「不明なアプリのインストール」許可が必要です。未許可の場合はReproDroid用の`ACTION_MANAGE_UNKNOWN_APP_SOURCES`設定を開きます。既存の同一packageアプリと署名が異なる場合、通常は上書きできません。本アプリは自動アンインストール、silent install、root/Shizuku、署名検証回避を行いません。
 
@@ -155,6 +163,8 @@ URLから登録されるアプリのpackage nameはビルド時に確定でき�
 取得したインストール済みpackage情報と署名fingerprintはローカル判定にだけ使用し、Runner、配布元、analytics、広告、telemetryへ送信しません。ネットワーク通信には、利用者が入力したrepository URL、Job操作、artifact取得など、明示した処理に必要な情報だけを使用します。ReproDroidはanalytics、広告、crash reporting SDKを組み込んでいません。詳細な設計判断は[ADR-0008](../reprodroid-project/docs/adr/0008-query-all-packages-for-url-registered-apps.md)を参照してください。
 
 Android Developer Verificationの適用状況によっては、未登録または証明書が異なるローカルビルドAPKにadvanced flowが必要になる可能性があります。OSの拒否は回避せず、結果と必要な操作を表示します。
+
+全般設定のrelease variant、ABI、APK download limitは、新規アプリのdefaultであり、`Use global default`を選んだ既存アプリも将来変更へ追従します。management modeとinstall sourceは登録時に具体値をコピーし、全般設定変更へ追従しません。アプリ個別設定はglobal追従を解除した項目だけをoverrideします。install sourceは対象packageがインストールされている間は変更できず、repositoryが保存直前にも再照会します。
 
 ## 環境構築
 
@@ -188,10 +198,11 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 
 Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E完了時に`./gradlew testDebugUnitTest lintDebug build --rerun-tasks -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080`を実行し、113 actionable tasksすべてexecuted、`BUILD SUCCESSFUL`を確認しました。標準installerの各callbackとRoom復元はWindows Android Emulator上のE2Eで確認しています。
 
-## Phase 2B時点で未実装
+## Phase 2C実装後も対象外／未実装
 
 - manifest／resources／assetsを含むAPK全内容の正規化比較
-- Phase 2Cの最終trust-level／更新候補／install policy統合
+- Phase 2Cの公式APK install callbackを含む端末UI E2E完了
+- ReproDroid鍵によるlocal comparison artifactの署名
 - MicroG-RE `6.1.4`以外のrelease comparison profile
 - 定期更新、通知、任意assetの直接選択、private repository／GitHub token
 - split APK、APKS、AAB

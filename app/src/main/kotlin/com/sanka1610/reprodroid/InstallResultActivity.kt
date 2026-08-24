@@ -22,45 +22,50 @@ class InstallResultActivity : ComponentActivity() {
             PackageInstaller.STATUS_FAILURE,
         )
         val statusMessage = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
+        val isReleaseAttempt = intent.getStringExtra(EXTRA_ATTEMPT_SOURCE) == SOURCE_RELEASE
         lifecycleScope.launch {
-            val repository = (application as ReproDroidApplication).jobRepository
+            val app = application as ReproDroidApplication
+            suspend fun record(status: InstallAttemptStatus, platformStatus: Int, message: String?) {
+                if (isReleaseAttempt) {
+                    app.managedAppRepository.recordReleaseInstallStatus(
+                        attemptId,
+                        status,
+                        platformStatus,
+                        message,
+                    )
+                } else {
+                    app.jobRepository.recordInstallStatus(attemptId, status, platformStatus, message)
+                }
+            }
             if (packageInstallerStatus == PackageInstaller.STATUS_PENDING_USER_ACTION) {
-                repository.recordInstallStatus(
-                    attemptId = attemptId,
-                    status = InstallAttemptStatus.PENDING_USER_ACTION,
-                    packageInstallerStatus = packageInstallerStatus,
-                    statusMessage = statusMessage,
-                )
+                record(InstallAttemptStatus.PENDING_USER_ACTION, packageInstallerStatus, statusMessage)
                 val confirmationIntent = pendingUserActionIntent()
                 if (confirmationIntent == null) {
-                    repository.recordInstallStatus(
-                        attemptId = attemptId,
-                        status = InstallAttemptStatus.FAILED,
-                        packageInstallerStatus = PackageInstaller.STATUS_FAILURE,
-                        statusMessage = "PackageInstaller did not provide its user-confirmation intent.",
+                    record(
+                        InstallAttemptStatus.FAILED,
+                        PackageInstaller.STATUS_FAILURE,
+                        "PackageInstaller did not provide its user-confirmation intent.",
                     )
                 } else {
                     try {
                         startActivity(confirmationIntent)
                     } catch (failure: Throwable) {
-                        repository.recordInstallStatus(
-                            attemptId = attemptId,
-                            status = InstallAttemptStatus.FAILED,
-                            packageInstallerStatus = PackageInstaller.STATUS_FAILURE,
-                            statusMessage = failure.message ?: "The system install confirmation could not be opened.",
+                        record(
+                            InstallAttemptStatus.FAILED,
+                            PackageInstaller.STATUS_FAILURE,
+                            failure.message ?: "The system install confirmation could not be opened.",
                         )
                     }
                 }
             } else {
-                repository.recordInstallStatus(
-                    attemptId = attemptId,
-                    status = when (packageInstallerStatus) {
+                record(
+                    when (packageInstallerStatus) {
                         PackageInstaller.STATUS_SUCCESS -> InstallAttemptStatus.SUCCEEDED
                         PackageInstaller.STATUS_FAILURE_ABORTED -> InstallAttemptStatus.CANCELLED
                         else -> InstallAttemptStatus.FAILED
                     },
-                    packageInstallerStatus = packageInstallerStatus,
-                    statusMessage = statusMessage,
+                    packageInstallerStatus,
+                    statusMessage,
                 )
             }
             finish()
@@ -76,5 +81,7 @@ class InstallResultActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_ATTEMPT_ID = "com.sanka1610.reprodroid.extra.INSTALL_ATTEMPT_ID"
+        const val EXTRA_ATTEMPT_SOURCE = "com.sanka1610.reprodroid.extra.INSTALL_ATTEMPT_SOURCE"
+        const val SOURCE_RELEASE = "RELEASE"
     }
 }

@@ -13,6 +13,17 @@ enum class ManagementMode {
     ACQUISITION,
 }
 
+enum class InstallationSource {
+    OFFICIAL_RELEASE,
+    LOCAL_BUILD,
+}
+
+enum class ThemeMode {
+    SYSTEM,
+    LIGHT,
+    DARK,
+}
+
 enum class ReleaseVariantPreference {
     RELEASE,
     PREVIEW,
@@ -46,6 +57,35 @@ enum class ComparisonEligibility {
     INCOMPARABLE,
 }
 
+enum class UpdateStatus {
+    NOT_EVALUATED,
+    NOT_INSTALLED,
+    UPDATE_AVAILABLE,
+    UP_TO_DATE,
+    OLDER_THAN_INSTALLED,
+    UNKNOWN,
+}
+
+enum class TrustLevel {
+    REPRODUCIBLE,
+    BUILDABLE,
+    DIFFERENT,
+    INCOMPARABLE,
+    FAILED,
+}
+
+data class AppSettingsUpdate(
+    val managementMode: ManagementMode,
+    val installationSource: InstallationSource,
+    val releaseVariantPreference: ReleaseVariantPreference,
+    val useGlobalReleaseVariant: Boolean,
+    val preferredAbi: PreferredAbi,
+    val useGlobalPreferredAbi: Boolean,
+    val maxApkSizeBytes: Long,
+    val useGlobalMaxApkSize: Boolean,
+    val localBuildRiskConfirmed: Boolean,
+)
+
 enum class AssetSelectionReason {
     SINGLE_APK,
     PREFERRED_ABI_FILENAME,
@@ -63,10 +103,20 @@ data class RegisteredAppEntity(
     val canonicalRepositoryUrl: String,
     val provider: String,
     val managementMode: String,
+    @ColumnInfo(defaultValue = "'OFFICIAL_RELEASE'")
+    val installationSource: String = InstallationSource.OFFICIAL_RELEASE.name,
     @ColumnInfo(defaultValue = "'RELEASE'")
     val releaseVariantPreference: String = ReleaseVariantPreference.RELEASE.name,
     @ColumnInfo(defaultValue = "'ARM64_V8A'")
     val preferredAbi: String = PreferredAbi.ARM64_V8A.name,
+    @ColumnInfo(defaultValue = "536870912")
+    val maxApkSizeBytes: Long = GlobalSettingsEntity.MAX_APK_SIZE_BYTES,
+    @ColumnInfo(defaultValue = "0")
+    val useGlobalReleaseVariant: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
+    val useGlobalPreferredAbi: Boolean = false,
+    @ColumnInfo(defaultValue = "1")
+    val useGlobalMaxApkSize: Boolean = true,
     val releaseDiscoveryStatus: String = ReleaseDiscoveryStatus.NOT_CHECKED.name,
     val releaseDiscoveryErrorCode: String? = null,
     val releaseDiscoveryErrorMessage: String? = null,
@@ -75,6 +125,23 @@ data class RegisteredAppEntity(
     val createdAt: String,
     val updatedAt: String,
 )
+
+@Entity(tableName = "global_settings")
+data class GlobalSettingsEntity(
+    @PrimaryKey val singletonId: Int = SINGLETON_ID,
+    val themeMode: String = ThemeMode.DARK.name,
+    val defaultManagementMode: String = ManagementMode.VERIFICATION.name,
+    val defaultInstallationSource: String = InstallationSource.OFFICIAL_RELEASE.name,
+    val defaultReleaseVariantPreference: String = ReleaseVariantPreference.RELEASE.name,
+    val defaultPreferredAbi: String = PreferredAbi.ARM64_V8A.name,
+    val defaultMaxApkSizeBytes: Long = MAX_APK_SIZE_BYTES,
+    val updatedAt: String,
+) {
+    companion object {
+        const val SINGLETON_ID = 1
+        const val MAX_APK_SIZE_BYTES = 512L * 1024L * 1024L
+    }
+}
 
 @Entity(
     tableName = "release_snapshots",
@@ -150,9 +217,42 @@ data class ReleaseAssetEntity(
     val existingInstallStatus: String? = null,
     val installedVersionName: String? = null,
     val installedVersionCode: Long? = null,
+    @ColumnInfo(defaultValue = "'NOT_EVALUATED'")
+    val updateStatus: String = UpdateStatus.NOT_EVALUATED.name,
+    val updateEvaluatedAt: String? = null,
     val comparisonEligibility: String = ComparisonEligibility.NOT_EVALUATED.name,
     val incomparableReason: String? = null,
     val downloadedAt: String? = null,
+)
+
+@Entity(
+    tableName = "release_install_attempts",
+    foreignKeys = [
+        ForeignKey(
+            entity = RegisteredAppEntity::class,
+            parentColumns = ["registeredAppId"],
+            childColumns = ["registeredAppId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = ReleaseAssetEntity::class,
+            parentColumns = ["releaseAssetId"],
+            childColumns = ["releaseAssetId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("registeredAppId"), Index("releaseAssetId")],
+)
+data class ReleaseInstallAttemptEntity(
+    @PrimaryKey val attemptId: String,
+    val registeredAppId: String,
+    val releaseAssetId: String,
+    val packageInstallerSessionId: Int?,
+    val status: String,
+    val packageInstallerStatus: Int?,
+    val statusMessage: String?,
+    val createdAt: String,
+    val updatedAt: String,
 )
 
 data class ReleaseSnapshotWithAssets(
@@ -179,10 +279,50 @@ data class RegisteredAppRecord(
     val releases: List<ReleaseSnapshotWithAssets>,
     @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
     val comparisons: List<ComparisonRunEntity>,
+    @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
+    val releaseInstallAttempts: List<ReleaseInstallAttemptEntity>,
 ) {
     val latestRelease: ReleaseSnapshotWithAssets?
         get() = releases.maxByOrNull { it.snapshot.publishedAt }
 
-    val latestComparison: ComparisonRunEntity?
-        get() = comparisons.maxWithOrNull(compareBy<ComparisonRunEntity> { it.createdAt }.thenBy { it.comparisonRunId })
+    val currentComparison: ComparisonRunEntity?
+        get() {
+            val release = latestRelease ?: return null
+            val asset = release.selectedAsset ?: return null
+            if (asset.comparisonEligibility == ComparisonEligibility.NOT_EVALUATED.name) return null
+            return comparisons
+                .asSequence()
+                .filter { comparison ->
+                    comparison.releaseSnapshotId == release.snapshot.releaseSnapshotId &&
+                        comparison.referenceAssetId == asset.releaseAssetId &&
+                        comparison.expectedCommitSha == release.snapshot.resolvedCommitSha
+                }
+                .maxWithOrNull(compareBy<ComparisonRunEntity> { it.createdAt }.thenBy { it.comparisonRunId })
+        }
+
+    val trustLevel: TrustLevel?
+        get() = currentComparison?.let { comparison ->
+            when (comparison.outcome) {
+                ComparisonOutcome.MATCH.name -> TrustLevel.REPRODUCIBLE
+                ComparisonOutcome.DIFFERENT.name -> TrustLevel.DIFFERENT
+                ComparisonOutcome.INCOMPARABLE.name -> if (
+                    comparison.incomparableReason?.startsWith("RUNNER_JOB_FAILED") == true
+                ) {
+                    TrustLevel.FAILED
+                } else {
+                    TrustLevel.INCOMPARABLE
+                }
+                ComparisonOutcome.NOT_EVALUATED.name -> if (comparison.localArtifactId != null) {
+                    TrustLevel.BUILDABLE
+                } else {
+                    null
+                }
+                else -> null
+            }
+        }
+
+    val latestReleaseInstallAttempt: ReleaseInstallAttemptEntity?
+        get() = releaseInstallAttempts.maxWithOrNull(
+            compareBy<ReleaseInstallAttemptEntity> { it.createdAt }.thenBy { it.attemptId },
+        )
 }
