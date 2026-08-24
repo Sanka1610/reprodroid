@@ -50,7 +50,7 @@ Phase 2Bでは同じtag／full SHAをTemurin 18、`clean :play-services-core:ass
 
 ローカルrelease APKは上流workflowの後段sign action前なのでunsignedです。comparison専用downloadだけがunsigned APKのidentity解析を許容し、通常のinstall用downloadと`installArtifact`はsigner metadata必須を維持します。Runner Job UIではcomparison-onlyと表示し、installer導線を出しません。
 
-Phase 2C E2Eでは、unknown app sources設定への誘導、設定画面から復帰した際の権限再評価、公式APKの利用者キャンセル／成功callback、force-stop後のattempt復元、同version再install抑止、インストール中のsource lockを確認しました。MicroG-REを一時的に未インストールへ戻して固定releaseを再ビルドし、`COMPLETED`／`MATCH`／`Reproducible`まで到達したうえで、unsigned local artifactが`PackageInstaller`起動前にfail closedで拒否されることも確認しています。最後に公式APKをReproDroid経由で再導入し、version `6.1.4`、installer package `com.sanka1610.reprodroid`を確認しました。
+Phase 2C E2Eでは、unknown app sources設定への誘導、設定画面から復帰した際の権限再評価、公式APKの利用者キャンセル／成功callback、force-stop後のattempt復元、同version再install抑止、インストール中のsource lockを確認しました。MicroG-REを一時的に未インストールへ戻して固定releaseを再ビルドし、`COMPLETED`／`MATCH`／`Reproducible`まで到達したうえで、unsigned local artifactが`PackageInstaller`起動前にfail closedで拒否されることも確認しています。さらに、同じ公式signerの`6.1.3`をfixtureとして`Update available`を導出し、ReproDroidから標準`PackageInstaller`を経て`6.1.4`へ更新しました。最終状態はversion `6.1.4`、installer package `com.sanka1610.reprodroid`です。
 
 Phase 1EではWindows 11側のWHPX Android EmulatorとWSL2側RunnerをWindows `adb.exe reverse`で接続し、MicroG-RE実ビルド、Android側downloadとSHA-256照合、package/version/signer表示、unknown app sources、標準`PackageInstaller`、成功／platform拒否／利用者キャンセルcallback、Room再起動復元まで確認した。詳細は[Phase 1E検証レポート](../reprodroid-project/reports/2026/08/2026-08-21-phase-1e.md)、履歴と最終状態は[Phase 1E再開・完了記録](../reprodroid-project/docs/handoffs/phase-1e-resume.md)を参照してください。
 
