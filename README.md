@@ -4,7 +4,7 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 ## 現在の状態
 
-Phase 2C（trust表示、更新関係、公式APK install、設定継承）は実装とAndroid 16 Emulator E2Eまで完了しています。Phase 2D-1の独立再ビルド比較も、Room migrationとMicroG-RE `6.1.4`の2回実ビルドを含むAndroid 16 Emulator E2Eまで完了しています。
+Phase 2C（trust表示、更新関係、公式APK install、設定継承）とPhase 2D（独立再ビルド、APK全entry inventory、DEX構造比較、Manifest／resource table意味比較）は実装済みです。Phase 2Dの高度比較は説明用の補助証跡であり、protocol v2のraw 3軸判定を変更しません。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
@@ -46,6 +46,13 @@ Phase 2C（trust表示、更新関係、公式APK install、設定継承）は�
 - 同一tag／full SHA／固定recipeからBuild AとBuild Bを独立Jobとして作るprotocol v2
 - 公式APK対Build A、公式APK対Build B、Build A対Build Bを別軸で保存するRoom v8 migration
 - Build Bにもcommit／host RCE確認を要求し、3軸raw一致だけを`Reproducible`へするPhase 2D-1 UI／policy
+- APK全entryをsignature、DEX、native code、Manifest、resource table、resource file、asset、otherへ一意分類するstreaming inventory
+- entryごとの非圧縮SHA-256、size、CRC、圧縮方式、added／missing／changed／sameを3軸で保存するRoom v9 migration
+- path traversal、重複entry、symlink／外部path、未知size／圧縮方式、宣言値不整合、破損ZIP、件数／展開量／memory／時間上限のfail-closed拒否
+- raw DEX差異時だけ、descriptor／signatureを安定keyにclass、field、method、implementationを比較する構造証跡
+- multidex配置順、table index、debug lineを比較意味から外し、annotation、encoded value、try/catch、register、分岐先、payload、参照先をcanonical化
+- binary `AndroidManifest.xml`と`resources.arsc`の意味比較、およびpackage／type／name／configurationを安定keyにしたresource差異証跡
+- raw outcome、inventory、semantic outcome、理由、安定key差異を分離して表示し、semantic一致でraw `Different`を昇格させないUI
 
 Phase 2A E2EではMicroG-RE `6.1.4`を取得し、release tagから`d8df10ab687a1c1ca05221634cfa46bad262023a`を解決しました。13,393,291 byteのAPKについて、GitHub provider digest、streaming中のAndroid計算SHA-256、保存後のAndroid `sha256sum`がすべて`907b0f1d64d4bdf2fc15df596129cdf9f140f5360f557d24ff2e987c9f586f15`で一致しました。package、version、signer、`INCOMPARABLE`理由、APK内アイコンの一覧表示と、アプリ別variant／ABI設定のforce-stop後復元も確認しています。
 
@@ -84,9 +91,9 @@ Phase 2Aの初期providerはpublic GitHub Releasesに限定します。`tag_name
 
 Phase 2Cでは、現在選択中のrelease snapshot、asset、expected full commit SHAに一致するcomparison runだけをtrust表示へ使います。検証モードのinstall sourceは署名済み公式APKが既定です。local buildは未インストール時に明示選択し、現在runに結び付いた署名済みartifactだけを許可します。現行MicroG-RE comparison artifactはunsignedなのでfail closedで拒否します。将来のReproDroid鍵は候補ですが、Phase 2への採用は確定していません。詳細は[ADR-0011](../reprodroid-project/docs/adr/0011-phase-2c-trust-update-and-install-policy.md)を参照してください。
 
-Phase 2Dは小フェーズへ分割します。2D-1は同じMicroG-RE `6.1.4` tagをRunnerがJobごとに独立解決し、Build AとBuild Bの両方で固定profileとhost RCE確認を要求します。公式対A、公式対B、A対Bの3軸がすべてDEX／native library raw bytesで一致した場合だけprotocol v2の`Reproducible`とします。2D-2以降のAPK内部差異分類、DEX構造比較、Manifest／resources正規化はraw差異を上書きしない補助証跡として追加します。詳細は[ADR-0012](../reprodroid-project/docs/adr/0012-phase-2d-repeat-build-and-advanced-comparison.md)を参照してください。
+Phase 2Dは同じMicroG-RE `6.1.4` tagをRunnerがJobごとに独立解決し、Build AとBuild Bの両方で固定profileとhost RCE確認を要求します。公式対A、公式対B、A対Bの3軸がすべてDEX／native library raw bytesで一致した場合だけprotocol v2の`Reproducible`とします。各軸ではAPK全entry inventoryも保存し、raw差異があるDEXだけを構造比較、Manifestとresource tableを意味比較します。高度比較が`MATCH`でもraw `Different`は維持し、parser failure／未知形式／上限超過は理由付き`INCOMPARABLE`として補助証跡に残します。詳細は[ADR-0012](../reprodroid-project/docs/adr/0012-phase-2d-repeat-build-and-advanced-comparison.md)を参照してください。
 
-Phase 2D-1 E2Eでは、Build AとBuild Bが別Job／別作業領域で同じfull SHA `d8df10ab687a1c1ca05221634cfa46bad262023a`を解決し、個別のhost RCE確認後に成功しました。両artifactは13,258,872 byte、SHA-256 `30de03caea3da52c9febbeebb5d7f0d3246811d288d81b522bb456da19e7b033`で一致しました。Android側で転送後metadataを再検証し、公式対A、公式対B、A対Bの各6 entryがすべて`MATCH`、protocol v2のtrustが`Reproducible`となり、cold start後にも復元されることを確認しています。
+Phase 2D最終E2Eは2026-08-26にfresh Runner／アプリ状態から再実行しました。Build AとBuild Bが別Job／別作業領域で同じfull SHA `d8df10ab687a1c1ca05221634cfa46bad262023a`を解決し、個別のhost RCE確認後に成功しました。両artifactは13,258,872 byte、SHA-256 `30de03caea3da52c9febbeebb5d7f0d3246811d288d81b522bb456da19e7b033`で一致しました。Android側で転送後metadataを再検証し、公式対A、公式対B、A対Bの各6 raw entryがすべて`MATCH`、protocol v2のtrustが`Reproducible`となり、cold start後にも復元されることを確認しています。全entry inventoryは公式対A／Bが署名3 entry欠落のみの`DIFFERENT`、A対Bが1,630 entryすべて`MATCH`で、semantic differenceは全軸0でした。
 
 ## リポジトリ構成
 
@@ -207,9 +214,10 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 
 Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E完了時に`./gradlew testDebugUnitTest lintDebug build --rerun-tasks -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080`を実行し、113 actionable tasksすべてexecuted、`BUILD SUCCESSFUL`を確認しました。標準installerの各callbackとRoom復元はWindows Android Emulator上のE2Eで確認しています。
 
-## Phase 2D-1実装後も対象外／未実装
+## Phase 2D完了後も対象外／未実装
 
-- APK内部差異inventory／分類、DEX構造比較、manifest／resources／assets正規化
+- Build Environment ManifestのAndroid公開APIと、dependency／JDK／SDK／OS等からのbuild原因推定
+- DEX／native raw差異をsemantic一致で`Reproducible`へ昇格する判定
 - ReproDroid鍵によるlocal comparison artifactの署名
 - MicroG-RE `6.1.4`以外のrelease comparison profile
 - 定期更新、通知、任意assetの直接選択、private repository／GitHub token

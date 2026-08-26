@@ -32,6 +32,7 @@ enum class ComparisonEntryResult {
 }
 
 enum class AdvancedComparisonAxis {
+    OFFICIAL_PRIMARY,
     OFFICIAL_REPEAT,
     LOCAL_REPEATABILITY,
 }
@@ -148,6 +149,102 @@ data class AdvancedComparisonEntryEntity(
     val result: String,
     val leftSizeBytes: Long? = null,
     val rightSizeBytes: Long? = null,
+    val leftSha256: String? = null,
+    val rightSha256: String? = null,
+)
+
+@Entity(
+    tableName = "apk_entry_evidence",
+    primaryKeys = ["comparisonRunId", "axis", "entryName"],
+    foreignKeys = [
+        ForeignKey(
+            entity = ComparisonRunEntity::class,
+            parentColumns = ["comparisonRunId"],
+            childColumns = ["comparisonRunId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("comparisonRunId")],
+)
+data class ApkEntryEvidenceEntity(
+    val comparisonRunId: String,
+    val axis: String,
+    val entryName: String,
+    val category: String,
+    val result: String,
+    val leftSizeBytes: Long? = null,
+    val rightSizeBytes: Long? = null,
+    val leftCrc32: Long? = null,
+    val rightCrc32: Long? = null,
+    val leftCompressionMethod: Int? = null,
+    val rightCompressionMethod: Int? = null,
+    val leftUncompressedSha256: String? = null,
+    val rightUncompressedSha256: String? = null,
+    val archiveMetadataChanged: Boolean = false,
+)
+
+@Entity(
+    tableName = "advanced_comparison_summaries",
+    primaryKeys = ["comparisonRunId", "axis"],
+    foreignKeys = [
+        ForeignKey(
+            entity = ComparisonRunEntity::class,
+            parentColumns = ["comparisonRunId"],
+            childColumns = ["comparisonRunId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = RegisteredAppEntity::class,
+            parentColumns = ["registeredAppId"],
+            childColumns = ["registeredAppId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("comparisonRunId"), Index("registeredAppId")],
+)
+data class AdvancedComparisonSummaryEntity(
+    val comparisonRunId: String,
+    val registeredAppId: String,
+    val axis: String,
+    val inventoryOutcome: String,
+    val dexStructuralOutcome: String,
+    val manifestSemanticOutcome: String,
+    val resourceTableSemanticOutcome: String,
+    val reason: String? = null,
+    val entryCount: Int = 0,
+    val sameCount: Int = 0,
+    val changedCount: Int = 0,
+    val addedCount: Int = 0,
+    val missingCount: Int = 0,
+    val semanticDifferenceCount: Int = 0,
+)
+
+@Entity(
+    tableName = "semantic_difference_evidence",
+    primaryKeys = ["comparisonRunId", "axis", "component", "stableKey"],
+    foreignKeys = [
+        ForeignKey(
+            entity = ComparisonRunEntity::class,
+            parentColumns = ["comparisonRunId"],
+            childColumns = ["comparisonRunId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = RegisteredAppEntity::class,
+            parentColumns = ["registeredAppId"],
+            childColumns = ["registeredAppId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("comparisonRunId"), Index("registeredAppId")],
+)
+data class SemanticDifferenceEvidenceEntity(
+    val comparisonRunId: String,
+    val registeredAppId: String,
+    val axis: String,
+    val component: String,
+    val stableKey: String,
+    val result: String,
     val leftSha256: String? = null,
     val rightSha256: String? = null,
 )

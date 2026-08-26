@@ -28,6 +28,7 @@ class ReproDroidApplication : Application() {
             ReproDroidDatabase.MIGRATION_5_6,
             ReproDroidDatabase.MIGRATION_6_7,
             ReproDroidDatabase.MIGRATION_7_8,
+            ReproDroidDatabase.MIGRATION_8_9,
         ).build()
         jobRepository = JobRepository(
             applicationContext = applicationContext,

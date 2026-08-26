@@ -17,10 +17,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ComparisonRunEntity::class,
         ComparisonEntryEntity::class,
         AdvancedComparisonEntryEntity::class,
+        ApkEntryEvidenceEntity::class,
+        AdvancedComparisonSummaryEntity::class,
+        SemanticDifferenceEvidenceEntity::class,
         GlobalSettingsEntity::class,
         ReleaseInstallAttemptEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -400,6 +403,98 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_advanced_comparison_entries_comparisonRunId " +
                         "ON advanced_comparison_entries(comparisonRunId)",
+                )
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS apk_entry_evidence (
+                        comparisonRunId TEXT NOT NULL,
+                        axis TEXT NOT NULL,
+                        entryName TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        result TEXT NOT NULL,
+                        leftSizeBytes INTEGER,
+                        rightSizeBytes INTEGER,
+                        leftCrc32 INTEGER,
+                        rightCrc32 INTEGER,
+                        leftCompressionMethod INTEGER,
+                        rightCompressionMethod INTEGER,
+                        leftUncompressedSha256 TEXT,
+                        rightUncompressedSha256 TEXT,
+                        archiveMetadataChanged INTEGER NOT NULL,
+                        PRIMARY KEY(comparisonRunId, axis, entryName),
+                        FOREIGN KEY(comparisonRunId) REFERENCES comparison_runs(comparisonRunId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_apk_entry_evidence_comparisonRunId " +
+                        "ON apk_entry_evidence(comparisonRunId)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS advanced_comparison_summaries (
+                        comparisonRunId TEXT NOT NULL,
+                        registeredAppId TEXT NOT NULL,
+                        axis TEXT NOT NULL,
+                        inventoryOutcome TEXT NOT NULL,
+                        dexStructuralOutcome TEXT NOT NULL,
+                        manifestSemanticOutcome TEXT NOT NULL,
+                        resourceTableSemanticOutcome TEXT NOT NULL,
+                        reason TEXT,
+                        entryCount INTEGER NOT NULL,
+                        sameCount INTEGER NOT NULL,
+                        changedCount INTEGER NOT NULL,
+                        addedCount INTEGER NOT NULL,
+                        missingCount INTEGER NOT NULL,
+                        semanticDifferenceCount INTEGER NOT NULL,
+                        PRIMARY KEY(comparisonRunId, axis),
+                        FOREIGN KEY(comparisonRunId) REFERENCES comparison_runs(comparisonRunId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_advanced_comparison_summaries_comparisonRunId " +
+                        "ON advanced_comparison_summaries(comparisonRunId)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_advanced_comparison_summaries_registeredAppId " +
+                        "ON advanced_comparison_summaries(registeredAppId)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS semantic_difference_evidence (
+                        comparisonRunId TEXT NOT NULL,
+                        registeredAppId TEXT NOT NULL,
+                        axis TEXT NOT NULL,
+                        component TEXT NOT NULL,
+                        stableKey TEXT NOT NULL,
+                        result TEXT NOT NULL,
+                        leftSha256 TEXT,
+                        rightSha256 TEXT,
+                        PRIMARY KEY(comparisonRunId, axis, component, stableKey),
+                        FOREIGN KEY(comparisonRunId) REFERENCES comparison_runs(comparisonRunId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_semantic_difference_evidence_comparisonRunId " +
+                        "ON semantic_difference_evidence(comparisonRunId)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_semantic_difference_evidence_registeredAppId " +
+                        "ON semantic_difference_evidence(registeredAppId)",
                 )
             }
         }

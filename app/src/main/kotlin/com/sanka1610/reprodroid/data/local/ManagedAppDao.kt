@@ -83,6 +83,18 @@ interface ManagedAppDao {
     )
     suspend fun getAdvancedComparisonEntries(comparisonRunId: String): List<AdvancedComparisonEntryEntity>
 
+    @Query(
+        "SELECT * FROM apk_entry_evidence WHERE comparisonRunId = :comparisonRunId " +
+            "ORDER BY axis, entryName",
+    )
+    suspend fun getApkEntryEvidence(comparisonRunId: String): List<ApkEntryEvidenceEntity>
+
+    @Query(
+        "SELECT * FROM semantic_difference_evidence WHERE comparisonRunId = :comparisonRunId " +
+            "ORDER BY axis, component, stableKey",
+    )
+    suspend fun getSemanticDifferenceEvidence(comparisonRunId: String): List<SemanticDifferenceEvidenceEntity>
+
     @Upsert
     suspend fun upsertRegisteredApp(app: RegisteredAppEntity)
 
@@ -102,6 +114,15 @@ interface ManagedAppDao {
     suspend fun upsertAdvancedComparisonEntries(entries: List<AdvancedComparisonEntryEntity>)
 
     @Upsert
+    suspend fun upsertApkEntryEvidence(entries: List<ApkEntryEvidenceEntity>)
+
+    @Upsert
+    suspend fun upsertAdvancedComparisonSummary(summary: AdvancedComparisonSummaryEntity)
+
+    @Upsert
+    suspend fun upsertSemanticDifferenceEvidence(entries: List<SemanticDifferenceEvidenceEntity>)
+
+    @Upsert
     suspend fun upsertGlobalSettings(settings: GlobalSettingsEntity)
 
     @Upsert
@@ -112,6 +133,12 @@ interface ManagedAppDao {
 
     @Query("DELETE FROM advanced_comparison_entries WHERE comparisonRunId = :comparisonRunId")
     suspend fun deleteAdvancedComparisonEntries(comparisonRunId: String)
+
+    @Query("DELETE FROM apk_entry_evidence WHERE comparisonRunId = :comparisonRunId AND axis = :axis")
+    suspend fun deleteApkEntryEvidence(comparisonRunId: String, axis: String)
+
+    @Query("DELETE FROM semantic_difference_evidence WHERE comparisonRunId = :comparisonRunId AND axis = :axis")
+    suspend fun deleteSemanticDifferenceEvidence(comparisonRunId: String, axis: String)
 
     @Query("DELETE FROM registered_apps WHERE registeredAppId = :registeredAppId")
     suspend fun deleteRegisteredApp(registeredAppId: String)

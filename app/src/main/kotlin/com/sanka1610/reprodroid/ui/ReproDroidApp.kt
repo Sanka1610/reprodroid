@@ -588,8 +588,8 @@ private fun AppDetailScreen(
                         Text(
                             "Phase 2D exact reproducibility requires two independent builds of the same commit and recipe. " +
                                 "The official APK must match both builds, and both local builds must match each other, " +
-                                "within the DEX/native-library byte scope. Resources, manifest, assets, signer trust, " +
-                                "and source safety remain outside this slice.",
+                                "within the DEX/native-library byte scope. Full APK inventory and DEX/Manifest/resource " +
+                                "semantic results are explanatory evidence; they never promote a raw difference to Reproducible.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         if (comparison == null) {
@@ -620,6 +620,38 @@ private fun AppDetailScreen(
                             }
                             comparison.incomparableReason?.let { DetailValue("Reason", it) }
                             comparison.repeatIncomparableReason?.let { DetailValue("Repeat reason", it) }
+                            record.currentAdvancedComparisonSummaries.forEach { summary ->
+                                Text(
+                                    when (summary.axis) {
+                                        "OFFICIAL_PRIMARY" -> "Advanced evidence: Official vs Build A"
+                                        "OFFICIAL_REPEAT" -> "Advanced evidence: Official vs Build B"
+                                        "LOCAL_REPEATABILITY" -> "Advanced evidence: Build A vs Build B"
+                                        else -> "Advanced evidence: ${summary.axis}"
+                                    },
+                                    style = MaterialTheme.typography.titleSmall,
+                                )
+                                DetailValue("APK entries", "${summary.inventoryOutcome} (${summary.entryCount})")
+                                DetailValue(
+                                    "Entry changes",
+                                    "same ${summary.sameCount}, changed ${summary.changedCount}, " +
+                                        "added ${summary.addedCount}, missing ${summary.missingCount}",
+                                )
+                                DetailValue("DEX structure", summary.dexStructuralOutcome)
+                                DetailValue("Manifest meaning", summary.manifestSemanticOutcome)
+                                DetailValue("Resource table meaning", summary.resourceTableSemanticOutcome)
+                                DetailValue("Semantic differences", summary.semanticDifferenceCount.toString())
+                                record.currentSemanticDifferenceEvidence
+                                    .asSequence()
+                                    .filter { it.axis == summary.axis }
+                                    .take(MAX_SEMANTIC_DIFFERENCES_IN_UI)
+                                    .forEach { difference ->
+                                        DetailValue(
+                                            difference.component,
+                                            "${difference.result}: ${difference.stableKey}",
+                                        )
+                                    }
+                                summary.reason?.let { DetailValue("Advanced reason", it) }
+                            }
                             when (comparison.status) {
                                 ComparisonRunStatus.AWAITING_CONFIRMATION.name,
                                 ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name -> {
@@ -1194,4 +1226,5 @@ private fun NavigationGlyph(value: String) {
 }
 
 private const val MIB = 1024L * 1024L
+private const val MAX_SEMANTIC_DIFFERENCES_IN_UI = 3
 private val APK_LIMITS = listOf(64L * MIB, 128L * MIB, 256L * MIB, 512L * MIB)

@@ -3,6 +3,7 @@ package com.sanka1610.reprodroid.data.repository
 import com.sanka1610.reprodroid.data.local.ComparisonOutcome
 import com.sanka1610.reprodroid.data.local.ComparisonEligibility
 import com.sanka1610.reprodroid.data.local.ComparisonRunEntity
+import com.sanka1610.reprodroid.data.local.AdvancedComparisonSummaryEntity
 import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.RegisteredAppEntity
@@ -140,7 +141,35 @@ class ManagedAppPolicyTest {
         assertEquals(TrustLevel.DIFFERENT, different.trustLevel)
     }
 
-    private fun record(comparisons: List<ComparisonRunEntity>): RegisteredAppRecord {
+    @Test
+    fun `advanced semantic matches never promote an exact raw difference`() {
+        val rawDifferent = repeatedComparison(
+            officialPrimary = ComparisonOutcome.DIFFERENT,
+            officialRepeat = ComparisonOutcome.MATCH,
+            localRepeatability = ComparisonOutcome.MATCH,
+        )
+        val explanatoryMatch = AdvancedComparisonSummaryEntity(
+            comparisonRunId = rawDifferent.comparisonRunId,
+            registeredAppId = "app",
+            axis = "OFFICIAL_PRIMARY",
+            inventoryOutcome = "MATCH",
+            dexStructuralOutcome = "MATCH",
+            manifestSemanticOutcome = "MATCH",
+            resourceTableSemanticOutcome = "MATCH",
+        )
+
+        val record = record(
+            comparisons = listOf(rawDifferent),
+            advancedComparisonSummaries = listOf(explanatoryMatch),
+        )
+
+        assertEquals(TrustLevel.DIFFERENT, record.trustLevel)
+    }
+
+    private fun record(
+        comparisons: List<ComparisonRunEntity>,
+        advancedComparisonSummaries: List<AdvancedComparisonSummaryEntity> = emptyList(),
+    ): RegisteredAppRecord {
         val app = RegisteredAppEntity(
             registeredAppId = "app",
             displayName = "Example",
@@ -184,6 +213,7 @@ class ManagedAppPolicyTest {
             app = app,
             releases = listOf(ReleaseSnapshotWithAssets(snapshot, listOf(asset))),
             comparisons = comparisons,
+            advancedComparisonSummaries = advancedComparisonSummaries,
             releaseInstallAttempts = emptyList(),
         )
     }

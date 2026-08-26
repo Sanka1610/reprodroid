@@ -280,6 +280,10 @@ data class RegisteredAppRecord(
     @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
     val comparisons: List<ComparisonRunEntity>,
     @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
+    val advancedComparisonSummaries: List<AdvancedComparisonSummaryEntity> = emptyList(),
+    @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
+    val semanticDifferenceEvidence: List<SemanticDifferenceEvidenceEntity> = emptyList(),
+    @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
     val releaseInstallAttempts: List<ReleaseInstallAttemptEntity>,
 ) {
     val latestRelease: ReleaseSnapshotWithAssets?
@@ -299,6 +303,18 @@ data class RegisteredAppRecord(
                 }
                 .maxWithOrNull(compareBy<ComparisonRunEntity> { it.createdAt }.thenBy { it.comparisonRunId })
         }
+
+    val currentAdvancedComparisonSummaries: List<AdvancedComparisonSummaryEntity>
+        get() = currentComparison?.comparisonRunId?.let { runId ->
+            advancedComparisonSummaries.filter { it.comparisonRunId == runId }.sortedBy { it.axis }
+        }.orEmpty()
+
+    val currentSemanticDifferenceEvidence: List<SemanticDifferenceEvidenceEntity>
+        get() = currentComparison?.comparisonRunId?.let { runId ->
+            semanticDifferenceEvidence
+                .filter { it.comparisonRunId == runId }
+                .sortedWith(compareBy({ it.axis }, { it.component }, { it.stableKey }))
+        }.orEmpty()
 
     val trustLevel: TrustLevel?
         get() = currentComparison?.let { comparison ->

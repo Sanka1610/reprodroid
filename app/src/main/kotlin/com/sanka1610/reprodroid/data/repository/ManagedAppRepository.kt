@@ -8,6 +8,8 @@ import androidx.room.withTransaction
 import com.sanka1610.reprodroid.data.artifact.ApkInspector
 import com.sanka1610.reprodroid.data.artifact.ApkComparisonException
 import com.sanka1610.reprodroid.data.artifact.ApkContentComparator
+import com.sanka1610.reprodroid.data.artifact.AdvancedApkComparator
+import com.sanka1610.reprodroid.data.artifact.AdvancedApkComparison
 import com.sanka1610.reprodroid.data.artifact.ExpectedApkFile
 import com.sanka1610.reprodroid.data.artifact.GitHubAssetDownloader
 import com.sanka1610.reprodroid.data.artifact.ReleaseApkInstaller
@@ -16,6 +18,8 @@ import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
 import com.sanka1610.reprodroid.data.local.ArtifactEntity
 import com.sanka1610.reprodroid.data.local.AdvancedComparisonAxis
 import com.sanka1610.reprodroid.data.local.AdvancedComparisonEntryEntity
+import com.sanka1610.reprodroid.data.local.AdvancedComparisonSummaryEntity
+import com.sanka1610.reprodroid.data.local.ApkEntryEvidenceEntity
 import com.sanka1610.reprodroid.data.local.AppSettingsUpdate
 import com.sanka1610.reprodroid.data.local.ComparisonEntryEntity
 import com.sanka1610.reprodroid.data.local.ComparisonOutcome
@@ -36,6 +40,7 @@ import com.sanka1610.reprodroid.data.local.ReleaseDiscoveryStatus
 import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
 import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
+import com.sanka1610.reprodroid.data.local.SemanticDifferenceEvidenceEntity
 import com.sanka1610.reprodroid.data.local.ThemeMode
 import com.sanka1610.reprodroid.data.local.UpdateStatus
 import com.sanka1610.reprodroid.data.provider.GitHubProviderException
@@ -64,6 +69,7 @@ class ManagedAppRepository(
     private val provider: GitHubReleasesClient = GitHubReleasesClient(),
     private val downloader: GitHubAssetDownloader = GitHubAssetDownloader(),
     private val comparator: ApkContentComparator = ApkContentComparator(),
+    private val advancedComparator: AdvancedApkComparator = AdvancedApkComparator(),
 ) {
     private val dao: ManagedAppDao = database.managedAppDao()
     private val inspector = ApkInspector(context.packageManager)
@@ -740,6 +746,16 @@ class ManagedAppRepository(
             markIncomparable(run, failure.code, resolvedCommitSha, recipeId, variantName, local.artifactId)
             return
         }
+        val advancedEvidence = withContext(Dispatchers.IO) {
+            advancedComparator.compare(
+                leftApk = referencePath,
+                leftRoot = referenceDirectory,
+                expectedLeft = ExpectedApkFile(referenceSize, referenceSha),
+                rightApk = localPath,
+                rightRoot = File(context.filesDir, "apks"),
+                expectedRight = ExpectedApkFile(localSize, localSha),
+            )
+        }
         val now = Instant.now().toString()
         val outcome = if (comparison.isMatch) ComparisonOutcome.MATCH else ComparisonOutcome.DIFFERENT
         val continueWithRepeat = run.protocolVersion >= REPEATED_BUILD_PROTOCOL_VERSION
@@ -773,6 +789,7 @@ class ManagedAppRepository(
                     )
                 },
             )
+            persistAdvancedEvidence(run, AdvancedComparisonAxis.OFFICIAL_PRIMARY, advancedEvidence)
             dao.upsertComparisonRun(
                 primaryResult,
             )
@@ -902,6 +919,26 @@ class ManagedAppRepository(
                 repeat.artifactId,
             )
         }
+        val officialRepeatEvidence = withContext(Dispatchers.IO) {
+            advancedComparator.compare(
+                leftApk = referenceInput.file,
+                leftRoot = referenceDirectory,
+                expectedLeft = referenceInput.expected,
+                rightApk = repeatInput.file,
+                rightRoot = File(context.filesDir, "apks"),
+                expectedRight = repeatInput.expected,
+            )
+        }
+        val repeatabilityEvidence = withContext(Dispatchers.IO) {
+            advancedComparator.compare(
+                leftApk = primaryInput.file,
+                leftRoot = File(context.filesDir, "apks"),
+                expectedLeft = primaryInput.expected,
+                rightApk = repeatInput.file,
+                rightRoot = File(context.filesDir, "apks"),
+                expectedRight = repeatInput.expected,
+            )
+        }
         val officialOutcome = comparisonOutcome(officialRepeat.isMatch)
         val repeatabilityOutcome = comparisonOutcome(localRepeatability.isMatch)
         val now = Instant.now().toString()
@@ -915,6 +952,8 @@ class ManagedAppRepository(
                         localRepeatability,
                     ),
             )
+            persistAdvancedEvidence(run, AdvancedComparisonAxis.OFFICIAL_REPEAT, officialRepeatEvidence)
+            persistAdvancedEvidence(run, AdvancedComparisonAxis.LOCAL_REPEATABILITY, repeatabilityEvidence)
             dao.upsertComparisonRun(
                 run.copy(
                     repeatLocalArtifactId = repeat.artifactId,
@@ -975,6 +1014,71 @@ class ManagedAppRepository(
 
     private fun comparisonOutcome(isMatch: Boolean): ComparisonOutcome =
         if (isMatch) ComparisonOutcome.MATCH else ComparisonOutcome.DIFFERENT
+
+    private suspend fun persistAdvancedEvidence(
+        run: ComparisonRunEntity,
+        axis: AdvancedComparisonAxis,
+        comparison: AdvancedApkComparison,
+    ) {
+        dao.deleteApkEntryEvidence(run.comparisonRunId, axis.name)
+        dao.deleteSemanticDifferenceEvidence(run.comparisonRunId, axis.name)
+        if (comparison.entries.isNotEmpty()) {
+            dao.upsertApkEntryEvidence(
+                comparison.entries.map { entry ->
+                    ApkEntryEvidenceEntity(
+                        comparisonRunId = run.comparisonRunId,
+                        axis = axis.name,
+                        entryName = entry.entryName,
+                        category = entry.category.name,
+                        result = entry.result,
+                        leftSizeBytes = entry.left?.sizeBytes,
+                        rightSizeBytes = entry.right?.sizeBytes,
+                        leftCrc32 = entry.left?.crc32,
+                        rightCrc32 = entry.right?.crc32,
+                        leftCompressionMethod = entry.left?.compressionMethod,
+                        rightCompressionMethod = entry.right?.compressionMethod,
+                        leftUncompressedSha256 = entry.left?.uncompressedSha256,
+                        rightUncompressedSha256 = entry.right?.uncompressedSha256,
+                        archiveMetadataChanged = entry.archiveMetadataChanged,
+                    )
+                },
+            )
+        }
+        if (comparison.semanticDifferences.isNotEmpty()) {
+            dao.upsertSemanticDifferenceEvidence(
+                comparison.semanticDifferences.map { difference ->
+                    SemanticDifferenceEvidenceEntity(
+                        comparisonRunId = run.comparisonRunId,
+                        registeredAppId = run.registeredAppId,
+                        axis = axis.name,
+                        component = difference.component,
+                        stableKey = difference.stableKey,
+                        result = difference.result,
+                        leftSha256 = difference.leftSha256,
+                        rightSha256 = difference.rightSha256,
+                    )
+                },
+            )
+        }
+        dao.upsertAdvancedComparisonSummary(
+            AdvancedComparisonSummaryEntity(
+                comparisonRunId = run.comparisonRunId,
+                registeredAppId = run.registeredAppId,
+                axis = axis.name,
+                inventoryOutcome = comparison.inventoryOutcome.name,
+                dexStructuralOutcome = comparison.dexStructuralOutcome.name,
+                manifestSemanticOutcome = comparison.manifestSemanticOutcome.name,
+                resourceTableSemanticOutcome = comparison.resourceTableSemanticOutcome.name,
+                reason = comparison.reason,
+                entryCount = comparison.entries.size,
+                sameCount = comparison.entries.count { it.result == "MATCH" },
+                changedCount = comparison.entries.count { it.result == "HASH_MISMATCH" },
+                addedCount = comparison.entries.count { it.result == "ADDED" },
+                missingCount = comparison.entries.count { it.result == "MISSING" },
+                semanticDifferenceCount = comparison.semanticDifferences.size,
+            ),
+        )
+    }
 
     private data class ComparisonInput(val file: File, val expected: ExpectedApkFile)
 
