@@ -6,6 +6,8 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 Phase 2C（trust表示、更新関係、公式APK install、設定継承）とPhase 2D（独立再ビルド、APK全entry inventory、DEX構造比較、Manifest／resource table意味比較）は実装済みです。Phase 2Dの高度比較は説明用の補助証跡であり、protocol v2のraw 3軸判定を変更しません。
 
+Phase 3 は文書契約を作成済みですが、Android code はまだ Room v9 の Phase 2D baseline です。Manifest public API / Room v10、dependency diff、pinning level 表示、determinism 表示、static scan summary、Docker sandbox の Android 対応は未実装です。現在の実装と予定契約を混同しないため、横断的な順序は [Phase 3 roadmap](../reprodroid-project/docs/design/phase-3-roadmap.md)、3A の公開境界は [ADR-0013](../reprodroid-project/docs/adr/0013-build-environment-manifest-public-api.md) を参照してください。
+
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
 - Job、ログカーソル、差分ログ、APKメタデータを保存するRoom database
@@ -94,6 +96,12 @@ Phase 2Cでは、現在選択中のrelease snapshot、asset、expected full comm
 Phase 2Dは同じMicroG-RE `6.1.4` tagをRunnerがJobごとに独立解決し、Build AとBuild Bの両方で固定profileとhost RCE確認を要求します。公式対A、公式対B、A対Bの3軸がすべてDEX／native library raw bytesで一致した場合だけprotocol v2の`Reproducible`とします。各軸ではAPK全entry inventoryも保存し、raw差異があるDEXだけを構造比較、Manifestとresource tableを意味比較します。高度比較が`MATCH`でもraw `Different`は維持し、parser failure／未知形式／上限超過は理由付き`INCOMPARABLE`として補助証跡に残します。詳細は[ADR-0012](../reprodroid-project/docs/adr/0012-phase-2d-repeat-build-and-advanced-comparison.md)を参照してください。
 
 Phase 2D最終E2Eは2026-08-26にfresh Runner／アプリ状態から再実行しました。Build AとBuild Bが別Job／別作業領域で同じfull SHA `d8df10ab687a1c1ca05221634cfa46bad262023a`を解決し、個別のhost RCE確認後に成功しました。両artifactは13,258,872 byte、SHA-256 `30de03caea3da52c9febbeebb5d7f0d3246811d288d81b522bb456da19e7b033`で一致しました。Android側で転送後metadataを再検証し、公式対A、公式対B、A対Bの各6 raw entryがすべて`MATCH`、protocol v2のtrustが`Reproducible`となり、cold start後にも復元されることを確認しています。全entry inventoryは公式対A／Bが署名3 entry欠落のみの`DIFFERENT`、A対Bが1,630 entryすべて`MATCH`で、semantic differenceは全軸0でした。
+
+## Phase 3 の Android 境界（未実装）
+
+Phase 3 は protocol v2 の raw 3軸、APK comparator、trust truth table、公式 APK install / update policy を変更しません。3A では Runner が redaction / integrity 検査済みの Manifest projection を返し、Android は Job 単位で Room v10 に保存して同一 repository・同一 full SHA の dependency 差分を補助説明として表示します。取得失敗は warning であり、`Reproducible`、`Different`、`Incomparable`、`Failed`、install policy を変えません。
+
+3B では run ごとの dependency pinning level を Room v11 へ記録・表示し、3C の determinism values は既存 Manifest 保存で表せる場合だけ追加 migration なしで表示します。3D の scan summary は、clone 前の RCE 同意を維持するため、最初の同意画面ではなく Job / comparison detail に表示します。これらはすべて未実装であり、先に [Phase 3 roadmap](../reprodroid-project/docs/design/phase-3-roadmap.md) と [Phase 3 開始ガイド](../reprodroid-project/docs/handoffs/phase-3-start.md) の contract を満たす必要があります。
 
 ## リポジトリ構成
 
@@ -214,9 +222,18 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 
 Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E完了時に`./gradlew testDebugUnitTest lintDebug build --rerun-tasks -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080`を実行し、113 actionable tasksすべてexecuted、`BUILD SUCCESSFUL`を確認しました。標準installerの各callbackとRoom復元はWindows Android Emulator上のE2Eで確認しています。
 
-## Phase 2D完了後も対象外／未実装
+## Phase 3 開始時点の未実装・対象外
+
+### Phase 3 で予定するが、まだ実装していないもの
 
 - Build Environment ManifestのAndroid公開APIと、dependency／JDK／SDK／OS等からのbuild原因推定
+- recipe dependency pinning、`lockfile_offline`、runごとのpinning level表示
+- `SOURCE_DATE_EPOCH`、`--no-build-cache`、fixed localeのRunner側注入と監査表示
+- build前static source scan summary
+- Docker sandbox feasibility調査とopt-in実行
+
+### Phase 3 の対象外
+
 - DEX／native raw差異をsemantic一致で`Reproducible`へ昇格する判定
 - ReproDroid鍵によるlocal comparison artifactの署名
 - MicroG-RE `6.1.4`以外のrelease comparison profile
