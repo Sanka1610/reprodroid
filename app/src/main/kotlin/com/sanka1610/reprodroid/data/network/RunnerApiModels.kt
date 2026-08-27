@@ -101,6 +101,30 @@ data class ArtifactMetadata(
 )
 
 @Serializable
+data class PublicJavaRuntime(
+    val version: String,
+    val vendor: String,
+)
+
+@Serializable
+data class PublicBuildDependency(
+    val fileName: String,
+    val sha256: String,
+)
+
+@Serializable
+data class BuildEnvironmentManifestResponse(
+    val schemaVersion: Int,
+    val commit: String,
+    val java: PublicJavaRuntime,
+    val gradle: String,
+    val androidSdk: Int,
+    val buildTools: String,
+    val dependencies: List<PublicBuildDependency>,
+    val apkHash: String,
+)
+
+@Serializable
 data class JobResponse(
     val jobId: String,
     val executionMode: ExecutionMode,

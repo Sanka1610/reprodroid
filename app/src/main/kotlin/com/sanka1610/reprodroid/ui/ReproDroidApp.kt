@@ -81,6 +81,11 @@ import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import com.sanka1610.reprodroid.data.local.ThemeMode
 import com.sanka1610.reprodroid.data.local.TrustLevel
 import com.sanka1610.reprodroid.data.local.UpdateStatus
+import com.sanka1610.reprodroid.data.local.BuildEnvironmentManifestWithDependencies
+import com.sanka1610.reprodroid.data.local.JobRecord
+import com.sanka1610.reprodroid.data.repository.BuildManifestWarning
+import com.sanka1610.reprodroid.data.repository.DependencyDifferenceKind
+import com.sanka1610.reprodroid.data.repository.compareBuildEnvironments
 import androidx.compose.ui.platform.LocalContext
 import java.io.File
 import java.util.UUID
@@ -113,6 +118,9 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
     val preview by managedViewModel.preview.collectAsStateWithLifecycle()
     val message by managedViewModel.message.collectAsStateWithLifecycle()
     val activeAppIds by managedViewModel.activeAppIds.collectAsStateWithLifecycle()
+    val buildEnvironmentManifests by managedViewModel.buildEnvironmentManifests.collectAsStateWithLifecycle()
+    val runnerJobs by managedViewModel.runnerJobs.collectAsStateWithLifecycle()
+    val buildManifestWarnings by managedViewModel.buildManifestWarnings.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(MainDestination.APPS) }
     var selectedAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -215,6 +223,9 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                     onConfirmComparison = { comparisonRunId ->
                                         managedViewModel.confirmComparison(app.app.registeredAppId, comparisonRunId)
                                     },
+                                    runnerJobs = runnerJobs.associateBy { it.job.jobId },
+                                    buildEnvironmentManifests = buildEnvironmentManifests.associateBy { it.manifest.jobId },
+                                    buildManifestWarnings = buildManifestWarnings,
                                 )
                             }
                         }
@@ -478,6 +489,9 @@ private fun AppDetailScreen(
     onStartComparison: () -> Unit,
     onRefreshComparison: (String) -> Unit,
     onConfirmComparison: (String) -> Unit,
+    runnerJobs: Map<String, JobRecord>,
+    buildEnvironmentManifests: Map<String, BuildEnvironmentManifestWithDependencies>,
+    buildManifestWarnings: Map<String, BuildManifestWarning>,
 ) {
     BackHandler(onBack = onBack)
     val latest = record.latestRelease
@@ -617,6 +631,82 @@ private fun AppDetailScreen(
                             comparison.runnerResolvedCommitSha?.let { DetailValue("Runner commit", it, true) }
                             comparison.repeatRunnerResolvedCommitSha?.let {
                                 DetailValue("Repeat Runner commit", it, true)
+                            }
+                            if (comparison.protocolVersion >= 2) {
+                                val buildAJob = runnerJobs[comparison.runnerJobId]?.job
+                                val buildBJob = comparison.repeatRunnerJobId?.let(runnerJobs::get)?.job
+                                val buildAManifest = buildEnvironmentManifests[comparison.runnerJobId]
+                                val buildBManifest = comparison.repeatRunnerJobId?.let(buildEnvironmentManifests::get)
+                                val environmentComparison = compareBuildEnvironments(
+                                    buildAJob,
+                                    buildBJob,
+                                    buildAManifest,
+                                    buildBManifest,
+                                )
+                                Text("Build environment evidence", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "This evidence explains build conditions only. It does not change raw APK outcomes, trust, or installation policy.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                buildAManifest?.let { evidence ->
+                                    DetailValue(
+                                        "Build A environment",
+                                        "Java ${evidence.manifest.javaVersion} (${evidence.manifest.javaVendor}), " +
+                                            "Gradle ${evidence.manifest.gradleVersion}, SDK API " +
+                                            "${evidence.manifest.androidSdkApiLevel}, Build Tools " +
+                                            evidence.manifest.buildToolsVersion,
+                                    )
+                                }
+                                buildBManifest?.let { evidence ->
+                                    DetailValue(
+                                        "Build B environment",
+                                        "Java ${evidence.manifest.javaVersion} (${evidence.manifest.javaVendor}), " +
+                                            "Gradle ${evidence.manifest.gradleVersion}, SDK API " +
+                                            "${evidence.manifest.androidSdkApiLevel}, Build Tools " +
+                                            evidence.manifest.buildToolsVersion,
+                                    )
+                                }
+                                buildManifestWarnings[comparison.runnerJobId]?.let { warning ->
+                                    DetailValue("Build A Manifest warning", "${warning.code}: ${warning.message}")
+                                }
+                                comparison.repeatRunnerJobId?.let(buildManifestWarnings::get)?.let { warning ->
+                                    DetailValue("Build B Manifest warning", "${warning.code}: ${warning.message}")
+                                }
+                                if (environmentComparison.comparable) {
+                                    DetailValue(
+                                        "Dependency multiset",
+                                        "same ${environmentComparison.sameCount}, changed ${environmentComparison.changedCount}, " +
+                                            "Build A only ${environmentComparison.buildAOnlyCount}, " +
+                                            "Build B only ${environmentComparison.buildBOnlyCount}",
+                                    )
+                                    environmentComparison.differences.asSequence()
+                                        .filter { it.kind != DependencyDifferenceKind.SAME }
+                                        .take(MAX_DEPENDENCY_DIFFERENCES_IN_UI)
+                                        .forEach { difference ->
+                                            DetailValue(
+                                                difference.fileName,
+                                                when (difference.kind) {
+                                                    DependencyDifferenceKind.CHANGED -> "changed"
+                                                    DependencyDifferenceKind.BUILD_A_ONLY -> "Build A only"
+                                                    DependencyDifferenceKind.BUILD_B_ONLY -> "Build B only"
+                                                    DependencyDifferenceKind.SAME -> "same"
+                                                },
+                                            )
+                                        }
+                                } else {
+                                    DetailValue("Dependency comparison", environmentComparison.reason ?: "Not available")
+                                }
+                                if (
+                                    buildAJob?.effectiveRecipeId != buildBJob?.effectiveRecipeId ||
+                                    buildAJob?.effectiveVariantName != buildBJob?.effectiveVariantName ||
+                                    buildAManifest?.manifest?.javaVersion != buildBManifest?.manifest?.javaVersion
+                                ) {
+                                    Text(
+                                        "Build recipe, variant, or Java differs. Dependency differences are not presented as a cause.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
                             }
                             comparison.incomparableReason?.let { DetailValue("Reason", it) }
                             comparison.repeatIncomparableReason?.let { DetailValue("Repeat reason", it) }
@@ -1227,4 +1317,5 @@ private fun NavigationGlyph(value: String) {
 
 private const val MIB = 1024L * 1024L
 private const val MAX_SEMANTIC_DIFFERENCES_IN_UI = 3
+private const val MAX_DEPENDENCY_DIFFERENCES_IN_UI = 40
 private val APK_LIMITS = listOf(64L * MIB, 128L * MIB, 256L * MIB, 512L * MIB)

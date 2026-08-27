@@ -23,7 +23,9 @@ data class ReleasePreviewState(
 )
 
 class ManagedAppsViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = (application as ReproDroidApplication).managedAppRepository
+    private val reprodroidApplication = application as ReproDroidApplication
+    private val repository = reprodroidApplication.managedAppRepository
+    private val jobRepository = reprodroidApplication.jobRepository
 
     val apps = repository.observeApps().stateIn(
         scope = viewModelScope,
@@ -36,6 +38,20 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = GlobalSettingsEntity(updatedAt = Instant.EPOCH.toString()),
     )
+
+    val buildEnvironmentManifests = jobRepository.observeBuildEnvironmentManifests().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    val runnerJobs = jobRepository.observeJobs().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    val buildManifestWarnings = jobRepository.buildManifestWarnings
 
     private val _preview = MutableStateFlow(ReleasePreviewState())
     val preview = _preview.asStateFlow()

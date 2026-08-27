@@ -22,8 +22,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SemanticDifferenceEvidenceEntity::class,
         GlobalSettingsEntity::class,
         ReleaseInstallAttemptEntity::class,
+        BuildEnvironmentManifestEntity::class,
+        BuildEnvironmentDependencyEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -495,6 +497,47 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_semantic_difference_evidence_registeredAppId " +
                         "ON semantic_difference_evidence(registeredAppId)",
+                )
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS build_environment_manifests (
+                        jobId TEXT NOT NULL,
+                        schemaVersion INTEGER NOT NULL,
+                        commitSha TEXT NOT NULL,
+                        javaVersion TEXT NOT NULL,
+                        javaVendor TEXT NOT NULL,
+                        gradleVersion TEXT NOT NULL,
+                        androidSdkApiLevel INTEGER NOT NULL,
+                        buildToolsVersion TEXT NOT NULL,
+                        apkSha256 TEXT NOT NULL,
+                        retrievedAt TEXT NOT NULL,
+                        PRIMARY KEY(jobId),
+                        FOREIGN KEY(jobId) REFERENCES jobs(jobId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS build_environment_dependencies (
+                        jobId TEXT NOT NULL,
+                        ordinal INTEGER NOT NULL,
+                        fileName TEXT NOT NULL,
+                        sha256 TEXT NOT NULL,
+                        PRIMARY KEY(jobId, ordinal),
+                        FOREIGN KEY(jobId) REFERENCES jobs(jobId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_build_environment_dependencies_jobId " +
+                        "ON build_environment_dependencies(jobId)",
                 )
             }
         }

@@ -28,6 +28,8 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList(),
     )
 
+    val buildManifestWarnings = repository.buildManifestWarnings
+
     private val _isSubmitting = MutableStateFlow(false)
     val isSubmitting = _isSubmitting.asStateFlow()
 
@@ -114,6 +116,8 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         runAction { repository.confirmRealBuild(jobId, resolvedCommitSha) }
 
     fun retryJob(jobId: String) = runAction { repository.retryJob(jobId) }
+
+    fun refreshJob(jobId: String) = runAction { repository.syncJob(jobId) }
 
     fun downloadArtifact(jobId: String, artifactId: String) = runArtifactAction(artifactId) {
         repository.downloadArtifact(jobId, artifactId)

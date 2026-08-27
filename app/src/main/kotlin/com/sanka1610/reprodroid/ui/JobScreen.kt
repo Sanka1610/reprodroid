@@ -54,6 +54,7 @@ fun JobScreen(viewModel: JobViewModel) {
     val isSubmitting by viewModel.isSubmitting.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val activeArtifactActions by viewModel.activeArtifactActions.collectAsStateWithLifecycle()
+    val buildManifestWarnings by viewModel.buildManifestWarnings.collectAsStateWithLifecycle()
     var repositoryUrl by rememberSaveable {
         mutableStateOf("https://github.com/MorpheApp/MicroG-RE.git")
     }
@@ -188,6 +189,8 @@ fun JobScreen(viewModel: JobViewModel) {
                                 onInstall = { artifactId ->
                                     viewModel.installArtifact(record.job.jobId, artifactId)
                                 },
+                                manifestWarning = buildManifestWarnings[record.job.jobId]?.message,
+                                onRefreshManifest = { viewModel.refreshJob(record.job.jobId) },
                             )
                         }
                     }
@@ -206,6 +209,8 @@ private fun JobCard(
     activeArtifactActions: Set<String>,
     onDownload: (String) -> Unit,
     onInstall: (String) -> Unit,
+    manifestWarning: String?,
+    onRefreshManifest: () -> Unit,
 ) {
     val job = record.job
     val state = remember(job.state) { JobState.valueOf(job.state) }
@@ -249,6 +254,41 @@ private fun JobCard(
             }
             job.errorMessage?.let { error ->
                 Text("${job.errorCode}: $error", color = MaterialTheme.colorScheme.error)
+            }
+
+            record.buildEnvironmentManifest?.let { evidence ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text("Build environment", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Java ${evidence.manifest.javaVersion} (${evidence.manifest.javaVendor})",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "Gradle ${evidence.manifest.gradleVersion} · validated SDK API " +
+                                "${evidence.manifest.androidSdkApiLevel} · Build Tools ${evidence.manifest.buildToolsVersion}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "APK SHA-256 ${evidence.manifest.apkSha256}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                        Text(
+                            "${evidence.dependencies.size} dependency records · retrieved ${evidence.manifest.retrievedAt}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+            manifestWarning?.let { warning ->
+                Text(warning, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            if (state == JobState.SUCCEEDED && job.executionMode == ExecutionMode.REAL_TRUSTED.name) {
+                TextButton(onClick = onRefreshManifest) { Text("Refresh build manifest") }
             }
 
             record.artifacts.forEach { artifact ->

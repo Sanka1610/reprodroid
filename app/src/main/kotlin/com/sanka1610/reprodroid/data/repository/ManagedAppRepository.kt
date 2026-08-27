@@ -551,6 +551,7 @@ class ManagedAppRepository(
         refreshComparison(comparisonRunId)
         val run = dao.getComparisonRun(comparisonRunId)
             ?: throw IllegalArgumentException("Comparison run was not found.")
+        if (run.status == ComparisonRunStatus.COMPLETED.name) return
         val repeatConfirmation = run.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name
         check(repeatConfirmation || run.status == ComparisonRunStatus.AWAITING_CONFIRMATION.name) {
             "The comparison build is not awaiting confirmation."

@@ -6,6 +6,7 @@ import com.sanka1610.reprodroid.data.artifact.ApkInspector
 import com.sanka1610.reprodroid.data.artifact.ApkInstaller
 import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
 import com.sanka1610.reprodroid.data.local.ArtifactEntity
+import com.sanka1610.reprodroid.data.local.BuildEnvironmentManifestWithDependencies
 import com.sanka1610.reprodroid.data.local.InstallAttemptStatus
 import com.sanka1610.reprodroid.data.local.JobEntity
 import com.sanka1610.reprodroid.data.local.JobRecord
@@ -21,10 +22,13 @@ import com.sanka1610.reprodroid.data.network.RequestedRevision
 import com.sanka1610.reprodroid.data.network.RevisionType
 import com.sanka1610.reprodroid.data.network.RunnerApiClient
 import com.sanka1610.reprodroid.data.network.RunnerApiException
+import com.sanka1610.reprodroid.data.network.RunnerResponseIntegrityException
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -46,12 +50,21 @@ class JobRepository(
     private val packageInstaller = applicationContext.packageManager.packageInstaller
     private val apkInspector = ApkInspector(applicationContext.packageManager)
     private val apkInstaller = ApkInstaller(applicationContext, jobDao)
+    private val _buildManifestWarnings = MutableStateFlow<Map<String, BuildManifestWarning>>(emptyMap())
+
+    val buildManifestWarnings = _buildManifestWarnings.asStateFlow()
 
     fun observeJobs(): Flow<List<JobRecord>> = jobDao.observeJobs()
+
+    fun observeBuildEnvironmentManifests(): Flow<List<BuildEnvironmentManifestWithDependencies>> =
+        jobDao.observeBuildEnvironmentManifests()
 
     suspend fun getJob(jobId: String): JobEntity? = jobDao.getJob(jobId)
 
     suspend fun getArtifacts(jobId: String): List<ArtifactEntity> = jobDao.getArtifacts(jobId)
+
+    suspend fun getBuildEnvironmentManifest(jobId: String): BuildEnvironmentManifestWithDependencies? =
+        jobDao.getBuildEnvironmentManifest(jobId)
 
     suspend fun createSimulatedJob(
         repositoryUrl: String,
@@ -185,6 +198,42 @@ class JobRepository(
             }
             if (newLogs.isNotEmpty()) jobDao.upsertLogs(newLogs)
         }
+        if (remote.executionMode == ExecutionMode.REAL_TRUSTED && remote.state == JobState.SUCCEEDED) {
+            fetchAndStoreBuildEnvironmentManifest(remote)
+        }
+    }
+
+    private suspend fun fetchAndStoreBuildEnvironmentManifest(remote: JobResponse) {
+        try {
+            val response = runnerApi.getBuildEnvironmentManifest(remote.jobId)
+            val validated = validateBuildEnvironmentManifest(
+                jobId = remote.jobId,
+                remoteJob = remote,
+                response = response,
+                retrievedAt = Instant.now().toString(),
+            )
+            database.withTransaction {
+                jobDao.replaceBuildEnvironmentManifest(validated.manifest, validated.dependencies)
+            }
+            _buildManifestWarnings.value -= remote.jobId
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: RunnerApiException) {
+            setBuildManifestWarning(remote.jobId, failure.errorCode)
+        } catch (_: RunnerResponseIntegrityException) {
+            setBuildManifestWarning(remote.jobId, "BUILD_MANIFEST_RESPONSE_INVALID")
+        } catch (_: IllegalStateException) {
+            setBuildManifestWarning(remote.jobId, "BUILD_MANIFEST_RESPONSE_INVALID")
+        } catch (_: Exception) {
+            setBuildManifestWarning(remote.jobId, "BUILD_MANIFEST_STORAGE_FAILED")
+        }
+    }
+
+    private fun setBuildManifestWarning(jobId: String, code: String) {
+        _buildManifestWarnings.value += jobId to BuildManifestWarning(
+            code = code,
+            message = "Build environment manifest is unavailable ($code). Comparison and trust are unchanged.",
+        )
     }
 
     suspend fun cancelJob(jobId: String) {

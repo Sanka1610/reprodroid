@@ -138,6 +138,56 @@ data class LogEntity(
     val message: String,
 )
 
+@Entity(
+    tableName = "build_environment_manifests",
+    foreignKeys = [
+        ForeignKey(
+            entity = JobEntity::class,
+            parentColumns = ["jobId"],
+            childColumns = ["jobId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class BuildEnvironmentManifestEntity(
+    @androidx.room.PrimaryKey val jobId: String,
+    val schemaVersion: Int,
+    val commitSha: String,
+    val javaVersion: String,
+    val javaVendor: String,
+    val gradleVersion: String,
+    val androidSdkApiLevel: Int,
+    val buildToolsVersion: String,
+    val apkSha256: String,
+    val retrievedAt: String,
+)
+
+@Entity(
+    tableName = "build_environment_dependencies",
+    primaryKeys = ["jobId", "ordinal"],
+    foreignKeys = [
+        ForeignKey(
+            entity = JobEntity::class,
+            parentColumns = ["jobId"],
+            childColumns = ["jobId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("jobId")],
+)
+data class BuildEnvironmentDependencyEntity(
+    val jobId: String,
+    val ordinal: Int,
+    val fileName: String,
+    val sha256: String,
+)
+
+data class BuildEnvironmentManifestWithDependencies(
+    @Embedded val manifest: BuildEnvironmentManifestEntity,
+    @Relation(parentColumn = "jobId", entityColumn = "jobId")
+    val dependencies: List<BuildEnvironmentDependencyEntity>,
+)
+
 data class JobRecord(
     @Embedded val job: JobEntity,
     @Relation(parentColumn = "jobId", entityColumn = "jobId")
@@ -146,4 +196,6 @@ data class JobRecord(
     val logs: List<LogEntity>,
     @Relation(parentColumn = "jobId", entityColumn = "jobId")
     val installAttempts: List<InstallAttemptEntity>,
+    @Relation(parentColumn = "jobId", entityColumn = "jobId", entity = BuildEnvironmentManifestEntity::class)
+    val buildEnvironmentManifest: BuildEnvironmentManifestWithDependencies? = null,
 )

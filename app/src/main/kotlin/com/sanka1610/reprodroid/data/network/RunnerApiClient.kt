@@ -19,6 +19,12 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.readAvailable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.SerializationException
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.CharacterCodingException
 import java.io.File
 import java.io.FileOutputStream
 import java.net.URI
@@ -30,6 +36,8 @@ class RunnerApiException(
 ) : RuntimeException(message)
 
 class RunnerConfigurationException(message: String) : RuntimeException(message)
+
+class RunnerResponseIntegrityException(message: String) : RuntimeException(message)
 
 data class ArtifactDownloadResponse(
     val bytesWritten: Long,
@@ -61,6 +69,47 @@ class RunnerApiClient(
                 parameters.append("limit", limit.toString())
             }
         }.successBody()
+
+    suspend fun getBuildEnvironmentManifest(jobId: String): BuildEnvironmentManifestResponse =
+        client.prepareGet(endpoint("/v1/jobs/$jobId/build-environment-manifest"))
+            .execute { response ->
+                response.ensureSuccess()
+                val declaredLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+                if (declaredLength != null && declaredLength > MAX_BUILD_MANIFEST_RESPONSE_BYTES) {
+                    throw RunnerResponseIntegrityException("Runner build manifest response exceeds 8 MiB.")
+                }
+                val channel = response.bodyAsChannel()
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(BUILD_MANIFEST_BUFFER_SIZE)
+                var total = 0
+                while (!channel.isClosedForRead) {
+                    val read = channel.readAvailable(buffer, 0, buffer.size)
+                    if (read == -1) break
+                    if (read > 0) {
+                        total += read
+                        if (total > MAX_BUILD_MANIFEST_RESPONSE_BYTES) {
+                            throw RunnerResponseIntegrityException("Runner build manifest response exceeds 8 MiB.")
+                        }
+                        output.write(buffer, 0, read)
+                    }
+                }
+                val jsonText = try {
+                    Charsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT)
+                        .decode(ByteBuffer.wrap(output.toByteArray()))
+                        .toString()
+                } catch (_: CharacterCodingException) {
+                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid UTF-8.")
+                }
+                try {
+                    BUILD_MANIFEST_JSON.decodeFromString(jsonText)
+                } catch (_: SerializationException) {
+                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid public schema v1 JSON.")
+                } catch (_: IllegalArgumentException) {
+                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid public schema v1 JSON.")
+                }
+            }
 
     suspend fun confirmJob(jobId: String, request: ConfirmJobRequest) {
         client.post(endpoint("/v1/jobs/$jobId/confirm")) {
@@ -172,5 +221,11 @@ class RunnerApiClient(
         const val DOWNLOAD_REQUEST_TIMEOUT_MILLIS = 30 * 60 * 1_000L
         const val DOWNLOAD_SOCKET_TIMEOUT_MILLIS = 30_000L
         const val DOWNLOAD_BUFFER_SIZE = 64 * 1_024
+        const val BUILD_MANIFEST_BUFFER_SIZE = 64 * 1_024
+        const val MAX_BUILD_MANIFEST_RESPONSE_BYTES = 8 * 1024 * 1024
+        val BUILD_MANIFEST_JSON = Json {
+            ignoreUnknownKeys = false
+            explicitNulls = false
+        }
     }
 }

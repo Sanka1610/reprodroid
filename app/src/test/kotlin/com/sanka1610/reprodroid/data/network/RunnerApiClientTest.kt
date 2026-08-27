@@ -113,6 +113,58 @@ class RunnerApiClientTest {
     }
 
     @Test
+    fun `build manifest endpoint is bounded and parsed with strict public schema`() = runBlocking {
+        val engine = MockEngine { request ->
+            assertEquals(
+                "http://127.0.0.1:8080/v1/jobs/job-1/build-environment-manifest",
+                request.url.toString(),
+            )
+            respond(
+                content = """
+                    {
+                      "schemaVersion":1,
+                      "commit":"${"1".repeat(40)}",
+                      "java":{"version":"21.0.1","vendor":"Example"},
+                      "gradle":"8.14.3",
+                      "androidSdk":36,
+                      "buildTools":"36.0.0",
+                      "dependencies":[{"fileName":"example.jar","sha256":"${"a".repeat(64)}"}],
+                      "apkHash":"${"b".repeat(64)}"
+                    }
+                """.trimIndent(),
+                status = HttpStatusCode.OK,
+                headers = jsonHeaders,
+            )
+        }
+        val manifest = RunnerApiClient("http://127.0.0.1:8080", engine)
+            .getBuildEnvironmentManifest("job-1")
+
+        assertEquals(1, manifest.schemaVersion)
+        assertEquals("example.jar", manifest.dependencies.single().fileName)
+    }
+
+    @Test
+    fun `build manifest endpoint rejects declared response larger than 8 MiB`() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = "{}",
+                status = HttpStatusCode.OK,
+                headers = headersOf(
+                    HttpHeaders.ContentType to listOf("application/json"),
+                    HttpHeaders.ContentLength to listOf((8 * 1024 * 1024 + 1).toString()),
+                ),
+            )
+        }
+        assertThrows(RunnerResponseIntegrityException::class.java) {
+            runBlocking {
+                RunnerApiClient("http://127.0.0.1:8080", engine)
+                    .getBuildEnvironmentManifest("job-1")
+            }
+        }
+        Unit
+    }
+
+    @Test
     fun `base URL rejects paths and user information`() {
         assertThrows(RunnerConfigurationException::class.java) {
             RunnerApiClient("http://127.0.0.1:8080/v1")

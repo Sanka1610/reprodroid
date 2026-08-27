@@ -23,6 +23,14 @@ interface JobDao {
     @Query("SELECT * FROM artifacts WHERE jobId = :jobId")
     suspend fun getArtifacts(jobId: String): List<ArtifactEntity>
 
+    @Transaction
+    @Query("SELECT * FROM build_environment_manifests WHERE jobId = :jobId")
+    suspend fun getBuildEnvironmentManifest(jobId: String): BuildEnvironmentManifestWithDependencies?
+
+    @Transaction
+    @Query("SELECT * FROM build_environment_manifests ORDER BY jobId")
+    fun observeBuildEnvironmentManifests(): Flow<List<BuildEnvironmentManifestWithDependencies>>
+
     @Query(
         """
         SELECT jobId FROM jobs
@@ -44,6 +52,12 @@ interface JobDao {
     @Upsert
     suspend fun upsertInstallAttempt(attempt: InstallAttemptEntity)
 
+    @Upsert
+    suspend fun upsertBuildEnvironmentManifest(manifest: BuildEnvironmentManifestEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBuildEnvironmentDependencies(dependencies: List<BuildEnvironmentDependencyEntity>)
+
     @Query("SELECT * FROM install_attempts WHERE attemptId = :attemptId")
     suspend fun getInstallAttempt(attemptId: String): InstallAttemptEntity?
 
@@ -57,4 +71,17 @@ interface JobDao {
 
     @Query("DELETE FROM artifacts WHERE jobId = :jobId")
     suspend fun deleteArtifacts(jobId: String)
+
+    @Query("DELETE FROM build_environment_dependencies WHERE jobId = :jobId")
+    suspend fun deleteBuildEnvironmentDependencies(jobId: String)
+
+    @Transaction
+    suspend fun replaceBuildEnvironmentManifest(
+        manifest: BuildEnvironmentManifestEntity,
+        dependencies: List<BuildEnvironmentDependencyEntity>,
+    ) {
+        upsertBuildEnvironmentManifest(manifest)
+        deleteBuildEnvironmentDependencies(manifest.jobId)
+        if (dependencies.isNotEmpty()) insertBuildEnvironmentDependencies(dependencies)
+    }
 }
