@@ -97,6 +97,20 @@ class ManagedAppPolicyTest {
     }
 
     @Test
+    fun `pinning mismatch does not change repeated build trust`() {
+        val exactWithDifferentPinning = repeatedComparison(
+            officialPrimary = ComparisonOutcome.MATCH,
+            officialRepeat = ComparisonOutcome.MATCH,
+            localRepeatability = ComparisonOutcome.MATCH,
+        ).copy(
+            runnerDependencyPinning = "LOCKFILE",
+            repeatRunnerDependencyPinning = "LOCKFILE_OFFLINE",
+        )
+
+        assertEquals(TrustLevel.REPRODUCIBLE, record(listOf(exactWithDifferentPinning)).trustLevel)
+    }
+
+    @Test
     fun `repeated build remains buildable until repeat evidence is complete`() {
         val pending = record(
             listOf(

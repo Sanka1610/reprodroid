@@ -251,6 +251,16 @@ private fun JobCard(
                     "Fixed build: $buildRoot · ${job.effectiveBuildTasks.orEmpty().replace('\n', ' ')}",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Text(
+                    "Dependency pinning: ${dependencyPinningLabel(job.effectiveDependencyPinning)}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (job.effectiveDependencyPinning == "LOCKFILE_OFFLINE") {
+                    Text(
+                        "Gradle offline resolution is not network isolation.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
             job.errorMessage?.let { error ->
                 Text("${job.errorCode}: $error", color = MaterialTheme.colorScheme.error)

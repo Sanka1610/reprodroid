@@ -596,7 +596,14 @@ class ManagedAppRepository(
             ?: return markIncomparable(run, "RUNNER_JOB_MISSING")
         val targetMismatch = comparisonTargetMismatch(run, job)
         if (targetMismatch != null && job.resolvedCommitSha != null) {
-            markIncomparable(run, targetMismatch, job.resolvedCommitSha, job.effectiveRecipeId, job.effectiveVariantName)
+            markIncomparable(
+                run,
+                targetMismatch,
+                job.resolvedCommitSha,
+                job.effectiveRecipeId,
+                job.effectiveVariantName,
+                dependencyPinning = job.effectiveDependencyPinning,
+            )
             return
         }
         when (JobState.valueOf(job.state)) {
@@ -605,18 +612,33 @@ class ManagedAppRepository(
                     runnerResolvedCommitSha = job.resolvedCommitSha,
                     runnerRecipeId = job.effectiveRecipeId,
                     runnerVariantName = job.effectiveVariantName,
+                    runnerDependencyPinning = job.effectiveDependencyPinning,
                     status = ComparisonRunStatus.AWAITING_CONFIRMATION.name,
                     updatedAt = Instant.now().toString(),
                 ),
             )
-            JobState.SUCCEEDED -> completeComparison(run, job.resolvedCommitSha, job.effectiveRecipeId, job.effectiveVariantName)
+            JobState.SUCCEEDED -> completeComparison(
+                run,
+                job.resolvedCommitSha,
+                job.effectiveRecipeId,
+                job.effectiveVariantName,
+                job.effectiveDependencyPinning,
+            )
             JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED ->
-                markIncomparable(run, "RUNNER_JOB_${job.state}", job.resolvedCommitSha, job.effectiveRecipeId, job.effectiveVariantName)
+                markIncomparable(
+                    run,
+                    "RUNNER_JOB_${job.state}",
+                    job.resolvedCommitSha,
+                    job.effectiveRecipeId,
+                    job.effectiveVariantName,
+                    dependencyPinning = job.effectiveDependencyPinning,
+                )
             else -> dao.upsertComparisonRun(
                 run.copy(
                     runnerResolvedCommitSha = job.resolvedCommitSha,
                     runnerRecipeId = job.effectiveRecipeId,
                     runnerVariantName = job.effectiveVariantName,
+                    runnerDependencyPinning = job.effectiveDependencyPinning,
                     status = if (job.state == JobState.RESOLVING_SOURCE.name) {
                         ComparisonRunStatus.RESOLVING_RUNNER.name
                     } else {
@@ -642,6 +664,7 @@ class ManagedAppRepository(
                 job.resolvedCommitSha,
                 job.effectiveRecipeId,
                 job.effectiveVariantName,
+                dependencyPinning = job.effectiveDependencyPinning,
             )
             return
         }
@@ -651,6 +674,7 @@ class ManagedAppRepository(
                     repeatRunnerResolvedCommitSha = job.resolvedCommitSha,
                     repeatRunnerRecipeId = job.effectiveRecipeId,
                     repeatRunnerVariantName = job.effectiveVariantName,
+                    repeatRunnerDependencyPinning = job.effectiveDependencyPinning,
                     status = ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name,
                     updatedAt = Instant.now().toString(),
                 ),
@@ -660,6 +684,7 @@ class ManagedAppRepository(
                 job.resolvedCommitSha,
                 job.effectiveRecipeId,
                 job.effectiveVariantName,
+                job.effectiveDependencyPinning,
             )
             JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED ->
                 markRepeatIncomparable(
@@ -668,12 +693,14 @@ class ManagedAppRepository(
                     job.resolvedCommitSha,
                     job.effectiveRecipeId,
                     job.effectiveVariantName,
+                    dependencyPinning = job.effectiveDependencyPinning,
                 )
             else -> dao.upsertComparisonRun(
                 run.copy(
                     repeatRunnerResolvedCommitSha = job.resolvedCommitSha,
                     repeatRunnerRecipeId = job.effectiveRecipeId,
                     repeatRunnerVariantName = job.effectiveVariantName,
+                    repeatRunnerDependencyPinning = job.effectiveDependencyPinning,
                     status = if (job.state == JobState.RESOLVING_SOURCE.name) {
                         ComparisonRunStatus.RESOLVING_REPEAT_RUNNER.name
                     } else {
@@ -686,11 +713,13 @@ class ManagedAppRepository(
     }
 
     private suspend fun completeComparison(
-        run: ComparisonRunEntity,
+        originalRun: ComparisonRunEntity,
         resolvedCommitSha: String?,
         recipeId: String?,
         variantName: String?,
+        dependencyPinning: String,
     ) {
+        val run = originalRun.copy(runnerDependencyPinning = dependencyPinning)
         val reference = dao.getReleaseAsset(run.referenceAssetId)
             ?: return markIncomparable(run, "REFERENCE_ASSET_MISSING", resolvedCommitSha, recipeId, variantName)
         val artifacts = jobRepository.getArtifacts(run.runnerJobId)
@@ -830,11 +859,13 @@ class ManagedAppRepository(
     }
 
     private suspend fun completeRepeatComparison(
-        run: ComparisonRunEntity,
+        originalRun: ComparisonRunEntity,
         resolvedCommitSha: String?,
         recipeId: String?,
         variantName: String?,
+        dependencyPinning: String,
     ) {
+        val run = originalRun.copy(repeatRunnerDependencyPinning = dependencyPinning)
         val reference = dao.getReleaseAsset(run.referenceAssetId)
             ?: return markRepeatIncomparable(run, "REPEAT_REFERENCE_ASSET_MISSING", resolvedCommitSha, recipeId, variantName)
         val repeatJobId = run.repeatRunnerJobId
@@ -1121,6 +1152,7 @@ class ManagedAppRepository(
         recipeId: String? = run.runnerRecipeId,
         variantName: String? = run.runnerVariantName,
         artifactId: String? = run.localArtifactId,
+        dependencyPinning: String = run.runnerDependencyPinning,
     ) {
         val now = Instant.now().toString()
         database.withTransaction {
@@ -1131,6 +1163,7 @@ class ManagedAppRepository(
                     runnerResolvedCommitSha = resolvedCommitSha,
                     runnerRecipeId = recipeId,
                     runnerVariantName = variantName,
+                    runnerDependencyPinning = dependencyPinning,
                     status = ComparisonRunStatus.COMPLETED.name,
                     outcome = ComparisonOutcome.INCOMPARABLE.name,
                     incomparableReason = reason,
@@ -1156,6 +1189,7 @@ class ManagedAppRepository(
         recipeId: String? = run.repeatRunnerRecipeId,
         variantName: String? = run.repeatRunnerVariantName,
         artifactId: String? = run.repeatLocalArtifactId,
+        dependencyPinning: String = run.repeatRunnerDependencyPinning,
     ) {
         val now = Instant.now().toString()
         database.withTransaction {
@@ -1166,6 +1200,7 @@ class ManagedAppRepository(
                     repeatRunnerResolvedCommitSha = resolvedCommitSha,
                     repeatRunnerRecipeId = recipeId,
                     repeatRunnerVariantName = variantName,
+                    repeatRunnerDependencyPinning = dependencyPinning,
                     repeatOfficialOutcome = ComparisonOutcome.INCOMPARABLE.name,
                     repeatabilityOutcome = ComparisonOutcome.INCOMPARABLE.name,
                     repeatIncomparableReason = reason,

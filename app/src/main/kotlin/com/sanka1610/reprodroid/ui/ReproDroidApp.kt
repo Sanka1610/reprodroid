@@ -627,6 +627,33 @@ private fun AppDetailScreen(
                                 DetailValue("Build A vs Build B", comparison.repeatabilityOutcome)
                             }
                             DetailValue("Expected recipe", comparison.expectedRecipeId)
+                            DetailValue(
+                                "Build A dependency pinning",
+                                dependencyPinningLabel(comparison.runnerDependencyPinning),
+                            )
+                            if (comparison.protocolVersion >= 2 && comparison.repeatRunnerJobId != null) {
+                                DetailValue(
+                                    "Build B dependency pinning",
+                                    dependencyPinningLabel(comparison.repeatRunnerDependencyPinning),
+                                )
+                                if (comparison.runnerDependencyPinning != comparison.repeatRunnerDependencyPinning) {
+                                    Text(
+                                        "Build A and Build B used different dependency-pinning policies. " +
+                                            "This is advisory evidence and does not change comparison, trust, update, or install decisions.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                            if (
+                                comparison.runnerDependencyPinning == "LOCKFILE_OFFLINE" ||
+                                comparison.repeatRunnerDependencyPinning == "LOCKFILE_OFFLINE"
+                            ) {
+                                Text(
+                                    "Gradle offline resolution is not network isolation.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                             DetailValue("Expected commit", comparison.expectedCommitSha, true)
                             comparison.runnerResolvedCommitSha?.let { DetailValue("Runner commit", it, true) }
                             comparison.repeatRunnerResolvedCommitSha?.let {

@@ -189,7 +189,7 @@ class JobRepository(
         } while (hasMore)
 
         database.withTransaction {
-            jobDao.upsertJob(remote.toEntity(existing, afterSequence))
+            jobDao.upsertJob(remote.toJobEntity(existing, afterSequence))
             jobDao.deleteArtifacts(jobId)
             if (remote.artifacts.isNotEmpty()) {
                 jobDao.upsertArtifacts(
@@ -449,31 +449,6 @@ class JobRepository(
             }
     }
 
-    private fun JobResponse.toEntity(existing: JobEntity?, logCursor: Long): JobEntity = JobEntity(
-        jobId = jobId,
-        executionMode = executionMode.name,
-        repositoryUrl = repositoryUrl,
-        revisionType = requestedRevision.type.name,
-        revisionValue = requestedRevision.value,
-        simulationOutcome = existing?.simulationOutcome,
-        resolvedCommitSha = resolvedCommitSha,
-        requiresConfirmation = requiresConfirmation,
-        effectiveRecipeId = effectiveBuild?.recipeId,
-        effectiveVariantName = effectiveBuild?.variantName,
-        effectiveBuildRoot = effectiveBuild?.buildRoot,
-        effectiveJavaMajor = effectiveBuild?.javaMajor,
-        effectiveBuildTasks = effectiveBuild?.tasks?.joinToString("\n"),
-        state = state.name,
-        progressPercent = progressPercent,
-        latestLogSequence = maxOf(logCursor, existing?.latestLogSequence ?: 0L),
-        errorCode = error?.code,
-        errorMessage = error?.message,
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-        downloadResult = existing?.downloadResult,
-        installResult = existing?.installResult,
-    )
-
     private fun com.sanka1610.reprodroid.data.network.ArtifactMetadata.toEntity(
         jobId: String,
         existing: ArtifactEntity?,
@@ -553,3 +528,29 @@ class JobRepository(
         const val INSTALL_CALLBACK_GRACE_SECONDS = 30L
     }
 }
+
+internal fun JobResponse.toJobEntity(existing: JobEntity?, logCursor: Long): JobEntity = JobEntity(
+    jobId = jobId,
+    executionMode = executionMode.name,
+    repositoryUrl = repositoryUrl,
+    revisionType = requestedRevision.type.name,
+    revisionValue = requestedRevision.value,
+    simulationOutcome = existing?.simulationOutcome,
+    resolvedCommitSha = resolvedCommitSha,
+    requiresConfirmation = requiresConfirmation,
+    effectiveRecipeId = effectiveBuild?.recipeId,
+    effectiveVariantName = effectiveBuild?.variantName,
+    effectiveBuildRoot = effectiveBuild?.buildRoot,
+    effectiveJavaMajor = effectiveBuild?.javaMajor,
+    effectiveBuildTasks = effectiveBuild?.tasks?.joinToString("\n"),
+    effectiveDependencyPinning = effectiveBuild?.dependencyPinning?.name ?: "NONE",
+    state = state.name,
+    progressPercent = progressPercent,
+    latestLogSequence = maxOf(logCursor, existing?.latestLogSequence ?: 0L),
+    errorCode = error?.code,
+    errorMessage = error?.message,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    downloadResult = existing?.downloadResult,
+    installResult = existing?.installResult,
+)

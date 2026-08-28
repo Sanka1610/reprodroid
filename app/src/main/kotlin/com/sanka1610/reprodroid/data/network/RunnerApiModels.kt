@@ -75,12 +75,20 @@ data class ConfirmJobRequest(
 )
 
 @Serializable
+enum class DependencyPinning {
+    NONE,
+    LOCKFILE,
+    LOCKFILE_OFFLINE,
+}
+
+@Serializable
 data class EffectiveBuild(
     val recipeId: String? = null,
     val variantName: String? = null,
     val buildRoot: String,
     val javaMajor: Int? = null,
     val tasks: List<String>,
+    val dependencyPinning: DependencyPinning = DependencyPinning.NONE,
 )
 
 @Serializable

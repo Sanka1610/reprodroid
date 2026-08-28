@@ -23,6 +23,8 @@ data class JobEntity(
     val effectiveBuildRoot: String? = null,
     val effectiveJavaMajor: Int? = null,
     val effectiveBuildTasks: String? = null,
+    @ColumnInfo(defaultValue = "'NONE'")
+    val effectiveDependencyPinning: String = "NONE",
     val state: String,
     val progressPercent: Int,
     val latestLogSequence: Long,

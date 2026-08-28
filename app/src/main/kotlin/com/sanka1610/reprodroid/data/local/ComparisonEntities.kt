@@ -86,6 +86,8 @@ data class ComparisonRunEntity(
     val runnerRecipeId: String? = null,
     val expectedVariantName: String,
     val runnerVariantName: String? = null,
+    @ColumnInfo(defaultValue = "'NONE'")
+    val runnerDependencyPinning: String = "NONE",
     val status: String = ComparisonRunStatus.RESOLVING_RUNNER.name,
     val outcome: String = ComparisonOutcome.NOT_EVALUATED.name,
     val incomparableReason: String? = null,
@@ -96,6 +98,8 @@ data class ComparisonRunEntity(
     val repeatRunnerResolvedCommitSha: String? = null,
     val repeatRunnerRecipeId: String? = null,
     val repeatRunnerVariantName: String? = null,
+    @ColumnInfo(defaultValue = "'NONE'")
+    val repeatRunnerDependencyPinning: String = "NONE",
     @ColumnInfo(defaultValue = "'NOT_EVALUATED'")
     val repeatOfficialOutcome: String = ComparisonOutcome.NOT_EVALUATED.name,
     @ColumnInfo(defaultValue = "'NOT_EVALUATED'")

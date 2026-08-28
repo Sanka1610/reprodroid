@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         BuildEnvironmentManifestEntity::class,
         BuildEnvironmentDependencyEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -538,6 +538,23 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_build_environment_dependencies_jobId " +
                         "ON build_environment_dependencies(jobId)",
+                )
+            }
+        }
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE jobs ADD COLUMN effectiveDependencyPinning " +
+                        "TEXT NOT NULL DEFAULT 'NONE'",
+                )
+                db.execSQL(
+                    "ALTER TABLE comparison_runs ADD COLUMN runnerDependencyPinning " +
+                        "TEXT NOT NULL DEFAULT 'NONE'",
+                )
+                db.execSQL(
+                    "ALTER TABLE comparison_runs ADD COLUMN repeatRunnerDependencyPinning " +
+                        "TEXT NOT NULL DEFAULT 'NONE'",
                 )
             }
         }

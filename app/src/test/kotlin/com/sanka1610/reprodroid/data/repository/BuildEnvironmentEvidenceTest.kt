@@ -6,6 +6,7 @@ import com.sanka1610.reprodroid.data.local.BuildEnvironmentManifestWithDependenc
 import com.sanka1610.reprodroid.data.local.JobEntity
 import com.sanka1610.reprodroid.data.network.ArtifactMetadata
 import com.sanka1610.reprodroid.data.network.BuildEnvironmentManifestResponse
+import com.sanka1610.reprodroid.data.network.DependencyPinning
 import com.sanka1610.reprodroid.data.network.EffectiveBuild
 import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.JobResponse
@@ -21,6 +22,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BuildEnvironmentEvidenceTest {
+    @Test
+    fun `current job response stores dependency pinning`() {
+        val stored = remoteJob(
+            "job-a",
+            dependencyPinning = DependencyPinning.LOCKFILE_OFFLINE,
+        ).toJobEntity(existing = null, logCursor = 3)
+
+        assertEquals(DependencyPinning.LOCKFILE_OFFLINE.name, stored.effectiveDependencyPinning)
+    }
+
     @Test
     fun `validated response becomes deterministic Room rows`() {
         val validated = validateBuildEnvironmentManifest(
@@ -133,7 +144,10 @@ class BuildEnvironmentEvidenceTest {
         apkHash = APK_SHA,
     )
 
-    private fun remoteJob(jobId: String) = JobResponse(
+    private fun remoteJob(
+        jobId: String,
+        dependencyPinning: DependencyPinning = DependencyPinning.NONE,
+    ) = JobResponse(
         jobId = jobId,
         executionMode = ExecutionMode.REAL_TRUSTED,
         repositoryUrl = REPOSITORY,
@@ -142,7 +156,14 @@ class BuildEnvironmentEvidenceTest {
         state = JobState.SUCCEEDED,
         progressPercent = 100,
         requiresConfirmation = false,
-        effectiveBuild = EffectiveBuild("recipe", "defaultRelease", ".", 18, listOf("assemble")),
+        effectiveBuild = EffectiveBuild(
+            "recipe",
+            "defaultRelease",
+            ".",
+            18,
+            listOf("assemble"),
+            dependencyPinning,
+        ),
         latestLogSequence = 1,
         artifacts = listOf(ArtifactMetadata("artifact", "microg.apk", 1, APK_SHA, "", "", 0)),
         createdAt = "2026-08-27T00:00:00Z",

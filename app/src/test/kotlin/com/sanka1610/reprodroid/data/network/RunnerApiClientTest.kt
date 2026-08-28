@@ -7,6 +7,9 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.HttpMethod
 import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -15,6 +18,24 @@ import org.junit.Test
 import java.nio.file.Files
 
 class RunnerApiClientTest {
+    @Test
+    fun `legacy effective build without dependency pinning defaults to none`() {
+        val effectiveBuild = Json.decodeFromString<EffectiveBuild>(
+            """{"buildRoot":".","tasks":["assembleRelease"]}""",
+        )
+
+        assertEquals(DependencyPinning.NONE, effectiveBuild.dependencyPinning)
+    }
+
+    @Test
+    fun `unknown dependency pinning is rejected`() {
+        assertThrows(SerializationException::class.java) {
+            Json.decodeFromString<EffectiveBuild>(
+                """{"buildRoot":".","tasks":["assembleRelease"],"dependencyPinning":"FUTURE_MODE"}""",
+            )
+        }
+    }
+
     @Test
     fun `create job parses accepted response`() = runBlocking {
         val engine = MockEngine { request ->
