@@ -25,6 +25,23 @@ class RunnerApiClientTest {
         )
 
         assertEquals(DependencyPinning.NONE, effectiveBuild.dependencyPinning)
+        assertEquals(null, effectiveBuild.determinism)
+    }
+
+    @Test
+    fun `effective build decodes strict determinism and rejects unknown locale`() {
+        val effectiveBuild = Json.decodeFromString<EffectiveBuild>(
+            """{"buildRoot":".","tasks":["assembleRelease"],"determinism":{"sourceDateEpoch":1777393787,"noBuildCache":true,"fixedLocale":"C.UTF-8"}}""",
+        )
+
+        assertEquals(1_777_393_787L, effectiveBuild.determinism?.sourceDateEpoch)
+        assertEquals(true, effectiveBuild.determinism?.noBuildCache)
+        assertEquals(FixedLocale.C_UTF_8, effectiveBuild.determinism?.fixedLocale)
+        assertThrows(SerializationException::class.java) {
+            Json.decodeFromString<EffectiveBuild>(
+                """{"buildRoot":".","tasks":["assembleRelease"],"determinism":{"noBuildCache":false,"fixedLocale":"FUTURE"}}""",
+            )
+        }
     }
 
     @Test

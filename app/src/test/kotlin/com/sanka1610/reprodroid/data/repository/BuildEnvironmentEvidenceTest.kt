@@ -7,8 +7,10 @@ import com.sanka1610.reprodroid.data.local.JobEntity
 import com.sanka1610.reprodroid.data.network.ArtifactMetadata
 import com.sanka1610.reprodroid.data.network.BuildEnvironmentManifestResponse
 import com.sanka1610.reprodroid.data.network.DependencyPinning
+import com.sanka1610.reprodroid.data.network.DeterminismOptions
 import com.sanka1610.reprodroid.data.network.EffectiveBuild
 import com.sanka1610.reprodroid.data.network.ExecutionMode
+import com.sanka1610.reprodroid.data.network.FixedLocale
 import com.sanka1610.reprodroid.data.network.JobResponse
 import com.sanka1610.reprodroid.data.network.JobState
 import com.sanka1610.reprodroid.data.network.PublicBuildDependency
@@ -49,6 +51,62 @@ class BuildEnvironmentEvidenceTest {
         assertEquals(COMMIT, validated.manifest.commitSha)
         assertEquals(listOf(0, 1), validated.dependencies.map { it.ordinal })
         assertEquals(listOf("a".repeat(64), "b".repeat(64)), validated.dependencies.map { it.sha256 })
+    }
+
+    @Test
+    fun `schema two stores matching effective determinism`() {
+        val determinism = DeterminismOptions(
+            sourceDateEpoch = 1_777_393_787,
+            noBuildCache = true,
+            fixedLocale = FixedLocale.C_UTF_8,
+        )
+        val validated = validateBuildEnvironmentManifest(
+            jobId = "job-a",
+            remoteJob = remoteJob("job-a", determinism = determinism),
+            response = response(emptyList()).copy(schemaVersion = 2, determinism = determinism),
+            retrievedAt = "2026-08-28T00:00:00Z",
+        )
+
+        assertEquals(1_777_393_787L, validated.manifest.sourceDateEpoch)
+        assertTrue(validated.manifest.noBuildCache)
+        assertEquals("C.UTF-8", validated.manifest.fixedLocale)
+        val storedJob = remoteJob("job-a", determinism = determinism).toJobEntity(null, 0)
+        assertEquals(1_777_393_787L, storedJob.effectiveSourceDateEpoch)
+        assertTrue(storedJob.effectiveNoBuildCache)
+        assertEquals("C.UTF-8", storedJob.effectiveFixedLocale)
+    }
+
+    @Test
+    fun `schema version and determinism mismatch are rejected`() {
+        val determinism = DeterminismOptions(
+            sourceDateEpoch = 1_777_393_787,
+            noBuildCache = true,
+            fixedLocale = FixedLocale.C_UTF_8,
+        )
+        assertThrows(IllegalStateException::class.java) {
+            validateBuildEnvironmentManifest(
+                "job-a",
+                remoteJob("job-a", determinism = determinism),
+                response(emptyList()).copy(schemaVersion = 1, determinism = determinism),
+                "2026-08-28T00:00:00Z",
+            )
+        }
+        assertThrows(IllegalStateException::class.java) {
+            validateBuildEnvironmentManifest(
+                "job-a",
+                remoteJob("job-a"),
+                response(emptyList()).copy(schemaVersion = 2, determinism = determinism),
+                "2026-08-28T00:00:00Z",
+            )
+        }
+        assertThrows(IllegalStateException::class.java) {
+            validateBuildEnvironmentManifest(
+                "job-a",
+                remoteJob("job-a", determinism = determinism),
+                response(emptyList()),
+                "2026-08-28T00:00:00Z",
+            )
+        }
     }
 
     @Test
@@ -147,6 +205,7 @@ class BuildEnvironmentEvidenceTest {
     private fun remoteJob(
         jobId: String,
         dependencyPinning: DependencyPinning = DependencyPinning.NONE,
+        determinism: DeterminismOptions? = null,
     ) = JobResponse(
         jobId = jobId,
         executionMode = ExecutionMode.REAL_TRUSTED,
@@ -163,6 +222,7 @@ class BuildEnvironmentEvidenceTest {
             18,
             listOf("assemble"),
             dependencyPinning,
+            determinism,
         ),
         latestLogSequence = 1,
         artifacts = listOf(ArtifactMetadata("artifact", "microg.apk", 1, APK_SHA, "", "", 0)),

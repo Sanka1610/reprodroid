@@ -1,6 +1,7 @@
 package com.sanka1610.reprodroid.data.network
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 
 @Serializable
 enum class ExecutionMode {
@@ -82,6 +83,19 @@ enum class DependencyPinning {
 }
 
 @Serializable
+enum class FixedLocale(val value: String) {
+    @SerialName("C.UTF-8")
+    C_UTF_8("C.UTF-8"),
+}
+
+@Serializable
+data class DeterminismOptions(
+    val sourceDateEpoch: Long? = null,
+    val noBuildCache: Boolean,
+    val fixedLocale: FixedLocale? = null,
+)
+
+@Serializable
 data class EffectiveBuild(
     val recipeId: String? = null,
     val variantName: String? = null,
@@ -89,6 +103,7 @@ data class EffectiveBuild(
     val javaMajor: Int? = null,
     val tasks: List<String>,
     val dependencyPinning: DependencyPinning = DependencyPinning.NONE,
+    val determinism: DeterminismOptions? = null,
 )
 
 @Serializable
@@ -130,6 +145,7 @@ data class BuildEnvironmentManifestResponse(
     val buildTools: String,
     val dependencies: List<PublicBuildDependency>,
     val apkHash: String,
+    val determinism: DeterminismOptions? = null,
 )
 
 @Serializable

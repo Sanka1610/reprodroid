@@ -25,6 +25,10 @@ data class JobEntity(
     val effectiveBuildTasks: String? = null,
     @ColumnInfo(defaultValue = "'NONE'")
     val effectiveDependencyPinning: String = "NONE",
+    val effectiveSourceDateEpoch: Long? = null,
+    @ColumnInfo(defaultValue = "0")
+    val effectiveNoBuildCache: Boolean = false,
+    val effectiveFixedLocale: String? = null,
     val state: String,
     val progressPercent: Int,
     val latestLogSequence: Long,
@@ -161,6 +165,10 @@ data class BuildEnvironmentManifestEntity(
     val androidSdkApiLevel: Int,
     val buildToolsVersion: String,
     val apkSha256: String,
+    val sourceDateEpoch: Long? = null,
+    @ColumnInfo(defaultValue = "0")
+    val noBuildCache: Boolean = false,
+    val fixedLocale: String? = null,
     val retrievedAt: String,
 )
 

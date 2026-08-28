@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         BuildEnvironmentManifestEntity::class,
         BuildEnvironmentDependencyEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -556,6 +556,23 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                     "ALTER TABLE comparison_runs ADD COLUMN repeatRunnerDependencyPinning " +
                         "TEXT NOT NULL DEFAULT 'NONE'",
                 )
+            }
+        }
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE jobs ADD COLUMN effectiveSourceDateEpoch INTEGER")
+                db.execSQL(
+                    "ALTER TABLE jobs ADD COLUMN effectiveNoBuildCache " +
+                        "INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL("ALTER TABLE jobs ADD COLUMN effectiveFixedLocale TEXT")
+                db.execSQL("ALTER TABLE build_environment_manifests ADD COLUMN sourceDateEpoch INTEGER")
+                db.execSQL(
+                    "ALTER TABLE build_environment_manifests ADD COLUMN noBuildCache " +
+                        "INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL("ALTER TABLE build_environment_manifests ADD COLUMN fixedLocale TEXT")
             }
         }
     }

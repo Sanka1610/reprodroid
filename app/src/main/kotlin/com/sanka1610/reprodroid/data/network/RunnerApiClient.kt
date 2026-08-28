@@ -105,9 +105,9 @@ class RunnerApiClient(
                 try {
                     BUILD_MANIFEST_JSON.decodeFromString(jsonText)
                 } catch (_: SerializationException) {
-                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid public schema v1 JSON.")
+                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid public schema v1/v2 JSON.")
                 } catch (_: IllegalArgumentException) {
-                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid public schema v1 JSON.")
+                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid public schema v1/v2 JSON.")
                 }
             }
 

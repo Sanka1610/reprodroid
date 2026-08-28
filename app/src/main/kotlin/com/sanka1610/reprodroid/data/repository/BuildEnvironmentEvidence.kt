@@ -5,6 +5,7 @@ import com.sanka1610.reprodroid.data.local.BuildEnvironmentManifestEntity
 import com.sanka1610.reprodroid.data.local.BuildEnvironmentManifestWithDependencies
 import com.sanka1610.reprodroid.data.local.JobEntity
 import com.sanka1610.reprodroid.data.network.BuildEnvironmentManifestResponse
+import com.sanka1610.reprodroid.data.network.DeterminismOptions
 import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.JobResponse
 import com.sanka1610.reprodroid.data.network.JobState
@@ -53,7 +54,21 @@ internal fun validateBuildEnvironmentManifest(
 ): ValidatedBuildEnvironmentManifest {
     check(remoteJob.jobId == jobId)
     check(remoteJob.executionMode == ExecutionMode.REAL_TRUSTED && remoteJob.state == JobState.SUCCEEDED)
-    check(response.schemaVersion == PUBLIC_MANIFEST_SCHEMA_VERSION)
+    check(response.schemaVersion in SUPPORTED_PUBLIC_MANIFEST_SCHEMA_VERSIONS)
+    val unconfiguredDeterminism = DeterminismOptions(noBuildCache = false)
+    val determinism = when (response.schemaVersion) {
+        1 -> {
+            check(response.determinism == null)
+            check((remoteJob.effectiveBuild?.determinism ?: unconfiguredDeterminism) == unconfiguredDeterminism)
+            null
+        }
+        2 -> requireNotNull(response.determinism)
+        else -> error("Unsupported public Manifest schema.")
+    }
+    determinism?.let { effective ->
+        check(effective.sourceDateEpoch?.let { it >= 0 } != false)
+        check(remoteJob.effectiveBuild?.determinism == effective)
+    }
     check(LOWERCASE_COMMIT_SHA.matches(response.commit) && response.commit == remoteJob.resolvedCommitSha)
     check(response.androidSdk in 1..999)
     check(VERSION_VALUE.matches(response.gradle) && VERSION_VALUE.matches(response.buildTools))
@@ -85,6 +100,9 @@ internal fun validateBuildEnvironmentManifest(
             androidSdkApiLevel = response.androidSdk,
             buildToolsVersion = response.buildTools,
             apkSha256 = response.apkHash,
+            sourceDateEpoch = determinism?.sourceDateEpoch,
+            noBuildCache = determinism?.noBuildCache ?: false,
+            fixedLocale = determinism?.fixedLocale?.value,
             retrievedAt = retrievedAt,
         ),
         dependencies = dependencies,
@@ -164,7 +182,7 @@ private fun isUnsafePublicCharacter(character: Char): Boolean =
         Character.getType(character) == Character.FORMAT.toInt() ||
         Character.getType(character) == Character.SURROGATE.toInt()
 
-private const val PUBLIC_MANIFEST_SCHEMA_VERSION = 1
+private val SUPPORTED_PUBLIC_MANIFEST_SCHEMA_VERSIONS = setOf(1, 2)
 private const val MAX_PUBLIC_DEPENDENCIES = 20_000
 private const val MAX_DEPENDENCY_FILE_NAME_BYTES = 255
 private const val MAX_PUBLIC_TEXT_BYTES = 255

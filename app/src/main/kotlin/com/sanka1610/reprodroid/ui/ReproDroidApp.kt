@@ -681,7 +681,12 @@ private fun AppDetailScreen(
                                         "Java ${evidence.manifest.javaVersion} (${evidence.manifest.javaVendor}), " +
                                             "Gradle ${evidence.manifest.gradleVersion}, SDK API " +
                                             "${evidence.manifest.androidSdkApiLevel}, Build Tools " +
-                                            evidence.manifest.buildToolsVersion,
+                                            "${evidence.manifest.buildToolsVersion}; determinism: " +
+                                            determinismSummary(
+                                                evidence.manifest.sourceDateEpoch,
+                                                evidence.manifest.noBuildCache,
+                                                evidence.manifest.fixedLocale,
+                                            ),
                                     )
                                 }
                                 buildBManifest?.let { evidence ->
@@ -690,7 +695,12 @@ private fun AppDetailScreen(
                                         "Java ${evidence.manifest.javaVersion} (${evidence.manifest.javaVendor}), " +
                                             "Gradle ${evidence.manifest.gradleVersion}, SDK API " +
                                             "${evidence.manifest.androidSdkApiLevel}, Build Tools " +
-                                            evidence.manifest.buildToolsVersion,
+                                            "${evidence.manifest.buildToolsVersion}; determinism: " +
+                                            determinismSummary(
+                                                evidence.manifest.sourceDateEpoch,
+                                                evidence.manifest.noBuildCache,
+                                                evidence.manifest.fixedLocale,
+                                            ),
                                     )
                                 }
                                 buildManifestWarnings[comparison.runnerJobId]?.let { warning ->
@@ -726,10 +736,14 @@ private fun AppDetailScreen(
                                 if (
                                     buildAJob?.effectiveRecipeId != buildBJob?.effectiveRecipeId ||
                                     buildAJob?.effectiveVariantName != buildBJob?.effectiveVariantName ||
-                                    buildAManifest?.manifest?.javaVersion != buildBManifest?.manifest?.javaVersion
+                                    buildAManifest?.manifest?.javaVersion != buildBManifest?.manifest?.javaVersion ||
+                                    buildAManifest?.manifest?.sourceDateEpoch != buildBManifest?.manifest?.sourceDateEpoch ||
+                                    buildAManifest?.manifest?.noBuildCache != buildBManifest?.manifest?.noBuildCache ||
+                                    buildAManifest?.manifest?.fixedLocale != buildBManifest?.manifest?.fixedLocale
                                 ) {
                                     Text(
-                                        "Build recipe, variant, or Java differs. Dependency differences are not presented as a cause.",
+                                        "Build recipe, variant, Java, or determinism controls differ. " +
+                                            "This is advisory evidence and is not presented as a cause or used to change raw outcomes.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error,
                                     )

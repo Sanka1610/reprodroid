@@ -255,6 +255,10 @@ private fun JobCard(
                     "Dependency pinning: ${dependencyPinningLabel(job.effectiveDependencyPinning)}",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Text(
+                    "Determinism controls: ${determinismSummary(job.effectiveSourceDateEpoch, job.effectiveNoBuildCache, job.effectiveFixedLocale)}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 if (job.effectiveDependencyPinning == "LOCKFILE_OFFLINE") {
                     Text(
                         "Gradle offline resolution is not network isolation.",
@@ -289,6 +293,10 @@ private fun JobCard(
                         )
                         Text(
                             "${evidence.dependencies.size} dependency records · retrieved ${evidence.manifest.retrievedAt}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "Determinism controls: ${determinismSummary(evidence.manifest.sourceDateEpoch, evidence.manifest.noBuildCache, evidence.manifest.fixedLocale)}",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
