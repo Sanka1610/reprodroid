@@ -203,6 +203,71 @@ class RunnerApiClientTest {
     }
 
     @Test
+    fun `source scan endpoint is bounded and parsed with strict public schema`() = runBlocking {
+        val engine = MockEngine { request ->
+            assertEquals("http://127.0.0.1:8080/v1/jobs/job-1/source-scan", request.url.toString())
+            respond(
+                content = sourceScanJson,
+                status = HttpStatusCode.OK,
+                headers = jsonHeaders,
+            )
+        }
+
+        val scan = RunnerApiClient("http://127.0.0.1:8080", engine).getSourceScan("job-1")
+
+        assertEquals(SourceScanDetectorId.PROCESS_EXEC_API, scan.findings.single().detectorId)
+        assertEquals("a".repeat(64), scan.resultSha256)
+    }
+
+    @Test
+    fun `source scan endpoint rejects unknown fields and responses larger than 4 MiB`() {
+        val unknownFieldEngine = MockEngine {
+            respond(
+                content = sourceScanJson.dropLast(1) + ",\"futureField\":true}",
+                status = HttpStatusCode.OK,
+                headers = jsonHeaders,
+            )
+        }
+        assertThrows(RunnerResponseIntegrityException::class.java) {
+            runBlocking {
+                RunnerApiClient("http://127.0.0.1:8080", unknownFieldEngine).getSourceScan("job-1")
+            }
+        }
+        val oversizedEngine = MockEngine {
+            respond(
+                content = "{}",
+                status = HttpStatusCode.OK,
+                headers = headersOf(
+                    HttpHeaders.ContentType to listOf("application/json"),
+                    HttpHeaders.ContentLength to listOf((4 * 1024 * 1024 + 1).toString()),
+                ),
+            )
+        }
+        assertThrows(RunnerResponseIntegrityException::class.java) {
+            runBlocking {
+                RunnerApiClient("http://127.0.0.1:8080", oversizedEngine).getSourceScan("job-1")
+            }
+        }
+    }
+
+    @Test
+    fun `source scan continuation posts digest bound acknowledgement`() = runBlocking {
+        val engine = MockEngine { request ->
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals(
+                "http://127.0.0.1:8080/v1/jobs/job-1/source-scan/continue",
+                request.url.toString(),
+            )
+            respond(content = "", status = HttpStatusCode.NoContent)
+        }
+
+        RunnerApiClient("http://127.0.0.1:8080", engine).continueSourceScan(
+            "job-1",
+            ContinueSourceScanRequest("a".repeat(64), riskAcknowledged = true),
+        )
+    }
+
+    @Test
     fun `base URL rejects paths and user information`() {
         assertThrows(RunnerConfigurationException::class.java) {
             RunnerApiClient("http://127.0.0.1:8080/v1")
@@ -214,5 +279,7 @@ class RunnerApiClientTest {
 
     companion object {
         private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
+        private val sourceScanJson =
+            """{"schemaVersion":1,"jobId":"job-1","resolvedCommitSha":"${"1".repeat(40)}","scannerVersion":"reprodroid-static-v1","resultSha256":"${"a".repeat(64)}","summary":{"scannedFiles":1,"scannedBytes":10,"skippedBinaryFiles":0,"skippedSymlinks":0,"findingCount":1},"detectorCounts":[{"detectorId":"PROCESS_EXEC_API","count":1}],"findings":[{"detectorId":"PROCESS_EXEC_API","displayPath":"build.gradle.kts","line":1,"column":1}]}"""
     }
 }

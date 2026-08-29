@@ -52,6 +52,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     )
 
     val buildManifestWarnings = jobRepository.buildManifestWarnings
+    val sourceScanWarnings = jobRepository.sourceScanWarnings
 
     private val _preview = MutableStateFlow(ReleasePreviewState())
     val preview = _preview.asStateFlow()
@@ -160,6 +161,9 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
 
     fun confirmComparison(registeredAppId: String, comparisonRunId: String) =
         runAppAction(registeredAppId) { repository.confirmComparison(comparisonRunId) }
+
+    fun continueComparisonSourceScan(registeredAppId: String, comparisonRunId: String) =
+        runAppAction(registeredAppId) { repository.continueComparisonSourceScan(comparisonRunId) }
 
     fun refreshInstalledState(registeredAppId: String) = runAppAction(registeredAppId) {
         repository.refreshInstalledStateForApp(registeredAppId)

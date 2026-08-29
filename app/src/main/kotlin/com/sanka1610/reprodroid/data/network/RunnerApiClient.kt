@@ -73,35 +73,10 @@ class RunnerApiClient(
     suspend fun getBuildEnvironmentManifest(jobId: String): BuildEnvironmentManifestResponse =
         client.prepareGet(endpoint("/v1/jobs/$jobId/build-environment-manifest"))
             .execute { response ->
-                response.ensureSuccess()
-                val declaredLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-                if (declaredLength != null && declaredLength > MAX_BUILD_MANIFEST_RESPONSE_BYTES) {
-                    throw RunnerResponseIntegrityException("Runner build manifest response exceeds 8 MiB.")
-                }
-                val channel = response.bodyAsChannel()
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(BUILD_MANIFEST_BUFFER_SIZE)
-                var total = 0
-                while (!channel.isClosedForRead) {
-                    val read = channel.readAvailable(buffer, 0, buffer.size)
-                    if (read == -1) break
-                    if (read > 0) {
-                        total += read
-                        if (total > MAX_BUILD_MANIFEST_RESPONSE_BYTES) {
-                            throw RunnerResponseIntegrityException("Runner build manifest response exceeds 8 MiB.")
-                        }
-                        output.write(buffer, 0, read)
-                    }
-                }
-                val jsonText = try {
-                    Charsets.UTF_8.newDecoder()
-                        .onMalformedInput(CodingErrorAction.REPORT)
-                        .onUnmappableCharacter(CodingErrorAction.REPORT)
-                        .decode(ByteBuffer.wrap(output.toByteArray()))
-                        .toString()
-                } catch (_: CharacterCodingException) {
-                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid UTF-8.")
-                }
+                val jsonText = response.boundedUtf8Body(
+                    maximumBytes = MAX_BUILD_MANIFEST_RESPONSE_BYTES,
+                    description = "build manifest",
+                )
                 try {
                     BUILD_MANIFEST_JSON.decodeFromString(jsonText)
                 } catch (_: SerializationException) {
@@ -111,8 +86,31 @@ class RunnerApiClient(
                 }
             }
 
+    suspend fun getSourceScan(jobId: String): SourceScanDetailResponse =
+        client.prepareGet(endpoint("/v1/jobs/$jobId/source-scan"))
+            .execute { response ->
+                val jsonText = response.boundedUtf8Body(
+                    maximumBytes = MAX_SOURCE_SCAN_RESPONSE_BYTES,
+                    description = "source scan",
+                )
+                try {
+                    SOURCE_SCAN_JSON.decodeFromString(jsonText)
+                } catch (_: SerializationException) {
+                    throw RunnerResponseIntegrityException("Runner source scan response is not valid public schema v1 JSON.")
+                } catch (_: IllegalArgumentException) {
+                    throw RunnerResponseIntegrityException("Runner source scan response is not valid public schema v1 JSON.")
+                }
+            }
+
     suspend fun confirmJob(jobId: String, request: ConfirmJobRequest) {
         client.post(endpoint("/v1/jobs/$jobId/confirm")) {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.ensureSuccess()
+    }
+
+    suspend fun continueSourceScan(jobId: String, request: ContinueSourceScanRequest) {
+        client.post(endpoint("/v1/jobs/$jobId/source-scan/continue")) {
             contentType(ContentType.Application.Json)
             setBody(request)
         }.ensureSuccess()
@@ -187,6 +185,38 @@ class RunnerApiClient(
         )
     }
 
+    private suspend fun HttpResponse.boundedUtf8Body(maximumBytes: Int, description: String): String {
+        ensureSuccess()
+        val declaredLength = headers[HttpHeaders.ContentLength]?.toLongOrNull()
+        if (declaredLength != null && declaredLength > maximumBytes) {
+            throw RunnerResponseIntegrityException("Runner $description response exceeds ${maximumBytes / MIB} MiB.")
+        }
+        val channel = bodyAsChannel()
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(BOUNDED_RESPONSE_BUFFER_SIZE)
+        var total = 0
+        while (!channel.isClosedForRead) {
+            val read = channel.readAvailable(buffer, 0, buffer.size)
+            if (read == -1) break
+            if (read > 0) {
+                total += read
+                if (total > maximumBytes) {
+                    throw RunnerResponseIntegrityException("Runner $description response exceeds ${maximumBytes / MIB} MiB.")
+                }
+                output.write(buffer, 0, read)
+            }
+        }
+        return try {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(output.toByteArray()))
+                .toString()
+        } catch (_: CharacterCodingException) {
+            throw RunnerResponseIntegrityException("Runner $description response is not valid UTF-8.")
+        }
+    }
+
     private fun endpoint(path: String): String {
         if (runnerBaseUrl.isBlank()) {
             throw RunnerConfigurationException("Runner base URL is not configured for this build.")
@@ -221,9 +251,15 @@ class RunnerApiClient(
         const val DOWNLOAD_REQUEST_TIMEOUT_MILLIS = 30 * 60 * 1_000L
         const val DOWNLOAD_SOCKET_TIMEOUT_MILLIS = 30_000L
         const val DOWNLOAD_BUFFER_SIZE = 64 * 1_024
-        const val BUILD_MANIFEST_BUFFER_SIZE = 64 * 1_024
+        const val BOUNDED_RESPONSE_BUFFER_SIZE = 64 * 1_024
         const val MAX_BUILD_MANIFEST_RESPONSE_BYTES = 8 * 1024 * 1024
+        const val MAX_SOURCE_SCAN_RESPONSE_BYTES = 4 * 1024 * 1024
+        const val MIB = 1024 * 1024
         val BUILD_MANIFEST_JSON = Json {
+            ignoreUnknownKeys = false
+            explicitNulls = false
+        }
+        val SOURCE_SCAN_JSON = Json {
             ignoreUnknownKeys = false
             explicitNulls = false
         }

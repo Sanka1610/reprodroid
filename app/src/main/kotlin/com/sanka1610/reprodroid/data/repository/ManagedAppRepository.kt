@@ -579,6 +579,35 @@ class ManagedAppRepository(
         )
     }
 
+    suspend fun continueComparisonSourceScan(comparisonRunId: String) {
+        refreshComparison(comparisonRunId)
+        val run = dao.getComparisonRun(comparisonRunId)
+            ?: throw IllegalArgumentException("Comparison run was not found.")
+        if (run.status == ComparisonRunStatus.COMPLETED.name) return
+        val repeatReview = run.status == ComparisonRunStatus.AWAITING_REPEAT_SCAN_REVIEW.name
+        check(repeatReview || run.status == ComparisonRunStatus.AWAITING_SCAN_REVIEW.name) {
+            "The comparison build is not awaiting source scan review."
+        }
+        val jobId = if (repeatReview) {
+            run.repeatRunnerJobId ?: error("The repeat Runner Job is missing from the comparison.")
+        } else {
+            run.runnerJobId
+        }
+        val scan = jobRepository.getSourceScan(jobId)
+            ?: error("Validated source scan evidence is not available locally.")
+        jobRepository.continueSourceScan(jobId, scan.scan.resultSha256)
+        dao.upsertComparisonRun(
+            run.copy(
+                status = if (repeatReview) {
+                    ComparisonRunStatus.REPEAT_BUILDING.name
+                } else {
+                    ComparisonRunStatus.BUILDING.name
+                },
+                updatedAt = Instant.now().toString(),
+            ),
+        )
+    }
+
     suspend fun refreshComparison(comparisonRunId: String) {
         val run = dao.getComparisonRun(comparisonRunId)
             ?: throw IllegalArgumentException("Comparison run was not found.")
@@ -614,6 +643,16 @@ class ManagedAppRepository(
                     runnerVariantName = job.effectiveVariantName,
                     runnerDependencyPinning = job.effectiveDependencyPinning,
                     status = ComparisonRunStatus.AWAITING_CONFIRMATION.name,
+                    updatedAt = Instant.now().toString(),
+                ),
+            )
+            JobState.AWAITING_SCAN_REVIEW -> dao.upsertComparisonRun(
+                run.copy(
+                    runnerResolvedCommitSha = job.resolvedCommitSha,
+                    runnerRecipeId = job.effectiveRecipeId,
+                    runnerVariantName = job.effectiveVariantName,
+                    runnerDependencyPinning = job.effectiveDependencyPinning,
+                    status = ComparisonRunStatus.AWAITING_SCAN_REVIEW.name,
                     updatedAt = Instant.now().toString(),
                 ),
             )
@@ -676,6 +715,16 @@ class ManagedAppRepository(
                     repeatRunnerVariantName = job.effectiveVariantName,
                     repeatRunnerDependencyPinning = job.effectiveDependencyPinning,
                     status = ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name,
+                    updatedAt = Instant.now().toString(),
+                ),
+            )
+            JobState.AWAITING_SCAN_REVIEW -> dao.upsertComparisonRun(
+                run.copy(
+                    repeatRunnerResolvedCommitSha = job.resolvedCommitSha,
+                    repeatRunnerRecipeId = job.effectiveRecipeId,
+                    repeatRunnerVariantName = job.effectiveVariantName,
+                    repeatRunnerDependencyPinning = job.effectiveDependencyPinning,
+                    status = ComparisonRunStatus.AWAITING_REPEAT_SCAN_REVIEW.name,
                     updatedAt = Instant.now().toString(),
                 ),
             )

@@ -12,7 +12,9 @@ import com.sanka1610.reprodroid.data.local.JobEntity
 import com.sanka1610.reprodroid.data.local.JobRecord
 import com.sanka1610.reprodroid.data.local.LogEntity
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
+import com.sanka1610.reprodroid.data.local.SourceScanWithDetails
 import com.sanka1610.reprodroid.data.network.CreateJobRequest
+import com.sanka1610.reprodroid.data.network.ContinueSourceScanRequest
 import com.sanka1610.reprodroid.data.network.ConfirmJobRequest
 import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.JobResponse
@@ -24,6 +26,7 @@ import com.sanka1610.reprodroid.data.network.RunnerApiClient
 import com.sanka1610.reprodroid.data.network.RunnerApiException
 import com.sanka1610.reprodroid.data.network.RunnerResponseIntegrityException
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
+import com.sanka1610.reprodroid.data.network.SourceScanStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -51,13 +54,17 @@ class JobRepository(
     private val apkInspector = ApkInspector(applicationContext.packageManager)
     private val apkInstaller = ApkInstaller(applicationContext, jobDao)
     private val _buildManifestWarnings = MutableStateFlow<Map<String, BuildManifestWarning>>(emptyMap())
+    private val _sourceScanWarnings = MutableStateFlow<Map<String, SourceScanWarning>>(emptyMap())
 
     val buildManifestWarnings = _buildManifestWarnings.asStateFlow()
+    val sourceScanWarnings = _sourceScanWarnings.asStateFlow()
 
     fun observeJobs(): Flow<List<JobRecord>> = jobDao.observeJobs()
 
     fun observeBuildEnvironmentManifests(): Flow<List<BuildEnvironmentManifestWithDependencies>> =
         jobDao.observeBuildEnvironmentManifests()
+
+    fun observeSourceScans(): Flow<List<SourceScanWithDetails>> = jobDao.observeSourceScans()
 
     suspend fun getJob(jobId: String): JobEntity? = jobDao.getJob(jobId)
 
@@ -65,6 +72,8 @@ class JobRepository(
 
     suspend fun getBuildEnvironmentManifest(jobId: String): BuildEnvironmentManifestWithDependencies? =
         jobDao.getBuildEnvironmentManifest(jobId)
+
+    suspend fun getSourceScan(jobId: String): SourceScanWithDetails? = jobDao.getSourceScan(jobId)
 
     suspend fun createSimulatedJob(
         repositoryUrl: String,
@@ -168,6 +177,7 @@ class JobRepository(
         val existing = jobDao.getJob(jobId)
         val existingArtifacts = jobDao.getArtifacts(jobId).associateBy(ArtifactEntity::artifactId)
         val remote = runnerApi.getJob(jobId)
+        validateSourceScanSummary(remote)
         var afterSequence = existing?.latestLogSequence ?: 0L
         val newLogs = mutableListOf<LogEntity>()
         var hasMore: Boolean
@@ -201,6 +211,44 @@ class JobRepository(
         if (remote.executionMode == ExecutionMode.REAL_TRUSTED && remote.state == JobState.SUCCEEDED) {
             fetchAndStoreBuildEnvironmentManifest(remote)
         }
+        if (remote.sourceScan?.status == SourceScanStatus.COMPLETED) {
+            fetchAndStoreSourceScan(remote)
+        }
+    }
+
+    private suspend fun fetchAndStoreSourceScan(remote: JobResponse) {
+        try {
+            val response = runnerApi.getSourceScan(remote.jobId)
+            val validated = validateSourceScanDetail(
+                jobId = remote.jobId,
+                remoteJob = remote,
+                response = response,
+                retrievedAt = Instant.now().toString(),
+            )
+            database.withTransaction {
+                jobDao.replaceSourceScan(validated.scan, validated.detectorCounts, validated.findings)
+            }
+            _sourceScanWarnings.value -= remote.jobId
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: RunnerApiException) {
+            setSourceScanWarning(remote.jobId, failure.errorCode)
+        } catch (_: RunnerResponseIntegrityException) {
+            setSourceScanWarning(remote.jobId, "SOURCE_SCAN_RESPONSE_INVALID")
+        } catch (_: IllegalStateException) {
+            setSourceScanWarning(remote.jobId, "SOURCE_SCAN_RESPONSE_INVALID")
+        } catch (_: IllegalArgumentException) {
+            setSourceScanWarning(remote.jobId, "SOURCE_SCAN_RESPONSE_INVALID")
+        } catch (_: Exception) {
+            setSourceScanWarning(remote.jobId, "SOURCE_SCAN_STORAGE_FAILED")
+        }
+    }
+
+    private fun setSourceScanWarning(jobId: String, code: String) {
+        _sourceScanWarnings.value += jobId to SourceScanWarning(
+            code = code,
+            message = "Source scan evidence is unavailable ($code). Comparison and trust are unchanged.",
+        )
     }
 
     private suspend fun fetchAndStoreBuildEnvironmentManifest(remote: JobResponse) {
@@ -249,6 +297,23 @@ class JobRepository(
                 jobId,
                 ConfirmJobRequest(
                     resolvedCommitSha = resolvedCommitSha,
+                    riskAcknowledged = true,
+                ),
+            )
+            syncJobLocked(jobId)
+        }
+    }
+
+    suspend fun continueSourceScan(jobId: String, scanResultSha256: String) {
+        syncMutex.withLock {
+            val scan = requireNotNull(jobDao.getSourceScan(jobId)) { "Source scan evidence is not available locally." }
+            check(scan.scan.resultSha256 == scanResultSha256 && scan.scan.requiresReview && !scan.scan.reviewed) {
+                "The stored source scan is not awaiting review for this digest."
+            }
+            runnerApi.continueSourceScan(
+                jobId,
+                ContinueSourceScanRequest(
+                    scanResultSha256 = scanResultSha256,
                     riskAcknowledged = true,
                 ),
             )

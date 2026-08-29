@@ -29,6 +29,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     val buildManifestWarnings = repository.buildManifestWarnings
+    val sourceScanWarnings = repository.sourceScanWarnings
 
     private val _isSubmitting = MutableStateFlow(false)
     val isSubmitting = _isSubmitting.asStateFlow()
@@ -114,6 +115,9 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
 
     fun confirmRealBuild(jobId: String, resolvedCommitSha: String) =
         runAction { repository.confirmRealBuild(jobId, resolvedCommitSha) }
+
+    fun continueSourceScan(jobId: String, scanResultSha256: String) =
+        runAction { repository.continueSourceScan(jobId, scanResultSha256) }
 
     fun retryJob(jobId: String) = runAction { repository.retryJob(jobId) }
 

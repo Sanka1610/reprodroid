@@ -83,7 +83,9 @@ import com.sanka1610.reprodroid.data.local.TrustLevel
 import com.sanka1610.reprodroid.data.local.UpdateStatus
 import com.sanka1610.reprodroid.data.local.BuildEnvironmentManifestWithDependencies
 import com.sanka1610.reprodroid.data.local.JobRecord
+import com.sanka1610.reprodroid.data.local.SourceScanWithDetails
 import com.sanka1610.reprodroid.data.repository.BuildManifestWarning
+import com.sanka1610.reprodroid.data.repository.SourceScanWarning
 import com.sanka1610.reprodroid.data.repository.DependencyDifferenceKind
 import com.sanka1610.reprodroid.data.repository.compareBuildEnvironments
 import androidx.compose.ui.platform.LocalContext
@@ -121,6 +123,7 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
     val buildEnvironmentManifests by managedViewModel.buildEnvironmentManifests.collectAsStateWithLifecycle()
     val runnerJobs by managedViewModel.runnerJobs.collectAsStateWithLifecycle()
     val buildManifestWarnings by managedViewModel.buildManifestWarnings.collectAsStateWithLifecycle()
+    val sourceScanWarnings by managedViewModel.sourceScanWarnings.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(MainDestination.APPS) }
     var selectedAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -223,9 +226,16 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                     onConfirmComparison = { comparisonRunId ->
                                         managedViewModel.confirmComparison(app.app.registeredAppId, comparisonRunId)
                                     },
+                                    onContinueComparisonSourceScan = { comparisonRunId ->
+                                        managedViewModel.continueComparisonSourceScan(
+                                            app.app.registeredAppId,
+                                            comparisonRunId,
+                                        )
+                                    },
                                     runnerJobs = runnerJobs.associateBy { it.job.jobId },
                                     buildEnvironmentManifests = buildEnvironmentManifests.associateBy { it.manifest.jobId },
                                     buildManifestWarnings = buildManifestWarnings,
+                                    sourceScanWarnings = sourceScanWarnings,
                                 )
                             }
                         }
@@ -489,9 +499,11 @@ private fun AppDetailScreen(
     onStartComparison: () -> Unit,
     onRefreshComparison: (String) -> Unit,
     onConfirmComparison: (String) -> Unit,
+    onContinueComparisonSourceScan: (String) -> Unit,
     runnerJobs: Map<String, JobRecord>,
     buildEnvironmentManifests: Map<String, BuildEnvironmentManifestWithDependencies>,
     buildManifestWarnings: Map<String, BuildManifestWarning>,
+    sourceScanWarnings: Map<String, SourceScanWarning>,
 ) {
     BackHandler(onBack = onBack)
     val latest = record.latestRelease
@@ -499,6 +511,10 @@ private fun AppDetailScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var installRiskConfirmed by rememberSaveable(record.app.registeredAppId) { mutableStateOf(false) }
+    var sourceScanRiskConfirmed by rememberSaveable(
+        record.currentComparison?.comparisonRunId,
+        record.currentComparison?.status,
+    ) { mutableStateOf(false) }
     var canRequestPackageInstalls by remember {
         mutableStateOf(context.packageManager.canRequestPackageInstalls())
     }
@@ -660,8 +676,10 @@ private fun AppDetailScreen(
                                 DetailValue("Repeat Runner commit", it, true)
                             }
                             if (comparison.protocolVersion >= 2) {
-                                val buildAJob = runnerJobs[comparison.runnerJobId]?.job
-                                val buildBJob = comparison.repeatRunnerJobId?.let(runnerJobs::get)?.job
+                                val buildARecord = runnerJobs[comparison.runnerJobId]
+                                val buildBRecord = comparison.repeatRunnerJobId?.let(runnerJobs::get)
+                                val buildAJob = buildARecord?.job
+                                val buildBJob = buildBRecord?.job
                                 val buildAManifest = buildEnvironmentManifests[comparison.runnerJobId]
                                 val buildBManifest = comparison.repeatRunnerJobId?.let(buildEnvironmentManifests::get)
                                 val environmentComparison = compareBuildEnvironments(
@@ -675,6 +693,14 @@ private fun AppDetailScreen(
                                     "This evidence explains build conditions only. It does not change raw APK outcomes, trust, or installation policy.",
                                     style = MaterialTheme.typography.bodySmall,
                                 )
+                                SourceScanEvidence("Build A source scan", buildARecord?.sourceScan)
+                                SourceScanEvidence("Build B source scan", buildBRecord?.sourceScan)
+                                sourceScanWarnings[comparison.runnerJobId]?.let { warning ->
+                                    DetailValue("Build A source scan warning", "${warning.code}: ${warning.message}")
+                                }
+                                comparison.repeatRunnerJobId?.let(sourceScanWarnings::get)?.let { warning ->
+                                    DetailValue("Build B source scan warning", "${warning.code}: ${warning.message}")
+                                }
                                 buildAManifest?.let { evidence ->
                                     DetailValue(
                                         "Build A environment",
@@ -807,6 +833,49 @@ private fun AppDetailScreen(
                                                 "Confirm repeat build and host RCE risk"
                                             } else {
                                                 "Confirm commit and host RCE risk"
+                                            },
+                                        )
+                                    }
+                                }
+                                ComparisonRunStatus.AWAITING_SCAN_REVIEW.name,
+                                ComparisonRunStatus.AWAITING_REPEAT_SCAN_REVIEW.name -> {
+                                    val repeatReview = comparison.status ==
+                                        ComparisonRunStatus.AWAITING_REPEAT_SCAN_REVIEW.name
+                                    val reviewJobId = if (repeatReview) {
+                                        comparison.repeatRunnerJobId
+                                    } else {
+                                        comparison.runnerJobId
+                                    }
+                                    val scan = reviewJobId?.let(runnerJobs::get)?.sourceScan
+                                    Text(
+                                        if (repeatReview) {
+                                            "Build B source scan reported configured indicators. Review its independent evidence before continuing."
+                                        } else {
+                                            "Build A source scan reported configured indicators. Review its evidence before continuing."
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = sourceScanRiskConfirmed,
+                                            onCheckedChange = { sourceScanRiskConfirmed = it },
+                                        )
+                                        Text("I reviewed the findings for the displayed result digest.")
+                                    }
+                                    Button(
+                                        enabled = !active && sourceScanRiskConfirmed &&
+                                            (scan?.scan?.let { it.requiresReview && !it.reviewed } == true),
+                                        onClick = {
+                                            onContinueComparisonSourceScan(comparison.comparisonRunId)
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text(
+                                            if (repeatReview) {
+                                                "Acknowledge Build B findings and continue"
+                                            } else {
+                                                "Acknowledge Build A findings and continue"
                                             },
                                         )
                                     }
@@ -1260,6 +1329,42 @@ private fun DetailCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
+private fun SourceScanEvidence(label: String, evidence: SourceScanWithDetails?) {
+    if (evidence == null) {
+        DetailValue(label, "Not available")
+        return
+    }
+    DetailValue(
+        label,
+        if (evidence.scan.findingCount == 0) {
+            "No configured detector findings"
+        } else {
+            "${evidence.scan.findingCount} configured detector findings"
+        },
+    )
+    DetailValue(
+        "$label scope",
+        "${evidence.scan.scannedFiles} files, ${evidence.scan.scannedBytes} bytes; " +
+            "binary skipped ${evidence.scan.skippedBinaryFiles}, symlinks skipped ${evidence.scan.skippedSymlinks}",
+    )
+    DetailValue("$label result", evidence.scan.resultSha256, true)
+    evidence.detectorCounts.sortedBy { it.detectorId }.forEach { count ->
+        DetailValue(count.detectorId, count.count.toString())
+    }
+    evidence.findings.sortedBy { it.ordinal }.take(MAX_SOURCE_SCAN_FINDINGS_IN_UI).forEach { finding ->
+        val position = finding.line?.let { line -> ":$line:${finding.column}" }.orEmpty()
+        DetailValue(finding.detectorId, "${finding.displayPath}$position", true)
+    }
+    if (evidence.findings.size > MAX_SOURCE_SCAN_FINDINGS_IN_UI) {
+        DetailValue("Additional findings", (evidence.findings.size - MAX_SOURCE_SCAN_FINDINGS_IN_UI).toString())
+    }
+    Text(
+        "Static indicators only; this is not a safe/malicious verdict and does not change comparison, trust, update, or install policy.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+}
+
+@Composable
 private fun DetailValue(label: String, value: String, monospace: Boolean = false) {
     Column {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
@@ -1286,6 +1391,8 @@ private fun trustLabel(record: RegisteredAppRecord): String = when (record.trust
         ComparisonRunStatus.COMPARING_REPEAT.name -> "Comparing"
         ComparisonRunStatus.AWAITING_CONFIRMATION.name,
         ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name -> "Confirmation required"
+        ComparisonRunStatus.AWAITING_SCAN_REVIEW.name,
+        ComparisonRunStatus.AWAITING_REPEAT_SCAN_REVIEW.name -> "Source scan review required"
         else -> "Not evaluated"
     }
 }
@@ -1359,4 +1466,5 @@ private fun NavigationGlyph(value: String) {
 private const val MIB = 1024L * 1024L
 private const val MAX_SEMANTIC_DIFFERENCES_IN_UI = 3
 private const val MAX_DEPENDENCY_DIFFERENCES_IN_UI = 40
+private const val MAX_SOURCE_SCAN_FINDINGS_IN_UI = 40
 private val APK_LIMITS = listOf(64L * MIB, 128L * MIB, 256L * MIB, 512L * MIB)

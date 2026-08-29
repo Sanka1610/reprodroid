@@ -198,6 +198,82 @@ data class BuildEnvironmentManifestWithDependencies(
     val dependencies: List<BuildEnvironmentDependencyEntity>,
 )
 
+@Entity(
+    tableName = "source_scans",
+    foreignKeys = [
+        ForeignKey(
+            entity = JobEntity::class,
+            parentColumns = ["jobId"],
+            childColumns = ["jobId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class SourceScanEntity(
+    @androidx.room.PrimaryKey val jobId: String,
+    val schemaVersion: Int,
+    val resolvedCommitSha: String,
+    val scannerVersion: String,
+    val resultSha256: String,
+    val scannedFiles: Int,
+    val scannedBytes: Long,
+    val skippedBinaryFiles: Int,
+    val skippedSymlinks: Int,
+    val findingCount: Int,
+    val requiresReview: Boolean,
+    val reviewed: Boolean,
+    val retrievedAt: String,
+)
+
+@Entity(
+    tableName = "source_scan_detector_counts",
+    primaryKeys = ["jobId", "detectorId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = SourceScanEntity::class,
+            parentColumns = ["jobId"],
+            childColumns = ["jobId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("jobId")],
+)
+data class SourceScanDetectorCountEntity(
+    val jobId: String,
+    val detectorId: String,
+    val count: Int,
+)
+
+@Entity(
+    tableName = "source_scan_findings",
+    primaryKeys = ["jobId", "ordinal"],
+    foreignKeys = [
+        ForeignKey(
+            entity = SourceScanEntity::class,
+            parentColumns = ["jobId"],
+            childColumns = ["jobId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("jobId")],
+)
+data class SourceScanFindingEntity(
+    val jobId: String,
+    val ordinal: Int,
+    val detectorId: String,
+    val displayPath: String,
+    val line: Int?,
+    val column: Int?,
+)
+
+data class SourceScanWithDetails(
+    @Embedded val scan: SourceScanEntity,
+    @Relation(parentColumn = "jobId", entityColumn = "jobId")
+    val detectorCounts: List<SourceScanDetectorCountEntity>,
+    @Relation(parentColumn = "jobId", entityColumn = "jobId")
+    val findings: List<SourceScanFindingEntity>,
+)
+
 data class JobRecord(
     @Embedded val job: JobEntity,
     @Relation(parentColumn = "jobId", entityColumn = "jobId")
@@ -208,4 +284,6 @@ data class JobRecord(
     val installAttempts: List<InstallAttemptEntity>,
     @Relation(parentColumn = "jobId", entityColumn = "jobId", entity = BuildEnvironmentManifestEntity::class)
     val buildEnvironmentManifest: BuildEnvironmentManifestWithDependencies? = null,
+    @Relation(parentColumn = "jobId", entityColumn = "jobId", entity = SourceScanEntity::class)
+    val sourceScan: SourceScanWithDetails? = null,
 )

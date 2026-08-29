@@ -55,6 +55,7 @@ fun JobScreen(viewModel: JobViewModel) {
     val message by viewModel.message.collectAsStateWithLifecycle()
     val activeArtifactActions by viewModel.activeArtifactActions.collectAsStateWithLifecycle()
     val buildManifestWarnings by viewModel.buildManifestWarnings.collectAsStateWithLifecycle()
+    val sourceScanWarnings by viewModel.sourceScanWarnings.collectAsStateWithLifecycle()
     var repositoryUrl by rememberSaveable {
         mutableStateOf("https://github.com/MorpheApp/MicroG-RE.git")
     }
@@ -77,7 +78,7 @@ fun JobScreen(viewModel: JobViewModel) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("ReproDroid", style = MaterialTheme.typography.headlineMedium)
-                Text("Phase 1D · verified APK transfer and system install", style = MaterialTheme.typography.bodyMedium)
+                Text("Phase 3D · pre-build static source scan", style = MaterialTheme.typography.bodyMedium)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -191,6 +192,10 @@ fun JobScreen(viewModel: JobViewModel) {
                                 },
                                 manifestWarning = buildManifestWarnings[record.job.jobId]?.message,
                                 onRefreshManifest = { viewModel.refreshJob(record.job.jobId) },
+                                sourceScanWarning = sourceScanWarnings[record.job.jobId]?.message,
+                                onContinueSourceScan = { digest ->
+                                    viewModel.continueSourceScan(record.job.jobId, digest)
+                                },
                             )
                         }
                     }
@@ -211,10 +216,13 @@ private fun JobCard(
     onInstall: (String) -> Unit,
     manifestWarning: String?,
     onRefreshManifest: () -> Unit,
+    sourceScanWarning: String?,
+    onContinueSourceScan: (String) -> Unit,
 ) {
     val job = record.job
     val state = remember(job.state) { JobState.valueOf(job.state) }
     var riskAcknowledged by rememberSaveable(job.jobId) { mutableStateOf(false) }
+    var sourceScanAcknowledged by rememberSaveable(job.jobId) { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -268,6 +276,63 @@ private fun JobCard(
             }
             job.errorMessage?.let { error ->
                 Text("${job.errorCode}: $error", color = MaterialTheme.colorScheme.error)
+            }
+
+            record.sourceScan?.let { evidence ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text("Pre-build source scan", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (evidence.scan.findingCount == 0) {
+                                "No configured detector findings"
+                            } else {
+                                "${evidence.scan.findingCount} configured detector findings"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "${evidence.scan.scannedFiles} files · ${evidence.scan.scannedBytes} bytes · " +
+                                "${evidence.scan.skippedBinaryFiles} binary skipped · " +
+                                "${evidence.scan.skippedSymlinks} symlinks skipped",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "Scanner ${evidence.scan.scannerVersion} · result ${evidence.scan.resultSha256}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                        evidence.detectorCounts.sortedBy { it.detectorId }.forEach { count ->
+                            Text("${count.detectorId}: ${count.count}", style = MaterialTheme.typography.bodySmall)
+                        }
+                        evidence.findings
+                            .sortedBy { it.ordinal }
+                            .take(MAX_SOURCE_SCAN_FINDINGS_IN_JOB_UI)
+                            .forEach { finding ->
+                            val position = finding.line?.let { line -> ":$line:${finding.column}" }.orEmpty()
+                            Text(
+                                "${finding.detectorId} · ${finding.displayPath}$position",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                        if (evidence.findings.size > MAX_SOURCE_SCAN_FINDINGS_IN_JOB_UI) {
+                            Text(
+                                "Additional findings: ${evidence.findings.size - MAX_SOURCE_SCAN_FINDINGS_IN_JOB_UI}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Text(
+                            "Static indicators only; this is not a safe/malicious verdict.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+            sourceScanWarning?.let { warning ->
+                Text(warning, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
 
             record.buildEnvironmentManifest?.let { evidence ->
@@ -351,6 +416,37 @@ private fun JobCard(
                 }
             }
 
+            if (state == JobState.AWAITING_SCAN_REVIEW) {
+                val sourceScan = record.sourceScan
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Source scan review required", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Review every displayed indicator before continuing. This acknowledgement is separate from the earlier host RCE confirmation.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = sourceScanAcknowledged,
+                                onCheckedChange = { sourceScanAcknowledged = it },
+                            )
+                            Text("I reviewed these findings for this result digest.")
+                        }
+                        Button(
+                            enabled = sourceScanAcknowledged &&
+                                (sourceScan?.scan?.let { it.requiresReview && !it.reviewed } == true),
+                            onClick = { sourceScan?.scan?.resultSha256?.let(onContinueSourceScan) },
+                        ) {
+                            Text("Acknowledge findings and continue")
+                        }
+                    }
+                }
+            }
+
             val recentLogs = record.logs.sortedBy { it.sequence }.takeLast(6)
             if (recentLogs.isNotEmpty()) {
                 Text("Logs", style = MaterialTheme.typography.labelLarge)
@@ -373,6 +469,8 @@ private fun JobCard(
         }
     }
 }
+
+private const val MAX_SOURCE_SCAN_FINDINGS_IN_JOB_UI = 40
 
 @Composable
 private fun ArtifactCard(

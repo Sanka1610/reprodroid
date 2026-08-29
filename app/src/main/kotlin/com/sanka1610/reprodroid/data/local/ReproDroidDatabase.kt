@@ -24,8 +24,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReleaseInstallAttemptEntity::class,
         BuildEnvironmentManifestEntity::class,
         BuildEnvironmentDependencyEntity::class,
+        SourceScanEntity::class,
+        SourceScanDetectorCountEntity::class,
+        SourceScanFindingEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -573,6 +576,68 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                         "INTEGER NOT NULL DEFAULT 0",
                 )
                 db.execSQL("ALTER TABLE build_environment_manifests ADD COLUMN fixedLocale TEXT")
+            }
+        }
+
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS source_scans (
+                        jobId TEXT NOT NULL,
+                        schemaVersion INTEGER NOT NULL,
+                        resolvedCommitSha TEXT NOT NULL,
+                        scannerVersion TEXT NOT NULL,
+                        resultSha256 TEXT NOT NULL,
+                        scannedFiles INTEGER NOT NULL,
+                        scannedBytes INTEGER NOT NULL,
+                        skippedBinaryFiles INTEGER NOT NULL,
+                        skippedSymlinks INTEGER NOT NULL,
+                        findingCount INTEGER NOT NULL,
+                        requiresReview INTEGER NOT NULL,
+                        reviewed INTEGER NOT NULL,
+                        retrievedAt TEXT NOT NULL,
+                        PRIMARY KEY(jobId),
+                        FOREIGN KEY(jobId) REFERENCES jobs(jobId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS source_scan_detector_counts (
+                        jobId TEXT NOT NULL,
+                        detectorId TEXT NOT NULL,
+                        count INTEGER NOT NULL,
+                        PRIMARY KEY(jobId, detectorId),
+                        FOREIGN KEY(jobId) REFERENCES source_scans(jobId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_source_scan_detector_counts_jobId " +
+                        "ON source_scan_detector_counts(jobId)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS source_scan_findings (
+                        jobId TEXT NOT NULL,
+                        ordinal INTEGER NOT NULL,
+                        detectorId TEXT NOT NULL,
+                        displayPath TEXT NOT NULL,
+                        line INTEGER,
+                        `column` INTEGER,
+                        PRIMARY KEY(jobId, ordinal),
+                        FOREIGN KEY(jobId) REFERENCES source_scans(jobId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_source_scan_findings_jobId " +
+                        "ON source_scan_findings(jobId)",
+                )
             }
         }
     }
