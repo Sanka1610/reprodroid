@@ -9,6 +9,11 @@ import com.sanka1610.reprodroid.data.network.DeterminismOptions
 import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.JobResponse
 import com.sanka1610.reprodroid.data.network.JobState
+import com.sanka1610.reprodroid.data.network.BuildSandboxMode
+import com.sanka1610.reprodroid.data.network.SandboxOrigin
+import com.sanka1610.reprodroid.data.network.validateJobSandbox
+import com.sanka1610.reprodroid.data.network.validateSandboxEvidence
+import com.sanka1610.reprodroid.data.network.sandboxEvidenceJson
 import java.nio.charset.StandardCharsets
 
 data class BuildManifestWarning(
@@ -62,8 +67,18 @@ internal fun validateBuildEnvironmentManifest(
             check((remoteJob.effectiveBuild?.determinism ?: unconfiguredDeterminism) == unconfiguredDeterminism)
             null
         }
-        2 -> requireNotNull(response.determinism)
+        2, 3 -> requireNotNull(response.determinism)
         else -> error("Unsupported public Manifest schema.")
+    }
+    validateJobSandbox(remoteJob.sandbox, remoteJob.executionMode, remoteJob.state)
+    if (response.schemaVersion == 3) {
+        val selection = requireNotNull(remoteJob.sandbox)
+        val evidence = requireNotNull(response.sandbox).also(::validateSandboxEvidence)
+        check(selection.mode == evidence.mode && selection.profileId == evidence.profileId)
+    } else {
+        check(response.sandbox == null)
+        check(remoteJob.sandbox == null ||
+            (remoteJob.sandbox.mode == BuildSandboxMode.HOST && remoteJob.sandbox.origin == SandboxOrigin.LEGACY_HOST))
     }
     determinism?.let { effective ->
         check(effective.sourceDateEpoch?.let { it >= 0 } != false)
@@ -104,6 +119,7 @@ internal fun validateBuildEnvironmentManifest(
             noBuildCache = determinism?.noBuildCache ?: false,
             fixedLocale = determinism?.fixedLocale?.value,
             retrievedAt = retrievedAt,
+            sandboxJson = response.sandbox?.let(::sandboxEvidenceJson),
         ),
         dependencies = dependencies,
     )
@@ -118,6 +134,9 @@ fun compareBuildEnvironments(
     if (buildAJob == null || buildBJob == null) return BuildEnvironmentComparison(false, "BUILD_JOB_NOT_AVAILABLE")
     if (buildAManifest == null || buildBManifest == null) {
         return BuildEnvironmentComparison(false, "BUILD_MANIFEST_NOT_AVAILABLE")
+    }
+    if (!storedSandboxManifestValid(buildAJob, buildAManifest.manifest) || !storedSandboxManifestValid(buildBJob, buildBManifest.manifest)) {
+        return BuildEnvironmentComparison(false, "SANDBOX_EVIDENCE_INVALID")
     }
     if (
         canonicalRepositoryUrl(buildAJob.repositoryUrl) != canonicalRepositoryUrl(buildBJob.repositoryUrl) ||
@@ -182,7 +201,7 @@ private fun isUnsafePublicCharacter(character: Char): Boolean =
         Character.getType(character) == Character.FORMAT.toInt() ||
         Character.getType(character) == Character.SURROGATE.toInt()
 
-private val SUPPORTED_PUBLIC_MANIFEST_SCHEMA_VERSIONS = setOf(1, 2)
+private val SUPPORTED_PUBLIC_MANIFEST_SCHEMA_VERSIONS = setOf(1, 2, 3)
 private const val MAX_PUBLIC_DEPENDENCIES = 20_000
 private const val MAX_DEPENDENCY_FILE_NAME_BYTES = 255
 private const val MAX_PUBLIC_TEXT_BYTES = 255

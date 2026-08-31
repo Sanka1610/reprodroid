@@ -220,6 +220,7 @@ data class BuildEnvironmentManifestResponse(
     val dependencies: List<PublicBuildDependency>,
     val apkHash: String,
     val determinism: DeterminismOptions? = null,
+    val sandbox: SandboxEvidence? = null,
 )
 
 @Serializable
@@ -239,6 +240,7 @@ data class JobResponse(
     val error: JobError? = null,
     val createdAt: String,
     val updatedAt: String,
+    val sandbox: JobSandbox? = null,
 )
 
 @Serializable

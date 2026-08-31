@@ -38,6 +38,12 @@ data class JobEntity(
     val updatedAt: String,
     val downloadResult: String? = null,
     val installResult: String? = null,
+    val sandboxMode: String? = null,
+    val sandboxOrigin: String? = null,
+    val sandboxProfileId: String? = null,
+    val sandboxCleanupStatus: String? = null,
+    @ColumnInfo(defaultValue = "0")
+    val sandboxResponseSeen: Boolean = false,
 )
 
 @Entity(
@@ -170,6 +176,7 @@ data class BuildEnvironmentManifestEntity(
     val noBuildCache: Boolean = false,
     val fixedLocale: String? = null,
     val retrievedAt: String,
+    val sandboxJson: String? = null,
 )
 
 @Entity(

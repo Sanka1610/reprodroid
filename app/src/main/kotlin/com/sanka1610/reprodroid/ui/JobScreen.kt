@@ -47,6 +47,9 @@ import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.JobState
 import com.sanka1610.reprodroid.data.network.RevisionType
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
+import com.sanka1610.reprodroid.data.repository.sandboxSelectionText
+import com.sanka1610.reprodroid.data.repository.sandboxManifestText
+import com.sanka1610.reprodroid.data.repository.sandboxAcknowledgementAllowed
 
 @Composable
 fun JobScreen(viewModel: JobViewModel) {
@@ -56,6 +59,7 @@ fun JobScreen(viewModel: JobViewModel) {
     val activeArtifactActions by viewModel.activeArtifactActions.collectAsStateWithLifecycle()
     val buildManifestWarnings by viewModel.buildManifestWarnings.collectAsStateWithLifecycle()
     val sourceScanWarnings by viewModel.sourceScanWarnings.collectAsStateWithLifecycle()
+    val sandboxWarnings by viewModel.sandboxWarnings.collectAsStateWithLifecycle()
     var repositoryUrl by rememberSaveable {
         mutableStateOf("https://github.com/MorpheApp/MicroG-RE.git")
     }
@@ -78,7 +82,7 @@ fun JobScreen(viewModel: JobViewModel) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("ReproDroid", style = MaterialTheme.typography.headlineMedium)
-                Text("Phase 3D · pre-build static source scan", style = MaterialTheme.typography.bodyMedium)
+                Text("Phase 3E · build sandbox evidence", style = MaterialTheme.typography.bodyMedium)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -140,7 +144,7 @@ fun JobScreen(viewModel: JobViewModel) {
                     }
                 } else {
                     Text(
-                        "Creation resolves the allowlisted ref only. Host build execution still requires a separate commit and RCE confirmation.",
+                        "Creation resolves the allowlisted ref only. Build execution requires a separate commit and RCE confirmation for the Runner-selected sandbox mode.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -193,6 +197,7 @@ fun JobScreen(viewModel: JobViewModel) {
                                 manifestWarning = buildManifestWarnings[record.job.jobId]?.message,
                                 onRefreshManifest = { viewModel.refreshJob(record.job.jobId) },
                                 sourceScanWarning = sourceScanWarnings[record.job.jobId]?.message,
+                                sandboxWarning = sandboxWarnings[record.job.jobId],
                                 onContinueSourceScan = { digest ->
                                     viewModel.continueSourceScan(record.job.jobId, digest)
                                 },
@@ -206,7 +211,7 @@ fun JobScreen(viewModel: JobViewModel) {
 }
 
 @Composable
-private fun JobCard(
+internal fun JobCard(
     record: JobRecord,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
@@ -217,12 +222,14 @@ private fun JobCard(
     manifestWarning: String?,
     onRefreshManifest: () -> Unit,
     sourceScanWarning: String?,
+    sandboxWarning: String?,
     onContinueSourceScan: (String) -> Unit,
 ) {
     val job = record.job
+    val sandboxValid = sandboxWarning == null && sandboxAcknowledgementAllowed(job)
     val state = remember(job.state) { JobState.valueOf(job.state) }
-    var riskAcknowledged by rememberSaveable(job.jobId) { mutableStateOf(false) }
-    var sourceScanAcknowledged by rememberSaveable(job.jobId) { mutableStateOf(false) }
+    var riskAcknowledged by rememberSaveable(job.jobId, job.resolvedCommitSha, job.sandboxMode, job.sandboxOrigin, job.sandboxProfileId) { mutableStateOf(false) }
+    var sourceScanAcknowledged by rememberSaveable(job.jobId, record.sourceScan?.scan?.resultSha256) { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -342,6 +349,7 @@ private fun JobCard(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text("Build environment", style = MaterialTheme.typography.titleSmall)
+                        Text(sandboxManifestText(evidence.manifest.sandboxJson), style = MaterialTheme.typography.bodySmall)
                         Text(
                             "Java ${evidence.manifest.javaVersion} (${evidence.manifest.javaVendor})",
                             style = MaterialTheme.typography.bodySmall,
@@ -370,6 +378,9 @@ private fun JobCard(
             manifestWarning?.let { warning ->
                 Text(warning, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
+            Text(sandboxSelectionText(job), style = MaterialTheme.typography.bodySmall)
+            sandboxWarning?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            if (sandboxWarning != null) TextButton(onClick = onRefreshManifest) { Text("Refresh sandbox state") }
             if (state == JobState.SUCCEEDED && job.executionMode == ExecutionMode.REAL_TRUSTED.name) {
                 TextButton(onClick = onRefreshManifest) { Text("Refresh build manifest") }
             }
@@ -392,9 +403,13 @@ private fun JobCard(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("Host arbitrary-code-execution warning", style = MaterialTheme.typography.titleSmall)
+                        Text("Arbitrary-code-execution warning", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Gradle plugins and build scripts at the resolved commit can execute arbitrary code on the Runner host. " +
+                            if (job.sandboxMode == "DOCKER")
+                                "Gradle plugins and build scripts execute arbitrary code inside an opt-in Docker build container. " +
+                                    "Bridge networking does not establish host/LAN isolation. There is no hard Job disk quota. " +
+                                    "The host Runner controls Docker; this is not third-party attestation or proof of safe source."
+                            else "Gradle plugins and build scripts at the resolved commit can execute arbitrary code on the Runner host. " +
                                 "The allowlist and Wrapper checksum checks do not provide a sandbox.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
@@ -407,7 +422,7 @@ private fun JobCard(
                             Text("I accept this risk for the displayed commit.")
                         }
                         Button(
-                            enabled = riskAcknowledged && job.resolvedCommitSha != null,
+                            enabled = sandboxValid && riskAcknowledged && job.resolvedCommitSha != null,
                             onClick = { job.resolvedCommitSha?.let(onConfirm) },
                         ) {
                             Text("Confirm and run fixed build")
@@ -425,7 +440,7 @@ private fun JobCard(
                     ) {
                         Text("Source scan review required", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Review every displayed indicator before continuing. This acknowledgement is separate from the earlier host RCE confirmation.",
+                            "Review every displayed indicator before continuing. This acknowledgement is separate from the earlier build RCE confirmation.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
@@ -437,7 +452,7 @@ private fun JobCard(
                             Text("I reviewed these findings for this result digest.")
                         }
                         Button(
-                            enabled = sourceScanAcknowledged &&
+                            enabled = sandboxValid && sourceScanAcknowledged &&
                                 (sourceScan?.scan?.let { it.requiresReview && !it.reviewed } == true),
                             onClick = { sourceScan?.scan?.resultSha256?.let(onContinueSourceScan) },
                         ) {

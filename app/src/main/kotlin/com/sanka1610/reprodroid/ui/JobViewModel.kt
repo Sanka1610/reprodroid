@@ -30,6 +30,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
 
     val buildManifestWarnings = repository.buildManifestWarnings
     val sourceScanWarnings = repository.sourceScanWarnings
+    val sandboxWarnings = repository.sandboxWarnings
 
     private val _isSubmitting = MutableStateFlow(false)
     val isSubmitting = _isSubmitting.asStateFlow()

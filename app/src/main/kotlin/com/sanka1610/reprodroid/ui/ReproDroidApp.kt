@@ -88,6 +88,9 @@ import com.sanka1610.reprodroid.data.repository.BuildManifestWarning
 import com.sanka1610.reprodroid.data.repository.SourceScanWarning
 import com.sanka1610.reprodroid.data.repository.DependencyDifferenceKind
 import com.sanka1610.reprodroid.data.repository.compareBuildEnvironments
+import com.sanka1610.reprodroid.data.repository.sandboxSelectionText
+import com.sanka1610.reprodroid.data.repository.sandboxManifestText
+import com.sanka1610.reprodroid.data.repository.sandboxAcknowledgementAllowed
 import androidx.compose.ui.platform.LocalContext
 import java.io.File
 import java.util.UUID
@@ -124,6 +127,7 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
     val runnerJobs by managedViewModel.runnerJobs.collectAsStateWithLifecycle()
     val buildManifestWarnings by managedViewModel.buildManifestWarnings.collectAsStateWithLifecycle()
     val sourceScanWarnings by managedViewModel.sourceScanWarnings.collectAsStateWithLifecycle()
+    val sandboxWarnings by managedViewModel.sandboxWarnings.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(MainDestination.APPS) }
     var selectedAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -236,6 +240,7 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                     buildEnvironmentManifests = buildEnvironmentManifests.associateBy { it.manifest.jobId },
                                     buildManifestWarnings = buildManifestWarnings,
                                     sourceScanWarnings = sourceScanWarnings,
+                                    sandboxWarnings = sandboxWarnings,
                                 )
                             }
                         }
@@ -504,6 +509,7 @@ private fun AppDetailScreen(
     buildEnvironmentManifests: Map<String, BuildEnvironmentManifestWithDependencies>,
     buildManifestWarnings: Map<String, BuildManifestWarning>,
     sourceScanWarnings: Map<String, SourceScanWarning>,
+    sandboxWarnings: Map<String, String>,
 ) {
     BackHandler(onBack = onBack)
     val latest = record.latestRelease
@@ -511,9 +517,14 @@ private fun AppDetailScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var installRiskConfirmed by rememberSaveable(record.app.registeredAppId) { mutableStateOf(false) }
+    val currentReviewJob = record.currentComparison?.let { comparison ->
+        runnerJobs[comparison.repeatRunnerJobId ?: comparison.runnerJobId]
+    }
     var sourceScanRiskConfirmed by rememberSaveable(
         record.currentComparison?.comparisonRunId,
         record.currentComparison?.status,
+        currentReviewJob?.job?.jobId,
+        currentReviewJob?.sourceScan?.scan?.resultSha256,
     ) { mutableStateOf(false) }
     var canRequestPackageInstalls by remember {
         mutableStateOf(context.packageManager.canRequestPackageInstalls())
@@ -689,6 +700,12 @@ private fun AppDetailScreen(
                                     buildBManifest,
                                 )
                                 Text("Build environment evidence", style = MaterialTheme.typography.titleSmall)
+                                DetailValue("Build A sandbox", sandboxSelectionText(buildAJob))
+                                DetailValue("Build B sandbox", sandboxSelectionText(buildBJob))
+                                DetailValue("Build A execution", sandboxManifestText(buildAManifest?.manifest?.sandboxJson))
+                                DetailValue("Build B execution", sandboxManifestText(buildBManifest?.manifest?.sandboxJson))
+                                sandboxWarnings[comparison.runnerJobId]?.let { DetailValue("Build A sandbox warning", it) }
+                                comparison.repeatRunnerJobId?.let(sandboxWarnings::get)?.let { DetailValue("Build B sandbox warning", it) }
                                 Text(
                                     "This evidence explains build conditions only. It does not change raw APK outcomes, trust, or installation policy.",
                                     style = MaterialTheme.typography.bodySmall,
@@ -812,8 +829,17 @@ private fun AppDetailScreen(
                             when (comparison.status) {
                                 ComparisonRunStatus.AWAITING_CONFIRMATION.name,
                                 ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name -> {
+                                    val confirmationJobId = if (comparison.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name)
+                                        comparison.repeatRunnerJobId else comparison.runnerJobId
+                                    val confirmationJob = confirmationJobId?.let(runnerJobs::get)?.job
+                                    val confirmationAllowed = confirmationJob != null && sandboxAcknowledgementAllowed(confirmationJob) &&
+                                        sandboxWarnings[confirmationJobId] == null
                                     Text(
-                                        if (comparison.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name) {
+                                        if (confirmationJob?.sandboxMode == "DOCKER") {
+                                            "This independent Job runs arbitrary Gradle code in docker-microg-v1. " +
+                                                "Bridge networking does not establish host/LAN isolation, and no hard Job disk quota is enforced. " +
+                                                "Runner-observed evidence is not a safety verdict or third-party attestation."
+                                        } else if (comparison.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name) {
                                             "Build A completed. The repeat Job independently resolved the same commit and fixed " +
                                                 "profile. Continuing runs Gradle build scripts again as arbitrary code on the Runner host."
                                         } else {
@@ -824,15 +850,15 @@ private fun AppDetailScreen(
                                         color = MaterialTheme.colorScheme.error,
                                     )
                                     Button(
-                                        enabled = !active,
+                                        enabled = !active && confirmationAllowed,
                                         onClick = { onConfirmComparison(comparison.comparisonRunId) },
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
                                         Text(
                                             if (comparison.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name) {
-                                                "Confirm repeat build and host RCE risk"
+                                                "Confirm repeat build and RCE risk"
                                             } else {
-                                                "Confirm commit and host RCE risk"
+                                                "Confirm commit and RCE risk"
                                             },
                                         )
                                     }
@@ -847,6 +873,8 @@ private fun AppDetailScreen(
                                         comparison.runnerJobId
                                     }
                                     val scan = reviewJobId?.let(runnerJobs::get)?.sourceScan
+                                    val reviewJob = reviewJobId?.let(runnerJobs::get)?.job
+                                    val sandboxReviewAllowed = reviewJob != null && sandboxAcknowledgementAllowed(reviewJob) && sandboxWarnings[reviewJobId] == null
                                     Text(
                                         if (repeatReview) {
                                             "Build B source scan reported configured indicators. Review its independent evidence before continuing."
@@ -864,7 +892,7 @@ private fun AppDetailScreen(
                                         Text("I reviewed the findings for the displayed result digest.")
                                     }
                                     Button(
-                                        enabled = !active && sourceScanRiskConfirmed &&
+                                        enabled = !active && sandboxReviewAllowed && sourceScanRiskConfirmed &&
                                             (scan?.scan?.let { it.requiresReview && !it.reviewed } == true),
                                         onClick = {
                                             onContinueComparisonSourceScan(comparison.comparisonRunId)

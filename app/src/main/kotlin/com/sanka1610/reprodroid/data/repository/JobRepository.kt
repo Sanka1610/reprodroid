@@ -57,6 +57,8 @@ class JobRepository(
     private val _sourceScanWarnings = MutableStateFlow<Map<String, SourceScanWarning>>(emptyMap())
 
     val buildManifestWarnings = _buildManifestWarnings.asStateFlow()
+    private val _sandboxWarnings = MutableStateFlow<Map<String, String>>(emptyMap())
+    val sandboxWarnings = _sandboxWarnings.asStateFlow()
     val sourceScanWarnings = _sourceScanWarnings.asStateFlow()
 
     fun observeJobs(): Flow<List<JobRecord>> = jobDao.observeJobs()
@@ -176,7 +178,7 @@ class JobRepository(
     private suspend fun syncJobLocked(jobId: String) {
         val existing = jobDao.getJob(jobId)
         val existingArtifacts = jobDao.getArtifacts(jobId).associateBy(ArtifactEntity::artifactId)
-        val remote = runnerApi.getJob(jobId)
+        val remote = verifiedRemoteJob(jobId, existing)
         validateSourceScanSummary(remote)
         var afterSequence = existing?.latestLogSequence ?: 0L
         val newLogs = mutableListOf<LogEntity>()
@@ -198,16 +200,24 @@ class JobRepository(
             hasMore = logPage.hasMore
         } while (hasMore)
 
-        database.withTransaction {
-            jobDao.upsertJob(remote.toJobEntity(existing, afterSequence))
-            jobDao.deleteArtifacts(jobId)
-            if (remote.artifacts.isNotEmpty()) {
-                jobDao.upsertArtifacts(
-                    remote.artifacts.map { artifact -> artifact.toEntity(jobId, existingArtifacts[artifact.artifactId]) },
-                )
+        try {
+            database.withTransaction {
+                jobDao.upsertJob(remote.toJobEntity(existing, afterSequence))
+                jobDao.deleteArtifacts(jobId)
+                if (remote.artifacts.isNotEmpty()) {
+                    jobDao.upsertArtifacts(
+                        remote.artifacts.map { artifact -> artifact.toEntity(jobId, existingArtifacts[artifact.artifactId]) },
+                    )
+                }
+                if (newLogs.isNotEmpty()) jobDao.upsertLogs(newLogs)
             }
-            if (newLogs.isNotEmpty()) jobDao.upsertLogs(newLogs)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Exception) {
+            _sandboxWarnings.value += jobId to "Sandbox state could not be stored; the previous transaction is retained. Refresh before acknowledging."
+            throw failure
         }
+        _sandboxWarnings.value -= jobId
         if (remote.executionMode == ExecutionMode.REAL_TRUSTED && remote.state == JobState.SUCCEEDED) {
             fetchAndStoreBuildEnvironmentManifest(remote)
         }
@@ -261,6 +271,8 @@ class JobRepository(
                 retrievedAt = Instant.now().toString(),
             )
             database.withTransaction {
+                val previous = jobDao.getBuildEnvironmentManifest(remote.jobId)
+                check(previous?.manifest?.schemaVersion != 3 || response.schemaVersion == 3) { "Sandbox Manifest schema downgrade rejected." }
                 jobDao.replaceBuildEnvironmentManifest(validated.manifest, validated.dependencies)
             }
             _buildManifestWarnings.value -= remote.jobId
@@ -293,6 +305,7 @@ class JobRepository(
 
     suspend fun confirmRealBuild(jobId: String, resolvedCommitSha: String) {
         syncMutex.withLock {
+            verifiedRemoteJob(jobId, jobDao.getJob(jobId))
             runnerApi.confirmJob(
                 jobId,
                 ConfirmJobRequest(
@@ -306,6 +319,7 @@ class JobRepository(
 
     suspend fun continueSourceScan(jobId: String, scanResultSha256: String) {
         syncMutex.withLock {
+            verifiedRemoteJob(jobId, jobDao.getJob(jobId))
             val scan = requireNotNull(jobDao.getSourceScan(jobId)) { "Source scan evidence is not available locally." }
             check(scan.scan.resultSha256 == scanResultSha256 && scan.scan.requiresReview && !scan.scan.reviewed) {
                 "The stored source scan is not awaiting review for this digest."
@@ -349,6 +363,16 @@ class JobRepository(
             )
             syncJobLocked(created.jobId)
             created.jobId
+        }
+    }
+
+    private suspend fun verifiedRemoteJob(jobId: String, existing: JobEntity?): JobResponse {
+        try {
+            return runnerApi.getJob(jobId).also { validateSandboxRefresh(existing, it) }
+        } catch (failure: CancellationException) { throw failure } catch (failure: RunnerApiException) { throw failure }
+        catch (_: Exception) {
+            _sandboxWarnings.value += jobId to "Sandbox response unavailable or invalid; the last valid state is retained. Refresh before acknowledging."
+            throw RunnerResponseIntegrityException("Sandbox response could not be validated.")
         }
     }
 
@@ -621,4 +645,9 @@ internal fun JobResponse.toJobEntity(existing: JobEntity?, logCursor: Long): Job
     updatedAt = updatedAt,
     downloadResult = existing?.downloadResult,
     installResult = existing?.installResult,
+    sandboxMode = sandbox?.mode?.name,
+    sandboxOrigin = sandbox?.origin?.name,
+    sandboxProfileId = sandbox?.profileId,
+    sandboxCleanupStatus = sandbox?.cleanupStatus?.name,
+    sandboxResponseSeen = true,
 )

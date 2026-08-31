@@ -28,7 +28,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SourceScanDetectorCountEntity::class,
         SourceScanFindingEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -36,6 +36,19 @@ abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun managedAppDao(): ManagedAppDao
 
     companion object {
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE jobs ADD COLUMN sandboxMode TEXT")
+                db.execSQL("ALTER TABLE jobs ADD COLUMN sandboxOrigin TEXT")
+                db.execSQL("ALTER TABLE jobs ADD COLUMN sandboxProfileId TEXT")
+                db.execSQL("ALTER TABLE jobs ADD COLUMN sandboxCleanupStatus TEXT")
+                db.execSQL("ALTER TABLE jobs ADD COLUMN sandboxResponseSeen INTEGER NOT NULL DEFAULT 0")
+                // Existing rows are legacy-unavailable, not newly-created placeholders.
+                db.execSQL("UPDATE jobs SET sandboxResponseSeen = 1")
+                db.execSQL("ALTER TABLE build_environment_manifests ADD COLUMN sandboxJson TEXT")
+            }
+        }
+
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE jobs ADD COLUMN resolvedCommitSha TEXT")

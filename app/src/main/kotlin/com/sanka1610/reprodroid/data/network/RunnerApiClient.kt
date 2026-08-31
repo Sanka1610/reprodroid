@@ -19,6 +19,8 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.readAvailable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.SerializationException
 import java.io.ByteArrayOutputStream
@@ -60,7 +62,19 @@ class RunnerApiClient(
         }.successBody()
 
     suspend fun getJob(jobId: String): JobResponse =
-        client.get(endpoint("/v1/jobs/$jobId")).successBody()
+        client.prepareGet(endpoint("/v1/jobs/$jobId")).execute { response ->
+            val text = response.boundedUtf8Body(1_048_576, "job")
+            try {
+                val node = SANDBOX_JSON.parseToJsonElement(text).jsonObject
+                validateJobSandboxJson(node)
+                JOB_JSON.decodeFromJsonElement<JobResponse>(node).also {
+                    require(it.jobId == jobId)
+                    validateJobSandbox(it.sandbox, it.executionMode, it.state)
+                }
+            } catch (_: Exception) {
+                throw RunnerResponseIntegrityException("Runner Job sandbox response is invalid.")
+            }
+        }
 
     suspend fun getLogs(jobId: String, afterSequence: Long, limit: Int = 200): LogResponse =
         client.get(endpoint("/v1/jobs/$jobId/logs")) {
@@ -78,11 +92,13 @@ class RunnerApiClient(
                     description = "build manifest",
                 )
                 try {
+                    val root = BUILD_MANIFEST_JSON.parseToJsonElement(jsonText).jsonObject
+                    if (root.containsKey("sandbox")) decodeSandboxEvidence(root.getValue("sandbox").toString())
                     BUILD_MANIFEST_JSON.decodeFromString(jsonText)
                 } catch (_: SerializationException) {
-                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid public schema v1/v2 JSON.")
+                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid public schema v1/v2/v3 JSON.")
                 } catch (_: IllegalArgumentException) {
-                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid public schema v1/v2 JSON.")
+                    throw RunnerResponseIntegrityException("Runner build manifest response is not valid public schema v1/v2/v3 JSON.")
                 }
             }
 
@@ -255,6 +271,8 @@ class RunnerApiClient(
         const val MAX_BUILD_MANIFEST_RESPONSE_BYTES = 8 * 1024 * 1024
         const val MAX_SOURCE_SCAN_RESPONSE_BYTES = 4 * 1024 * 1024
         const val MIB = 1024 * 1024
+        // Additive Job fields remain compatible; sandbox itself is strictly checked before decoding.
+        val JOB_JSON = Json { ignoreUnknownKeys = true }
         val BUILD_MANIFEST_JSON = Json {
             ignoreUnknownKeys = false
             explicitNulls = false

@@ -6,7 +6,7 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 
 Phase 2C（trust表示、更新関係、公式APK install、設定継承）とPhase 2D（独立再ビルド、APK全entry inventory、DEX構造比較、Manifest／resource table意味比較）は実装済みです。Phase 2Dの高度比較は説明用の補助証跡であり、protocol v2のraw 3軸判定を変更しません。
 
-Phase 3A（Build Environment Manifest public API、Room v10、Build A / B dependency diff）、3B（dependency pinning API取込、Room v11、Job／comparison表示）、3C（determinism API／Manifest取込、Room v12、bounded表示）、3D（pre-build static source scan API取込、Room v13、条件付きreview gate、bounded表示）は実装済みです。pinning、determinism、scan findingsは補助的な監査証拠であり、raw comparison、trust、update、install policyを変更しません。Docker sandboxは未実装です。後続順序は [Phase 3 roadmap](../reprodroid-project/docs/design/phase-3-roadmap.md) を参照してください。
+Phase 3A（Build Environment Manifest public API、Room v10、Build A / B dependency diff）、3B（dependency pinning API取込、Room v11、Job／comparison表示）、3C（determinism API／Manifest取込、Room v12、bounded表示）、3D（pre-build static source scan API取込、Room v13、条件付きreview gate、bounded表示）は実装済みです。pinning、determinism、scan findingsは補助的な監査証拠であり、raw comparison、trust、update、install policyを変更しません。3Eのsandbox取込み／Room v14／個別同意UIも実装し、検証範囲は最終受入記録にまとめています。後続順序は [Phase 3 roadmap](../reprodroid-project/docs/design/phase-3-roadmap.md) を参照してください。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
@@ -122,7 +122,11 @@ Phase 3C E2Eは2026-08-28に既存MicroG-RE `6.1.4` release recipeへepoch `1777
 
 Phase 3D E2Eは2026-08-29にfresh Runner SQLite v7／Android Room v13から同じMicroG-RE `6.1.4`を2回ビルドしました。Build A／Bは別Job、別workspace、別RCE確認、別scan reviewを通過しました。両scanは1,071 files／3,318,959 bytes、binary skip 0、symlink skip 1、121 findings、同一result SHA-256 `a2ac7ddd78fbb17fcbb716b6076459368bad404a5f985cf6cbcf24ca9fa5c92c`です。UIは各Jobの40 findingsと残り81件を表示し、Room v13は各121 findingsをordinal 0〜120で保存しました。両artifactは13,258,872 byte／同一SHA-256で、公式対A、公式対B、A対Bはすべて`MATCH`、trustは`Reproducible`です。force-stop後の`LaunchState: COLD`でも一覧とRoom v13証拠を復元しました。
 
-## Phase 3 の Android 境界（3A〜3D実装済み）
+## Phase 3 の Android 境界（3A〜3E実装）
+
+Phase 3Eは[使い捨てprobe](../reprodroid-project/reports/2026/08/2026-08-30-phase-3e-feasibility.md)を経て[ADR-0017](../reprodroid-project/docs/adr/0017-docker-build-sandbox-feasibility.md)と[実装契約](../reprodroid-project/reports/2026/08/2026-08-30-phase-3e-contract.md)をAcceptedとしました。現行はRoom v14／public Manifest v3、strict sandbox取込み・永続化・Job／A／B表示に対応します。Androidは任意image／mount／Docker引数を指定せず、選択mode・実行監査・cleanupを区別します。旧rowはunavailableとして保持し、不正refresh・確定mode変更・schema downgradeを拒否します。sandbox evidenceはraw comparisonやtrustを変更しません。実A/B、HOST移行、mixed実APK比較、個別同意UIと失敗系の検証範囲は[最終受入記録](../reprodroid-project/reports/2026/08/2026-08-31-phase-3e-closeout.md)を参照してください。
+
+live instrumentationは明示引数を必要とし、通常実行ではskipされます。継続E2Eでは`adb install -r`と直接`am instrument`を使い、Gradle connected testsの終了時uninstallによって製品Roomを失わないようにしてください。`LiveMixedSandboxComparisonTest`は既存成果物のread-only比較であり、新規buildやinstallを開始しません。
 
 Phase 3 は protocol v2 の raw 3軸、APK comparator、trust truth table、公式 APK install / update policy を変更しません。3A では Runner が redaction / integrity 検査済みの Manifest projection を返し、Android は Job 単位で Room v10 に保存して同一 repository・同一 full SHA の dependency 差分を補助説明として表示します。取得失敗は session-only warning であり、`Reproducible`、`Different`、`Incomparable`、`Failed`、install policyを変えず、以前に保存した正常Manifestも削除しません。
 

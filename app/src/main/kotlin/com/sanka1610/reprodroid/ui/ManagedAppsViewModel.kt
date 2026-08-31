@@ -53,6 +53,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
 
     val buildManifestWarnings = jobRepository.buildManifestWarnings
     val sourceScanWarnings = jobRepository.sourceScanWarnings
+    val sandboxWarnings = jobRepository.sandboxWarnings
 
     private val _preview = MutableStateFlow(ReleasePreviewState())
     val preview = _preview.asStateFlow()

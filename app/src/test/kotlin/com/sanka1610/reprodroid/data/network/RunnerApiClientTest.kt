@@ -18,6 +18,20 @@ import org.junit.Test
 import java.nio.file.Files
 
 class RunnerApiClientTest {
+    @Test fun `additive outer Job fields stay compatible but unknown sandbox fields fail`() = runBlocking {
+        var sandbox = """{"mode":"HOST","origin":"NEW_JOB"}"""
+        val engine = MockEngine {
+            respond("""{"jobId":"job","executionMode":"REAL_TRUSTED","repositoryUrl":"https://github.com/example/app",
+                "requestedRevision":{"type":"TAG","value":"1.0"},"state":"CREATED","progressPercent":0,
+                "requiresConfirmation":false,"latestLogSequence":0,"artifacts":[],"createdAt":"now","updatedAt":"now",
+                "futureAdditiveField":true,"sandbox":$sandbox}""", HttpStatusCode.OK, jsonHeaders)
+        }
+        val client = RunnerApiClient("http://127.0.0.1:8080", engine)
+        assertEquals(BuildSandboxMode.HOST, client.getJob("job").sandbox?.mode)
+        sandbox = """{"mode":"HOST","origin":"NEW_JOB","futureSandboxField":true}"""
+        org.junit.Assert.assertTrue(runCatching { client.getJob("job") }.exceptionOrNull() is RunnerResponseIntegrityException)
+    }
+
     @Test
     fun `legacy effective build without dependency pinning defaults to none`() {
         val effectiveBuild = Json.decodeFromString<EffectiveBuild>(
