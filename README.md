@@ -1,5 +1,7 @@
 # ReproDroid
 
+**Phase 4 現在地（2026-09-01）:** [4.0基礎契約](../reprodroid-project/docs/design/phase-4-foundation-contract.md)を具体化しました。次のcode工程は4.1のGitHub静的探索・source-only登録・設定保存です。Room14／API v1のbaselineから、[cleanupと文書整理の開始条件](../reprodroid-project/reports/2026/09/2026-09-01-phase-4-foundation.md)を完了し、4.1 code着手へ移行しました。Room15機能の実装・検証は未完了です。
+
 OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの情報を確認してAndroid標準インストーラへ渡すクライアントです。最終的には公式APKとローカルビルドAPKを比較し、利用者自身が再現性を判断できる状態を目指します。
 
 ## 現在の状態
@@ -255,15 +257,17 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 
 Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E完了時に`./gradlew testDebugUnitTest lintDebug build --rerun-tasks -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080`を実行し、113 actionable tasksすべてexecuted、`BUILD SUCCESSFUL`を確認しました。標準installerの各callbackとRoom復元はWindows Android Emulator上のE2Eで確認しています。
 
-## Phase 3A〜3D完了時点の未実装・対象外
+## Phase 3E完了後の計画・対象外
 
-### Phase 3 で予定するが、まだ実装していないもの
+Phase 3Eの固定profileによるopt-in Docker実装・受入は完了しています。Phase 4は要件合意、4.0基礎契約、4.1登録契約、開始時の証拠archive／cleanupまで完了し、4.1のAndroid code実装へ移行しました。[Phase 4 roadmap](../reprodroid-project/docs/design/phase-4-roadmap.md)と[計画合意事項](../reprodroid-project/docs/design/phase-4-planning-decisions.md)を正本とします。現行API v1／Room v14は実装開始時のbaselineであり、Room15機能の実装・migration・製品経路受入は未完了です。
+
+計画範囲はpublic GitHub／Codebergのsource-onlyを含むGradle登録、汎用build／comparison、不足toolchain導入、history／手動cleanup／監査export、定期確認・通知、release HTTPS／pairing、暗号化backup／migration、Android／Runnerのlog export、署名releaseとlicense・privacy対応です。GitLabは将来候補。Play Store／F-Droid配布・適合性評価、Google Play services、共有用診断・自動送信は対象外です。
+
+初期受入はAndroid 16・debug＋loopback HTTP＋ADB reverse、releaseはADB経由でもHTTPSを要求します。定期確認は1時間刻み・既定6時間または毎日指定時刻、releaseのみ／非従量制のみ／充電条件なしを既定とし、全体／app OFFと個別設定を持ちます。定期確認はmetadata・通知までで、既存15分周期のJob同期とは別です。承認済み比較の資源不足に限る自動増量・再試行は別契約・既定OFFとし、Job別scan reviewと全体budgetを維持します。今回コード・設定・環境・署名・公開は変更していません。
+
+### 未実装の機能とPhase 3の対象外
 
 - Build Environment Manifest／dependency差分からの自動的なbuild原因推定（3Aは観測値と差分だけを表示）
-- Docker sandbox feasibility調査とopt-in実行
-
-### Phase 3 の対象外
-
 - DEX／native raw差異をsemantic一致で`Reproducible`へ昇格する判定
 - ReproDroid鍵によるlocal comparison artifactの署名
 - MicroG-RE `6.1.4`以外のrelease comparison profile
