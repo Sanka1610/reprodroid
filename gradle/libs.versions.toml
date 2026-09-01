@@ -11,6 +11,7 @@ compose-bom = "2026.06.01"
 ktor = "3.5.0"
 kotlinx-coroutines = "1.11.0"
 kotlinx-serialization = "1.11.0"
+jcs = "1.1"
 dexlib2 = "3.0.9"
 arsclib = "1.4.0"
 junit4 = "4.13.2"
@@ -45,6 +46,7 @@ ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+jcs = { module = "io.github.erdtman:java-json-canonicalization", version.ref = "jcs" }
 dexlib2 = { module = "com.android.tools.smali:smali-dexlib2", version.ref = "dexlib2" }
 arsclib = { module = "io.github.reandroid:ARSCLib", version.ref = "arsclib" }
 junit4 = { module = "junit:junit", version.ref = "junit4" }

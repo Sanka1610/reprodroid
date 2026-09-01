@@ -15,6 +15,9 @@ import com.sanka1610.reprodroid.data.artifact.GitHubAssetDownloader
 import com.sanka1610.reprodroid.data.artifact.ReleaseApkInstaller
 import com.sanka1610.reprodroid.data.artifact.ReferenceAssetDownloadException
 import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
+import com.sanka1610.reprodroid.data.local.AppBuildConfigurationEntity
+import com.sanka1610.reprodroid.data.local.AppRepositoryBindingEntity
+import com.sanka1610.reprodroid.data.local.AppSourceHeadEntity
 import com.sanka1610.reprodroid.data.local.ArtifactEntity
 import com.sanka1610.reprodroid.data.local.AdvancedComparisonAxis
 import com.sanka1610.reprodroid.data.local.AdvancedComparisonEntryEntity
@@ -33,6 +36,7 @@ import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.InstallAttemptStatus
 import com.sanka1610.reprodroid.data.local.PreferredAbi
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
+import com.sanka1610.reprodroid.data.local.RepositoryIdentityStatus
 import com.sanka1610.reprodroid.data.local.RegisteredAppEntity
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
 import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
@@ -41,10 +45,15 @@ import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
 import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.local.SemanticDifferenceEvidenceEntity
+import com.sanka1610.reprodroid.data.local.SourceDiscoveryEntity
+import com.sanka1610.reprodroid.data.local.GradleCandidateEntity
 import com.sanka1610.reprodroid.data.local.ThemeMode
 import com.sanka1610.reprodroid.data.local.UpdateStatus
 import com.sanka1610.reprodroid.data.provider.GitHubProviderException
+import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
+import com.sanka1610.reprodroid.data.provider.GitHubRepositoryDiscoveryClient
 import com.sanka1610.reprodroid.data.provider.GitHubReleasesClient
+import com.sanka1610.reprodroid.data.provider.RepositoryRegistrationPreview
 import com.sanka1610.reprodroid.data.provider.ResolvedGitHubRelease
 import com.sanka1610.reprodroid.data.provider.ReleaseAssetSelectionException
 import com.sanka1610.reprodroid.data.network.JobState
@@ -67,6 +76,7 @@ class ManagedAppRepository(
     private val database: ReproDroidDatabase,
     private val jobRepository: JobRepository,
     private val provider: GitHubReleasesClient = GitHubReleasesClient(),
+    private val repositoryDiscoveryClient: GitHubRepositoryDiscoveryClient = GitHubRepositoryDiscoveryClient(),
     private val downloader: GitHubAssetDownloader = GitHubAssetDownloader(),
     private val comparator: ApkContentComparator = ApkContentComparator(),
     private val advancedComparator: AdvancedApkComparator = AdvancedApkComparator(),
@@ -86,6 +96,7 @@ class ManagedAppRepository(
 
     suspend fun ensureSettings() {
         if (dao.getGlobalSettings() == null) dao.upsertGlobalSettings(defaultSettings())
+        dao.interruptRunningSourceDiscoveries(Instant.now().toString())
     }
 
     fun observeApp(registeredAppId: String): Flow<RegisteredAppRecord?> =
@@ -103,13 +114,309 @@ class ManagedAppRepository(
         )
     }
 
+    suspend fun previewRepository(repositoryUrl: String): RepositoryRegistrationPreview =
+        repositoryDiscoveryClient.preview(repositoryUrl)
+
+    suspend fun registerRepository(
+        preview: RepositoryRegistrationPreview,
+        mode: ManagementMode,
+        installationSource: InstallationSource,
+        separateManagementTarget: Boolean = false,
+    ): String {
+        validateModeAndInstallationSource(mode, installationSource)
+        validateRegistrationPreview(preview)
+        val identity = preview.identity
+        val slot = if (separateManagementTarget) UUID.randomUUID().toString() else PRIMARY_REGISTRATION_SLOT
+        val existingBinding = dao.getRepositoryBinding(
+            provider = PROVIDER_GITHUB,
+            instance = GITHUB_INSTANCE,
+            providerRepositoryId = identity.providerRepositoryId,
+            registrationSlot = PRIMARY_REGISTRATION_SLOT,
+        )
+        if (!separateManagementTarget && existingBinding != null) {
+            throw IllegalStateException("This GitHub repository is already registered as the primary management target.")
+        }
+        val settings = currentSettings()
+        val now = Instant.now().toString()
+        val appId = UUID.randomUUID().toString()
+        val discoveryId = UUID.randomUUID().toString()
+        val defaultBuildRoot = preview.discovery.candidates.singleOrNull()
+            ?.takeIf { preview.discovery.state == "COMPLETE" }
+            ?.buildRoot
+        val validatedConfiguration = BuildConfigurationValidator.validate(
+            BuildConfigurationInput(buildRoot = defaultBuildRoot),
+        )
+        val app = RegisteredAppEntity(
+            registeredAppId = appId,
+            displayName = identity.displayName,
+            repositoryUrl = identity.repository.canonicalUrl,
+            canonicalRepositoryUrl = identity.repository.canonicalUrl,
+            provider = PROVIDER_GITHUB,
+            managementMode = mode.name,
+            installationSource = installationSource.name,
+            releaseVariantPreference = settings.defaultReleaseVariantPreference,
+            preferredAbi = settings.defaultPreferredAbi,
+            maxApkSizeBytes = settings.defaultMaxApkSizeBytes,
+            useGlobalReleaseVariant = true,
+            useGlobalPreferredAbi = true,
+            useGlobalMaxApkSize = true,
+            releaseDiscoveryStatus = ReleaseDiscoveryStatus.NOT_CHECKED.name,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val discovery = preview.toDiscovery(appId, discoveryId, now)
+        val configuration = AppBuildConfigurationEntity(
+            registeredAppId = appId,
+            revision = 1,
+            schemaVersion = 1,
+            canonicalJson = validatedConfiguration.canonicalJson,
+            contentSha256 = validatedConfiguration.contentSha256,
+            validationState = validatedConfiguration.validationState.name,
+            createdAt = now,
+        )
+        database.withTransaction {
+            val collision = dao.getRepositoryBinding(
+                PROVIDER_GITHUB,
+                GITHUB_INSTANCE,
+                identity.providerRepositoryId,
+                slot,
+            )
+            check(collision == null) { "This repository management slot was registered concurrently." }
+            dao.upsertRegisteredApp(app)
+            dao.upsertRepositoryBinding(
+                AppRepositoryBindingEntity(
+                    registeredAppId = appId,
+                    provider = PROVIDER_GITHUB,
+                    instance = GITHUB_INSTANCE,
+                    providerRepositoryId = identity.providerRepositoryId,
+                    identityStatus = RepositoryIdentityStatus.VERIFIED.name,
+                    registrationSlot = slot,
+                    verifiedAt = now,
+                ),
+            )
+            dao.upsertSourceDiscovery(discovery)
+            dao.upsertGradleCandidates(preview.toCandidates(discoveryId))
+            dao.upsertBuildConfiguration(configuration)
+            dao.upsertAppSourceHead(
+                AppSourceHeadEntity(
+                    registeredAppId = appId,
+                    latestDiscoveryId = discoveryId,
+                    selectedConfigurationRevision = configuration.revision,
+                    updatedAt = now,
+                ),
+            )
+        }
+        return appId
+    }
+
+    suspend fun refreshSourceDiscovery(registeredAppId: String) {
+        val app = dao.getRegisteredApp(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        val binding = dao.getRepositoryBinding(registeredAppId)
+            ?: throw IllegalStateException("Repository identity is not available.")
+        val expectedProviderId = binding.providerRepositoryId
+            ?: throw IllegalStateException("Legacy repository identity must be explicitly verified first.")
+        val discoveryId = UUID.randomUUID().toString()
+        val startedAt = Instant.now().toString()
+        val oldHead = dao.getAppSourceHead(registeredAppId)
+        val previousDiscovery = oldHead?.latestDiscoveryId?.let { dao.getSourceDiscovery(it) }
+        val resolving = SourceDiscoveryEntity(
+            discoveryId = discoveryId,
+            registeredAppId = registeredAppId,
+            repositoryProvider = PROVIDER_GITHUB,
+            repositoryInstance = GITHUB_INSTANCE,
+            providerRepositoryId = expectedProviderId,
+            requestedBranch = previousDiscovery?.requestedBranch.orEmpty(),
+            resolvedCommitSha = null,
+            rootTreeSha = null,
+            state = "RESOLVING",
+            reason = null,
+            entryCount = 0,
+            requestCount = 0,
+            receivedBytes = 0,
+            maxDepth = 0,
+            candidateCount = 0,
+            excludedSymlinkCount = 0,
+            excludedSubmoduleCount = 0,
+            excludedCacheTreeCount = 0,
+            startedAt = startedAt,
+            finishedAt = null,
+        )
+        database.withTransaction {
+            val currentBinding = dao.getRepositoryBinding(registeredAppId)
+            check(currentBinding?.providerRepositoryId == expectedProviderId) {
+                "Repository identity changed while discovery was running."
+            }
+            dao.upsertSourceDiscovery(resolving)
+            dao.upsertAppSourceHead(
+                AppSourceHeadEntity(
+                    registeredAppId = registeredAppId,
+                    latestDiscoveryId = discoveryId,
+                    selectedConfigurationRevision = oldHead?.selectedConfigurationRevision,
+                    updatedAt = startedAt,
+                ),
+            )
+        }
+        try {
+            val preview = repositoryDiscoveryClient.preview(app.canonicalRepositoryUrl) { identity ->
+                check(identity.providerRepositoryId == expectedProviderId) {
+                    "GitHub returned a different repository identity; explicit re-binding is required."
+                }
+                dao.upsertSourceDiscovery(
+                    resolving.copy(
+                        requestedBranch = identity.defaultBranch,
+                        state = "SCANNING_TREE",
+                    ),
+                )
+            }
+            check(preview.identity.providerRepositoryId == expectedProviderId) {
+                "GitHub returned a different repository identity; explicit re-binding is required."
+            }
+            val finishedAt = Instant.now().toString()
+            val discovery = preview.toDiscovery(registeredAppId, discoveryId, finishedAt).copy(startedAt = startedAt)
+            database.withTransaction {
+                val currentBinding = dao.getRepositoryBinding(registeredAppId)
+                check(currentBinding?.providerRepositoryId == expectedProviderId) {
+                    "Repository identity changed while discovery was running."
+                }
+                dao.upsertSourceDiscovery(discovery)
+                dao.upsertGradleCandidates(preview.toCandidates(discoveryId))
+                dao.upsertRegisteredApp(app.copy(updatedAt = finishedAt))
+            }
+        } catch (cancellation: CancellationException) {
+            finishSourceDiscoveryAttempt(resolving, "CANCELLED", "CANCELLED")
+            throw cancellation
+        } catch (failure: Throwable) {
+            finishSourceDiscoveryAttempt(resolving, "FAILED", failure.sourceDiscoveryFailureReason())
+            throw failure
+        }
+    }
+
+    private suspend fun finishSourceDiscoveryAttempt(
+        resolving: SourceDiscoveryEntity,
+        state: String,
+        reason: String,
+    ) {
+        val current = dao.getSourceDiscovery(resolving.discoveryId) ?: resolving
+        dao.upsertSourceDiscovery(
+            current.copy(
+                state = state,
+                reason = reason,
+                finishedAt = Instant.now().toString(),
+            ),
+        )
+    }
+
+    private suspend fun verifyLegacyRepositoryAndRefresh(registeredAppId: String) {
+        val app = dao.getRegisteredApp(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        val preview = repositoryDiscoveryClient.preview(app.canonicalRepositoryUrl)
+        val now = Instant.now().toString()
+        val discoveryId = UUID.randomUUID().toString()
+        val discovery = preview.toDiscovery(registeredAppId, discoveryId, now)
+        database.withTransaction {
+            val binding = dao.getRepositoryBinding(registeredAppId)
+                ?: throw IllegalStateException("Legacy repository binding is missing.")
+            check(binding.identityStatus == RepositoryIdentityStatus.LEGACY_UNRESOLVED.name) {
+                "Legacy repository identity changed while verification was running."
+            }
+            val collision = dao.getRepositoryBinding(
+                PROVIDER_GITHUB,
+                GITHUB_INSTANCE,
+                preview.identity.providerRepositoryId,
+                PRIMARY_REGISTRATION_SLOT,
+            )
+            check(collision == null || collision.registeredAppId == registeredAppId) {
+                "This repository is already bound to another primary management target."
+            }
+            dao.upsertRepositoryBinding(
+                binding.copy(
+                    provider = PROVIDER_GITHUB,
+                    instance = GITHUB_INSTANCE,
+                    providerRepositoryId = preview.identity.providerRepositoryId,
+                    identityStatus = RepositoryIdentityStatus.VERIFIED.name,
+                    verifiedAt = now,
+                ),
+            )
+            dao.upsertSourceDiscovery(discovery)
+            dao.upsertGradleCandidates(preview.toCandidates(discoveryId))
+            val currentHead = dao.getAppSourceHead(registeredAppId)
+            var selectedRevision = currentHead?.selectedConfigurationRevision
+            if (selectedRevision == null) {
+                val defaultBuildRoot = preview.discovery.candidates.singleOrNull()
+                    ?.takeIf { preview.discovery.state == "COMPLETE" }
+                    ?.buildRoot
+                val validated = BuildConfigurationValidator.validate(
+                    BuildConfigurationInput(buildRoot = defaultBuildRoot),
+                )
+                val configuration = AppBuildConfigurationEntity(
+                    registeredAppId = registeredAppId,
+                    revision = 1,
+                    schemaVersion = 1,
+                    canonicalJson = validated.canonicalJson,
+                    contentSha256 = validated.contentSha256,
+                    validationState = validated.validationState.name,
+                    createdAt = now,
+                )
+                dao.upsertBuildConfiguration(configuration)
+                selectedRevision = configuration.revision
+            }
+            dao.upsertAppSourceHead(
+                AppSourceHeadEntity(registeredAppId, discoveryId, selectedRevision, now),
+            )
+            dao.upsertRegisteredApp(
+                app.copy(
+                    displayName = preview.identity.displayName,
+                    repositoryUrl = preview.normalizedInputUrl,
+                    canonicalRepositoryUrl = preview.normalizedInputUrl,
+                    updatedAt = now,
+                ),
+            )
+        }
+    }
+
+    suspend fun saveBuildConfiguration(
+        registeredAppId: String,
+        expectedRevision: Long?,
+        input: BuildConfigurationInput,
+    ): AppBuildConfigurationEntity {
+        val validated = BuildConfigurationValidator.validate(input)
+        val now = Instant.now().toString()
+        return database.withTransaction {
+            check(dao.getRegisteredApp(registeredAppId) != null) { "Registered app was not found." }
+            val head = dao.getAppSourceHead(registeredAppId)
+                ?: AppSourceHeadEntity(registeredAppId, null, null, now)
+            check(head.selectedConfigurationRevision == expectedRevision) {
+                "Build configuration changed; reload before saving."
+            }
+            dao.getBuildConfigurationByHash(registeredAppId, validated.contentSha256)?.let { existing ->
+                dao.upsertAppSourceHead(head.copy(selectedConfigurationRevision = existing.revision, updatedAt = now))
+                return@withTransaction existing
+            }
+            val previousMaximum = dao.getLatestBuildConfigurationRevision(registeredAppId) ?: 0
+            check(previousMaximum < Long.MAX_VALUE) { "Build configuration revision overflow." }
+            val configuration = AppBuildConfigurationEntity(
+                registeredAppId = registeredAppId,
+                revision = previousMaximum + 1,
+                schemaVersion = 1,
+                canonicalJson = validated.canonicalJson,
+                contentSha256 = validated.contentSha256,
+                validationState = validated.validationState.name,
+                createdAt = now,
+            )
+            dao.upsertBuildConfiguration(configuration)
+            dao.upsertAppSourceHead(head.copy(selectedConfigurationRevision = configuration.revision, updatedAt = now))
+            configuration
+        }
+    }
+
     suspend fun registerAndDownload(
         preview: ResolvedGitHubRelease,
         mode: ManagementMode,
         installationSource: InstallationSource,
         localBuildRiskConfirmed: Boolean,
     ): String {
-        if (dao.getRegisteredAppByCanonicalUrl(preview.repository.canonicalUrl) != null) {
+        if (dao.getRegisteredAppsByCanonicalUrl(preview.repository.canonicalUrl).isNotEmpty()) {
             throw IllegalStateException("This GitHub repository is already registered.")
         }
         validateModeAndInstallationSource(mode, installationSource)
@@ -172,6 +479,18 @@ class ManagedAppRepository(
     suspend fun refresh(registeredAppId: String) {
         val app = dao.getRegisteredApp(registeredAppId)
             ?: throw IllegalArgumentException("Registered app was not found.")
+        val binding = dao.getRepositoryBinding(registeredAppId)
+        if (binding?.identityStatus == RepositoryIdentityStatus.VERIFIED.name) {
+            refreshSourceDiscovery(registeredAppId)
+            return
+        }
+        if (binding?.identityStatus == RepositoryIdentityStatus.LEGACY_UNRESOLVED.name) {
+            verifyLegacyRepositoryAndRefresh(registeredAppId)
+            return
+        }
+        if (binding?.identityStatus == RepositoryIdentityStatus.LEGACY_INVALID.name) {
+            throw IllegalStateException("Legacy repository locator is invalid and requires explicit correction.")
+        }
         val settings = currentSettings()
         dao.upsertRegisteredApp(
             app.copy(
@@ -1412,6 +1731,46 @@ class ManagedAppRepository(
         providerDigestSha256 = selectedAsset.providerSha256,
     )
 
+    private fun RepositoryRegistrationPreview.toDiscovery(
+        appId: String,
+        discoveryId: String,
+        now: String,
+    ) = SourceDiscoveryEntity(
+        discoveryId = discoveryId,
+        registeredAppId = appId,
+        repositoryProvider = PROVIDER_GITHUB,
+        repositoryInstance = GITHUB_INSTANCE,
+        providerRepositoryId = identity.providerRepositoryId,
+        requestedBranch = discovery.requestedBranch,
+        resolvedCommitSha = discovery.resolvedCommitSha,
+        rootTreeSha = discovery.rootTreeSha,
+        state = discovery.state,
+        reason = discovery.reason,
+        entryCount = discovery.entryCount,
+        requestCount = discovery.requestCount,
+        receivedBytes = discovery.receivedBytes,
+        maxDepth = discovery.maxDepth,
+        candidateCount = discovery.candidates.size,
+        excludedSymlinkCount = discovery.excludedSymlinkCount,
+        excludedSubmoduleCount = discovery.excludedSubmoduleCount,
+        excludedCacheTreeCount = discovery.excludedCacheTreeCount,
+        startedAt = now,
+        finishedAt = now,
+    )
+
+    private fun RepositoryRegistrationPreview.toCandidates(discoveryId: String) =
+        discovery.candidates.map { candidate ->
+            GradleCandidateEntity(
+                discoveryId = discoveryId,
+                relativePath = candidate.relativePath,
+                buildRoot = candidate.buildRoot,
+                fileKind = candidate.fileKind,
+                blobSha = candidate.blobSha,
+                mode = candidate.mode,
+                dsl = candidate.dsl,
+            )
+        }
+
     private fun stableId(value: String): String =
         UUID.nameUUIDFromBytes(value.toByteArray(StandardCharsets.UTF_8)).toString()
 
@@ -1507,8 +1866,32 @@ class ManagedAppRepository(
         else -> "REFERENCE_APK_FAILED"
     }
 
+    private fun Throwable.sourceDiscoveryFailureReason(): String = when (this) {
+        is GitHubProviderException -> code
+        is IllegalStateException -> "INVALID_METADATA"
+        is IllegalArgumentException -> "INVALID_METADATA"
+        else -> "INVALID_METADATA"
+    }
+
+    private fun validateRegistrationPreview(preview: RepositoryRegistrationPreview) {
+        val normalizedInput = GitHubRepositoryParser.parse(preview.normalizedInputUrl).canonicalUrl
+        check(normalizedInput == preview.identity.repository.canonicalUrl) {
+            "Repository preview URL and identity do not match."
+        }
+        val providerId = preview.identity.providerRepositoryId
+        check(providerId.toLongOrNull()?.takeIf { it > 0 }?.toString() == providerId) {
+            "Repository preview provider ID is invalid."
+        }
+        check(preview.discovery.requestedBranch == preview.identity.defaultBranch) {
+            "Repository preview branch and discovery do not match."
+        }
+    }
+
     private companion object {
         const val PROVIDER_GITHUB_RELEASES = "PUBLIC_GITHUB_RELEASES"
+        const val PROVIDER_GITHUB = "GITHUB"
+        const val GITHUB_INSTANCE = "github.com"
+        const val PRIMARY_REGISTRATION_SLOT = "PRIMARY"
         const val COMPARISON_PROFILE_NOT_SUPPORTED_REASON = "COMPARISON_PROFILE_NOT_SUPPORTED"
         const val MICROG_REPOSITORY = "https://github.com/morpheapp/microg-re"
         const val MICROG_RELEASE_TAG = "6.1.4"

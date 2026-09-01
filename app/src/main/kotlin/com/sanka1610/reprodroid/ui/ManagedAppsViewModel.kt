@@ -8,8 +8,10 @@ import com.sanka1610.reprodroid.data.local.AppSettingsUpdate
 import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
 import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.ManagementMode
-import com.sanka1610.reprodroid.data.provider.ResolvedGitHubRelease
+import com.sanka1610.reprodroid.data.provider.RepositoryRegistrationPreview
+import com.sanka1610.reprodroid.data.repository.BuildConfigurationInput
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,8 +19,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
 
-data class ReleasePreviewState(
-    val release: ResolvedGitHubRelease? = null,
+data class RepositoryPreviewState(
+    val repository: RepositoryRegistrationPreview? = null,
+    val requestedUrl: String? = null,
+    val generation: Long = 0,
     val isLoading: Boolean = false,
 )
 
@@ -55,8 +59,11 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     val sourceScanWarnings = jobRepository.sourceScanWarnings
     val sandboxWarnings = jobRepository.sandboxWarnings
 
-    private val _preview = MutableStateFlow(ReleasePreviewState())
+    private val _preview = MutableStateFlow(RepositoryPreviewState())
     val preview = _preview.asStateFlow()
+    private var previewJob: Job? = null
+    private var registrationJob: Job? = null
+    private val previewGeneration = PreviewGenerationGate()
 
     private val _message = MutableStateFlow<String?>(null)
     val message = _message.asStateFlow()
@@ -76,15 +83,31 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun preview(repositoryUrl: String) {
-        viewModelScope.launch {
-            _preview.value = ReleasePreviewState(isLoading = true)
+        previewJob?.cancel()
+        val requestedUrl = repositoryUrl.trim()
+        val request = previewGeneration.begin(requestedUrl)
+        previewJob = viewModelScope.launch {
+            _preview.value = RepositoryPreviewState(
+                requestedUrl = request.requestedUrl,
+                generation = request.generation,
+                isLoading = true,
+            )
             try {
-                _preview.value = ReleasePreviewState(release = repository.previewLatest(repositoryUrl.trim()))
+                val resolved = repository.previewRepository(request.requestedUrl)
+                if (previewGeneration.isCurrent(request) && _preview.value.requestedUrl == request.requestedUrl) {
+                    _preview.value = RepositoryPreviewState(
+                        repository = resolved,
+                        requestedUrl = request.requestedUrl,
+                        generation = request.generation,
+                    )
+                }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
-                _preview.value = ReleasePreviewState()
-                _message.value = failure.userMessage()
+                if (previewGeneration.isCurrent(request)) {
+                    _preview.value = RepositoryPreviewState(generation = request.generation)
+                    _message.value = failure.userMessage()
+                }
             }
         }
     }
@@ -93,25 +116,36 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         mode: ManagementMode,
         installationSource: InstallationSource,
         localBuildRiskConfirmed: Boolean,
+        separateManagementTarget: Boolean,
         onRegistered: (String) -> Unit,
     ) {
-        val resolved = _preview.value.release ?: return
-        viewModelScope.launch {
+        if (registrationJob?.isActive == true) return
+        val state = _preview.value
+        val resolved = state.repository ?: return
+        val request = PreviewRequestToken(state.generation, state.requestedUrl ?: return)
+        registrationJob = viewModelScope.launch {
             _preview.value = _preview.value.copy(isLoading = true)
             try {
-                val appId = repository.registerAndDownload(
-                    resolved,
-                    mode,
-                    installationSource,
-                    localBuildRiskConfirmed,
+                if (installationSource == InstallationSource.LOCAL_BUILD) {
+                    require(localBuildRiskConfirmed) { "Local build risk acknowledgement is required." }
+                }
+                val appId = repository.registerRepository(
+                    preview = resolved,
+                    mode = mode,
+                    installationSource = installationSource,
+                    separateManagementTarget = separateManagementTarget,
                 )
-                _preview.value = ReleasePreviewState()
-                onRegistered(appId)
+                if (previewGeneration.isCurrent(request)) {
+                    _preview.value = RepositoryPreviewState(generation = request.generation)
+                    onRegistered(appId)
+                }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
                 _message.value = failure.userMessage()
-                _preview.value = _preview.value.copy(isLoading = false)
+                if (previewGeneration.isCurrent(request)) {
+                    _preview.value = _preview.value.copy(isLoading = false)
+                }
             }
         }
     }
@@ -153,6 +187,14 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun saveBuildConfiguration(
+        registeredAppId: String,
+        expectedRevision: Long?,
+        input: BuildConfigurationInput,
+    ) = runAppAction(registeredAppId) {
+        repository.saveBuildConfiguration(registeredAppId, expectedRevision, input)
+    }
+
     fun startComparison(registeredAppId: String) = runAppAction(registeredAppId) {
         repository.startComparison(registeredAppId)
     }
@@ -178,7 +220,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             try {
                 repository.updateGlobalSettings(settings)
-                _preview.value = ReleasePreviewState()
+                clearPreview()
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
@@ -187,7 +229,11 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun clearPreview() { _preview.value = ReleasePreviewState() }
+    fun clearPreview() {
+        previewJob?.cancel()
+        registrationJob?.cancel()
+        _preview.value = RepositoryPreviewState(generation = previewGeneration.invalidate())
+    }
     fun clearMessage() { _message.value = null }
 
     private fun runAppAction(registeredAppId: String, action: suspend () -> Unit) {

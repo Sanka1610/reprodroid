@@ -83,6 +83,7 @@ class JobRepository(
         revisionValue: String,
         outcome: SimulationOutcome,
     ): String {
+        rejectLegacyExecutionMutation()
         val request = CreateJobRequest(
             executionMode = ExecutionMode.SIMULATED,
             repositoryUrl = repositoryUrl,
@@ -96,14 +97,17 @@ class JobRepository(
         repositoryUrl: String,
         revisionType: RevisionType,
         revisionValue: String,
-    ): String = createJob(
-        request = CreateJobRequest(
-            executionMode = ExecutionMode.REAL_TRUSTED,
-            repositoryUrl = repositoryUrl,
-            revision = RequestedRevision(revisionType, revisionValue),
-        ),
-        outcome = null,
-    )
+    ): String {
+        rejectLegacyExecutionMutation()
+        return createJob(
+            request = CreateJobRequest(
+                executionMode = ExecutionMode.REAL_TRUSTED,
+                repositoryUrl = repositoryUrl,
+                revision = RequestedRevision(revisionType, revisionValue),
+            ),
+            outcome = null,
+        )
+    }
 
     private suspend fun createJob(
         request: CreateJobRequest,
@@ -304,6 +308,7 @@ class JobRepository(
     }
 
     suspend fun confirmRealBuild(jobId: String, resolvedCommitSha: String) {
+        rejectLegacyExecutionMutation()
         syncMutex.withLock {
             verifiedRemoteJob(jobId, jobDao.getJob(jobId))
             runnerApi.confirmJob(
@@ -336,6 +341,7 @@ class JobRepository(
     }
 
     suspend fun retryJob(jobId: String): String {
+        rejectLegacyExecutionMutation()
         return syncMutex.withLock {
             val original = requireNotNull(jobDao.getJob(jobId)) { "The local job does not exist." }
             val created = runnerApi.retryJob(jobId)
@@ -365,6 +371,10 @@ class JobRepository(
             created.jobId
         }
     }
+
+    private fun rejectLegacyExecutionMutation(): Nothing = throw IllegalStateException(
+        "Phase 4 execution requires Runner API v2. New jobs, confirmation, and retry do not fall back to API v1.",
+    )
 
     private suspend fun verifiedRemoteJob(jobId: String, existing: JobEntity?): JobResponse {
         try {

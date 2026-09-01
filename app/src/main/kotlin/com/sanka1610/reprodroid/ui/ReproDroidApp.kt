@@ -85,6 +85,8 @@ import com.sanka1610.reprodroid.data.local.BuildEnvironmentManifestWithDependenc
 import com.sanka1610.reprodroid.data.local.JobRecord
 import com.sanka1610.reprodroid.data.local.SourceScanWithDetails
 import com.sanka1610.reprodroid.data.repository.BuildManifestWarning
+import com.sanka1610.reprodroid.data.repository.BuildConfigurationInput
+import com.sanka1610.reprodroid.data.repository.BuildConfigurationValidator
 import com.sanka1610.reprodroid.data.repository.SourceScanWarning
 import com.sanka1610.reprodroid.data.repository.DependencyDifferenceKind
 import com.sanka1610.reprodroid.data.repository.compareBuildEnvironments
@@ -200,6 +202,13 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                             update,
                                         ) { settingsAppId = null }
                                     },
+                                    onSaveBuildConfiguration = { expectedRevision, input ->
+                                        managedViewModel.saveBuildConfiguration(
+                                            app.app.registeredAppId,
+                                            expectedRevision,
+                                            input,
+                                        )
+                                    },
                                 )
                             }
                         }
@@ -252,8 +261,8 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                             preview = preview,
                             globalSettings = globalSettings,
                             onPreview = managedViewModel::preview,
-                            onRegister = { mode, source, confirmed ->
-                                managedViewModel.register(mode, source, confirmed) { registeredAppId ->
+                            onRegister = { mode, source, confirmed, separateTarget ->
+                                managedViewModel.register(mode, source, confirmed, separateTarget) { registeredAppId ->
                                     destination = MainDestination.APPS
                                     selectedAppId = registeredAppId
                                 }
@@ -308,7 +317,7 @@ private fun AppsScreen(
         Spacer(Modifier.height(16.dp))
         if (filtered.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(if (apps.isEmpty()) "No registered apps. Add MicroG-RE to begin." else "No matching apps.")
+                Text(if (apps.isEmpty()) "No registered repositories." else "No matching apps.")
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -373,13 +382,13 @@ private fun AppsScreen(
 
 @Composable
 private fun AddAppScreen(
-    preview: ReleasePreviewState,
+    preview: RepositoryPreviewState,
     globalSettings: GlobalSettingsEntity,
     onPreview: (String) -> Unit,
-    onRegister: (ManagementMode, InstallationSource, Boolean) -> Unit,
+    onRegister: (ManagementMode, InstallationSource, Boolean, Boolean) -> Unit,
     onUrlChanged: () -> Unit,
 ) {
-    var repositoryUrl by rememberSaveable { mutableStateOf("https://github.com/MorpheApp/MicroG-RE") }
+    var repositoryUrl by rememberSaveable { mutableStateOf("") }
     var mode by rememberSaveable(globalSettings.defaultManagementMode) {
         mutableStateOf(enumValue(globalSettings.defaultManagementMode, ManagementMode.VERIFICATION))
     }
@@ -389,14 +398,15 @@ private fun AddAppScreen(
         )
     }
     var localRiskConfirmed by rememberSaveable { mutableStateOf(false) }
+    var separateManagementTarget by rememberSaveable { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             Spacer(Modifier.height(16.dp))
-            Text("Register an app", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-            Text("Phase 2C · public GitHub Releases", style = MaterialTheme.typography.bodyMedium)
+            Text("Register a repository", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+            Text("Phase 4.1 · public GitHub source metadata", style = MaterialTheme.typography.bodyMedium)
         }
         item {
             OutlinedTextField(
@@ -406,7 +416,21 @@ private fun AddAppScreen(
                 label = { Text("GitHub repository URL") },
                 supportingText = { Text("Only https://github.com/{owner}/{repository}") },
                 singleLine = true,
+                enabled = !preview.isLoading,
             )
+        }
+        item {
+            Row(verticalAlignment = Alignment.Top) {
+                Checkbox(
+                    checked = separateManagementTarget,
+                    onCheckedChange = { separateManagementTarget = it },
+                )
+                Text(
+                    "Register as a separate management target for another package from the same repository. " +
+                        "Leave off for the primary target.",
+                    Modifier.padding(top = 10.dp),
+                )
+            }
         }
         item {
             DropdownSetting(
@@ -458,31 +482,51 @@ private fun AddAppScreen(
                 enabled = repositoryUrl.isNotBlank() && !preview.isLoading,
                 onClick = { onPreview(repositoryUrl) },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (preview.isLoading && preview.release == null) "Resolving…" else "Preview latest release") }
+            ) { Text(if (preview.isLoading && preview.repository == null) "Inspecting…" else "Inspect repository") }
         }
         if (preview.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        preview.release?.let { resolved ->
+        preview.repository?.let { resolved ->
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(resolved.repository.name, style = MaterialTheme.typography.titleLarge)
-                        DetailValue("Release", resolved.release.name ?: resolved.release.tagName)
-                        DetailValue("Tag", resolved.release.tagName)
-                        DetailValue("Resolved commit", resolved.resolvedCommitSha, monospace = true)
-                        DetailValue("APK", resolved.selectedAsset.asset.name)
-                        DetailValue("Selection", resolved.selectedAsset.reason)
-                        DetailValue("Size", "${resolved.selectedAsset.asset.size} bytes")
-                        DetailValue("Provider SHA-256", resolved.selectedAsset.providerSha256 ?: "Not supplied", true)
+                        Text(resolved.identity.displayName, style = MaterialTheme.typography.titleLarge)
+                        DetailValue("Repository ID", resolved.identity.providerRepositoryId, monospace = true)
+                        DetailValue("Default branch", resolved.identity.defaultBranch)
+                        DetailValue("Discovery", resolved.discovery.state)
+                        resolved.discovery.reason?.let { DetailValue("Reason", it) }
+                        DetailValue("Resolved commit", resolved.discovery.resolvedCommitSha ?: "Not resolved", true)
+                        DetailValue("Root tree", resolved.discovery.rootTreeSha ?: "Not resolved", true)
+                        DetailValue("Gradle candidates", resolved.discovery.candidates.size.toString())
+                        resolved.discovery.candidates.take(8).forEach { candidate ->
+                            DetailValue(candidate.fileKind, candidate.relativePath, monospace = true)
+                        }
+                        if (resolved.discovery.candidates.size > 8) {
+                            Text("${resolved.discovery.candidates.size - 8} more candidates")
+                        }
+                        DetailValue(
+                            "Excluded",
+                            "symlink ${resolved.discovery.excludedSymlinkCount}, " +
+                                "submodule ${resolved.discovery.excludedSubmoduleCount}, " +
+                                "cache tree ${resolved.discovery.excludedCacheTreeCount}",
+                        )
                         Text(
-                            "target_commitish is recorded but is not used as the checkout commit.",
+                            "Registration stores source metadata only. It does not download an APK, start a Runner job, " +
+                                "execute Gradle, compare artifacts, or install a package.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Button(
                             enabled = !preview.isLoading &&
                                 (installationSource != InstallationSource.LOCAL_BUILD || localRiskConfirmed),
-                            onClick = { onRegister(mode, installationSource, localRiskConfirmed) },
+                            onClick = {
+                                onRegister(
+                                    mode,
+                                    installationSource,
+                                    localRiskConfirmed,
+                                    separateManagementTarget,
+                                )
+                            },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text(if (preview.isLoading) "Downloading and verifying…" else "Register and verify APK") }
+                        ) { Text(if (preview.isLoading) "Registering…" else "Register repository") }
                     }
                 }
             }
@@ -581,7 +625,22 @@ private fun AppDetailScreen(
                 DetailCard("Repository") {
                     DetailValue("Provider", record.app.provider)
                     DetailValue("URL", record.app.canonicalRepositoryUrl)
-                    DetailValue("Last checked", record.app.lastReleaseCheckedAt ?: "Never")
+                    DetailValue("Repository ID", record.repositoryBinding?.providerRepositoryId ?: "Legacy unresolved", true)
+                    DetailValue("Identity", record.repositoryBinding?.identityStatus ?: "Unavailable")
+                    record.latestSourceDiscovery?.let { discovery ->
+                        DetailValue("Source discovery", discovery.state)
+                        discovery.reason?.let { DetailValue("Discovery reason", it) }
+                        DetailValue("Source commit", discovery.resolvedCommitSha ?: "Not resolved", true)
+                        DetailValue("Gradle candidates", discovery.candidateCount.toString())
+                    }
+                    record.selectedBuildConfiguration?.let { configuration ->
+                        DetailValue(
+                            "Build settings",
+                            "revision ${configuration.revision} · ${configuration.validationState}",
+                        )
+                        DetailValue("Settings SHA-256", configuration.contentSha256, true)
+                    }
+                    DetailValue("Release last checked", record.app.lastReleaseCheckedAt ?: "Never")
                     DetailValue("Release variant", effectiveVariant(record, globalSettings).displayName())
                     DetailValue("ABI", effectiveAbi(record, globalSettings).displayName())
                     DetailValue("APK limit", "${effectiveLimit(record, globalSettings) / MIB} MiB")
@@ -987,6 +1046,7 @@ private fun AppPreferencesScreen(
     saving: Boolean,
     onBack: () -> Unit,
     onSave: (AppSettingsUpdate) -> Unit,
+    onSaveBuildConfiguration: (Long?, BuildConfigurationInput) -> Unit,
 ) {
     BackHandler(onBack = onBack)
     var mode by rememberSaveable(record.app.registeredAppId) {
@@ -1008,6 +1068,49 @@ private fun AppPreferencesScreen(
         mutableStateOf(source == InstallationSource.LOCAL_BUILD)
     }
     val sourceLocked = record.latestRelease?.selectedAsset?.installedVersionCode != null
+    val initialBuildConfiguration = remember(record.app.registeredAppId) {
+        record.selectedBuildConfiguration?.let { configuration ->
+            runCatching {
+                BuildConfigurationValidator.decodeCanonical(
+                    configuration.canonicalJson,
+                    configuration.contentSha256,
+                )
+            }.getOrNull()
+        } ?: BuildConfigurationInput()
+    }
+    var buildRoot by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(initialBuildConfiguration.buildRoot.orEmpty())
+    }
+    var modulePath by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(initialBuildConfiguration.modulePath.orEmpty())
+    }
+    var buildVariant by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(initialBuildConfiguration.variant.orEmpty())
+    }
+    var buildTasks by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(initialBuildConfiguration.tasks.joinToString("\n"))
+    }
+    var javaMajor by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(initialBuildConfiguration.javaMajor?.toString().orEmpty())
+    }
+    var gradleVersion by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(initialBuildConfiguration.gradleVersion.orEmpty())
+    }
+    var compileSdk by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(initialBuildConfiguration.compileSdk?.toString().orEmpty())
+    }
+    var buildToolsVersion by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(initialBuildConfiguration.buildToolsVersion.orEmpty())
+    }
+    var ndkVersion by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(initialBuildConfiguration.ndkVersion.orEmpty())
+    }
+    var cmakeVersion by rememberSaveable(record.app.registeredAppId) {
+        mutableStateOf(initialBuildConfiguration.cmakeVersion.orEmpty())
+    }
+    val numericBuildFieldsValid = listOf(javaMajor, compileSdk).all { value ->
+        value.isBlank() || value.trim().toIntOrNull() != null
+    }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("${record.app.displayName} settings") },
@@ -1141,8 +1244,83 @@ private fun AppPreferencesScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (saving) "Saving…" else "Save app settings") }
             }
+            item { HorizontalDivider() }
+            item {
+                SectionTitle(
+                    "Build configuration",
+                    "Saved locally as an immutable, hashed draft. This does not start Gradle or a Runner job.",
+                )
+            }
+            item { BuildSettingField("Build root", buildRoot, { buildRoot = it }, ". or relative path") }
+            item { BuildSettingField("Module path", modulePath, { modulePath = it }, ":app") }
+            item { BuildSettingField("Variant", buildVariant, { buildVariant = it }, "release") }
+            item {
+                OutlinedTextField(
+                    value = buildTasks,
+                    onValueChange = { buildTasks = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Tasks (one per line)") },
+                    supportingText = { Text(":app:assembleRelease") },
+                    minLines = 2,
+                )
+            }
+            item { BuildSettingField("Java major", javaMajor, { javaMajor = it }, "21") }
+            item { BuildSettingField("Gradle version", gradleVersion, { gradleVersion = it }, "9.1.0") }
+            item { BuildSettingField("compileSdk", compileSdk, { compileSdk = it }, "36") }
+            item { BuildSettingField("Build Tools version", buildToolsVersion, { buildToolsVersion = it }, "36.0.0") }
+            item { BuildSettingField("NDK version (optional)", ndkVersion, { ndkVersion = it }, "") }
+            item { BuildSettingField("CMake version (optional)", cmakeVersion, { cmakeVersion = it }, "") }
+            item {
+                Button(
+                    enabled = !saving && numericBuildFieldsValid,
+                    onClick = {
+                        fun optional(value: String) = value.trim().takeIf(String::isNotEmpty)
+                        onSaveBuildConfiguration(
+                            record.selectedBuildConfiguration?.revision,
+                            BuildConfigurationInput(
+                                buildRoot = optional(buildRoot),
+                                modulePath = optional(modulePath),
+                                variant = optional(buildVariant),
+                                tasks = buildTasks.lines().map(String::trim).filter(String::isNotEmpty),
+                                javaMajor = optional(javaMajor)?.toIntOrNull(),
+                                gradleVersion = optional(gradleVersion),
+                                compileSdk = optional(compileSdk)?.toIntOrNull(),
+                                buildToolsVersion = optional(buildToolsVersion),
+                                ndkVersion = optional(ndkVersion),
+                                cmakeVersion = optional(cmakeVersion),
+                            ),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (saving) "Saving…" else "Save build configuration") }
+                if (!numericBuildFieldsValid) {
+                    Text(
+                        "Java major and compileSdk must be decimal integers when supplied.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            item { Spacer(Modifier.height(12.dp)) }
         }
     }
+}
+
+@Composable
+private fun BuildSettingField(
+    label: String,
+    value: String,
+    onChange: (String) -> Unit,
+    hint: String,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(label) },
+        supportingText = hint.takeIf(String::isNotEmpty)?.let { text -> { Text(text) } },
+        singleLine = true,
+    )
 }
 
 @Composable

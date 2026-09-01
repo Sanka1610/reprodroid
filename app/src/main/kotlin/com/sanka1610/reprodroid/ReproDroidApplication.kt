@@ -3,6 +3,7 @@ package com.sanka1610.reprodroid
 import android.app.Application
 import androidx.room.Room
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
+import com.sanka1610.reprodroid.data.local.DatabaseMigrationGate
 import com.sanka1610.reprodroid.data.network.RunnerApiClient
 import com.sanka1610.reprodroid.data.repository.JobRepository
 import com.sanka1610.reprodroid.data.repository.ManagedAppRepository
@@ -16,6 +17,11 @@ class ReproDroidApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        DatabaseMigrationGate.prepare(
+            context = applicationContext,
+            databaseName = "reprodroid.sqlite3",
+            targetVersion = 15,
+        )
         val database = Room.databaseBuilder(
             applicationContext,
             ReproDroidDatabase::class.java,
@@ -34,6 +40,7 @@ class ReproDroidApplication : Application() {
             ReproDroidDatabase.MIGRATION_11_12,
             ReproDroidDatabase.MIGRATION_12_13,
             ReproDroidDatabase.MIGRATION_13_14,
+            ReproDroidDatabase.MIGRATION_14_15,
         ).build()
         jobRepository = JobRepository(
             applicationContext = applicationContext,

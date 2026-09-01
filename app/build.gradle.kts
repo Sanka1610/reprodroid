@@ -92,6 +92,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.jcs)
     implementation(libs.dexlib2)
     implementation(libs.arsclib)
     implementation(libs.ktor.client.core)

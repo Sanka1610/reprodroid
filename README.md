@@ -1,6 +1,6 @@
 # ReproDroid
 
-**Phase 4 現在地（2026-09-01）:** [4.0基礎契約](../reprodroid-project/docs/design/phase-4-foundation-contract.md)を具体化しました。次のcode工程は4.1のGitHub静的探索・source-only登録・設定保存です。Room14／API v1のbaselineから、[cleanupと文書整理の開始条件](../reprodroid-project/reports/2026/09/2026-09-01-phase-4-foundation.md)を完了し、4.1 code着手へ移行しました。Room15機能の実装・検証は未完了です。
+**Phase 4 現在地（2026-09-01）:** 4.1のpublic GitHub metadata登録、full SHA固定の静的tree探索、source-only管理、構造化build設定、Room15 migrationを実装しました。Android 16の自動test、Phase 3E実Room14 snapshot移行、lint、debug／release assembleは成功しています。実public GitHubの製品経路は未認証rate limitで完走しておらず、上限境界とmigration kill-pointを含む未完了項目は[4.1契約](../reprodroid-project/docs/design/phase-4-registration-contract.md)のledgerで分離します。Runner API v2は未実装のため、新Job／confirm／retryはv1へfallbackせず停止します。
 
 OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの情報を確認してAndroid標準インストーラへ渡すクライアントです。最終的には公式APKとローカルビルドAPKを比較し、利用者自身が再現性を判断できる状態を目指します。
 
@@ -9,6 +9,10 @@ OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの�
 Phase 2C（trust表示、更新関係、公式APK install、設定継承）とPhase 2D（独立再ビルド、APK全entry inventory、DEX構造比較、Manifest／resource table意味比較）は実装済みです。Phase 2Dの高度比較は説明用の補助証跡であり、protocol v2のraw 3軸判定を変更しません。
 
 Phase 3A（Build Environment Manifest public API、Room v10、Build A / B dependency diff）、3B（dependency pinning API取込、Room v11、Job／comparison表示）、3C（determinism API／Manifest取込、Room v12、bounded表示）、3D（pre-build static source scan API取込、Room v13、条件付きreview gate、bounded表示）は実装済みです。pinning、determinism、scan findingsは補助的な監査証拠であり、raw comparison、trust、update、install policyを変更しません。3Eのsandbox取込み／Room v14／個別同意UIも実装し、検証範囲は最終受入記録にまとめています。後続順序は [Phase 3 roadmap](../reprodroid-project/docs/design/phase-3-roadmap.md) を参照してください。
+
+Phase 4.1では、release／APK／package名／Runner接続を登録条件から分離しました。bounded GitHub metadata readerはrepository IDとpublic状態を検証し、default branchをfull commit SHAへ解決して非再帰treeだけを走査します。blob本文、symlink、submodule、`.git`／`.gradle`配下を取得・実行しません。登録、再探索、設定保存はAPK download、Gradle、Job、comparison、installを開始せず、既存raw comparison／trust／signer policyも変更しません。
+
+Room15はprovider repository IDと管理slot、immutableなsource discovery、Gradle候補、JCS SHA-256付きbuild設定revision、current headを既存tableのsidecarとして追加します。Room14からの起動前migration gateはWAL checkpoint後のprivate snapshotをSHA-256／integrity／Room identityまで検証し、未知schema・容量不足・snapshot破損ではdestructive fallbackせず停止します。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続

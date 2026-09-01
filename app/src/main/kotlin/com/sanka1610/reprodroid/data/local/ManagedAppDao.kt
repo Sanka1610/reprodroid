@@ -32,8 +32,49 @@ interface ManagedAppDao {
     @Query("SELECT * FROM registered_apps WHERE registeredAppId = :registeredAppId")
     suspend fun getRegisteredApp(registeredAppId: String): RegisteredAppEntity?
 
-    @Query("SELECT * FROM registered_apps WHERE canonicalRepositoryUrl = :canonicalRepositoryUrl")
-    suspend fun getRegisteredAppByCanonicalUrl(canonicalRepositoryUrl: String): RegisteredAppEntity?
+    @Query("SELECT * FROM registered_apps WHERE canonicalRepositoryUrl = :canonicalRepositoryUrl ORDER BY createdAt")
+    suspend fun getRegisteredAppsByCanonicalUrl(canonicalRepositoryUrl: String): List<RegisteredAppEntity>
+
+    @Query("SELECT * FROM app_repository_bindings WHERE registeredAppId = :registeredAppId")
+    suspend fun getRepositoryBinding(registeredAppId: String): AppRepositoryBindingEntity?
+
+    @Query(
+        "SELECT * FROM app_repository_bindings WHERE provider = :provider AND instance = :instance " +
+            "AND providerRepositoryId = :providerRepositoryId AND registrationSlot = :registrationSlot",
+    )
+    suspend fun getRepositoryBinding(
+        provider: String,
+        instance: String,
+        providerRepositoryId: String,
+        registrationSlot: String,
+    ): AppRepositoryBindingEntity?
+
+    @Query("SELECT * FROM source_discoveries WHERE discoveryId = :discoveryId")
+    suspend fun getSourceDiscovery(discoveryId: String): SourceDiscoveryEntity?
+
+    @Query("SELECT * FROM gradle_candidates WHERE discoveryId = :discoveryId ORDER BY relativePath")
+    suspend fun getGradleCandidates(discoveryId: String): List<GradleCandidateEntity>
+
+    @Query("SELECT * FROM app_source_heads WHERE registeredAppId = :registeredAppId")
+    suspend fun getAppSourceHead(registeredAppId: String): AppSourceHeadEntity?
+
+    @Query(
+        "SELECT * FROM app_build_configurations WHERE registeredAppId = :registeredAppId " +
+            "AND revision = :revision",
+    )
+    suspend fun getBuildConfiguration(registeredAppId: String, revision: Long): AppBuildConfigurationEntity?
+
+    @Query(
+        "SELECT * FROM app_build_configurations WHERE registeredAppId = :registeredAppId " +
+            "AND contentSha256 = :contentSha256",
+    )
+    suspend fun getBuildConfigurationByHash(
+        registeredAppId: String,
+        contentSha256: String,
+    ): AppBuildConfigurationEntity?
+
+    @Query("SELECT MAX(revision) FROM app_build_configurations WHERE registeredAppId = :registeredAppId")
+    suspend fun getLatestBuildConfigurationRevision(registeredAppId: String): Long?
 
     @Query("SELECT * FROM release_snapshots WHERE releaseSnapshotId = :releaseSnapshotId")
     suspend fun getReleaseSnapshot(releaseSnapshotId: String): ReleaseSnapshotEntity?
@@ -99,6 +140,21 @@ interface ManagedAppDao {
     suspend fun upsertRegisteredApp(app: RegisteredAppEntity)
 
     @Upsert
+    suspend fun upsertRepositoryBinding(binding: AppRepositoryBindingEntity)
+
+    @Upsert
+    suspend fun upsertSourceDiscovery(discovery: SourceDiscoveryEntity)
+
+    @Upsert
+    suspend fun upsertGradleCandidates(candidates: List<GradleCandidateEntity>)
+
+    @Upsert
+    suspend fun upsertBuildConfiguration(configuration: AppBuildConfigurationEntity)
+
+    @Upsert
+    suspend fun upsertAppSourceHead(head: AppSourceHeadEntity)
+
+    @Upsert
     suspend fun upsertReleaseSnapshot(snapshot: ReleaseSnapshotEntity)
 
     @Upsert
@@ -142,4 +198,10 @@ interface ManagedAppDao {
 
     @Query("DELETE FROM registered_apps WHERE registeredAppId = :registeredAppId")
     suspend fun deleteRegisteredApp(registeredAppId: String)
+
+    @Query(
+        "UPDATE source_discoveries SET state = 'INTERRUPTED', reason = 'PROCESS_RESTART', " +
+            "finishedAt = :finishedAt WHERE state IN ('RESOLVING', 'SCANNING_TREE')",
+    )
+    suspend fun interruptRunningSourceDiscoveries(finishedAt: String)
 }

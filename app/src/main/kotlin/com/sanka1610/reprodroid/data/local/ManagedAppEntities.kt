@@ -94,7 +94,7 @@ enum class AssetSelectionReason {
 
 @Entity(
     tableName = "registered_apps",
-    indices = [Index(value = ["canonicalRepositoryUrl"], unique = true)],
+    indices = [Index(value = ["canonicalRepositoryUrl"])],
 )
 data class RegisteredAppEntity(
     @PrimaryKey val registeredAppId: String,
@@ -271,6 +271,14 @@ data class ReleaseSnapshotWithAssets(
 
 data class RegisteredAppRecord(
     @Embedded val app: RegisteredAppEntity,
+    @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
+    val repositoryBinding: AppRepositoryBindingEntity? = null,
+    @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
+    val sourceDiscoveries: List<SourceDiscoveryEntity> = emptyList(),
+    @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
+    val buildConfigurations: List<AppBuildConfigurationEntity> = emptyList(),
+    @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
+    val sourceHead: AppSourceHeadEntity? = null,
     @Relation(
         entity = ReleaseSnapshotEntity::class,
         parentColumn = "registeredAppId",
@@ -286,6 +294,16 @@ data class RegisteredAppRecord(
     @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
     val releaseInstallAttempts: List<ReleaseInstallAttemptEntity>,
 ) {
+    val latestSourceDiscovery: SourceDiscoveryEntity?
+        get() = sourceHead?.latestDiscoveryId?.let { currentId ->
+            sourceDiscoveries.firstOrNull { it.discoveryId == currentId }
+        }
+
+    val selectedBuildConfiguration: AppBuildConfigurationEntity?
+        get() = sourceHead?.selectedConfigurationRevision?.let { selectedRevision ->
+            buildConfigurations.firstOrNull { it.revision == selectedRevision }
+        }
+
     val latestRelease: ReleaseSnapshotWithAssets?
         get() = releases.maxByOrNull { it.snapshot.publishedAt }
 

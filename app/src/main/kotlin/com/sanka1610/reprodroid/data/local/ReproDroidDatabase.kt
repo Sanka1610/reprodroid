@@ -4,6 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
 
 @Database(
     entities = [
@@ -27,8 +28,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SourceScanEntity::class,
         SourceScanDetectorCountEntity::class,
         SourceScanFindingEntity::class,
+        AppRepositoryBindingEntity::class,
+        SourceDiscoveryEntity::class,
+        GradleCandidateEntity::class,
+        AppBuildConfigurationEntity::class,
+        AppSourceHeadEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -36,6 +42,178 @@ abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun managedAppDao(): ManagedAppDao
 
     companion object {
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP INDEX IF EXISTS index_registered_apps_canonicalRepositoryUrl")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_registered_apps_canonicalRepositoryUrl " +
+                        "ON registered_apps(canonicalRepositoryUrl)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS app_repository_bindings (
+                        registeredAppId TEXT NOT NULL,
+                        provider TEXT NOT NULL,
+                        instance TEXT NOT NULL,
+                        providerRepositoryId TEXT,
+                        identityStatus TEXT NOT NULL,
+                        registrationSlot TEXT NOT NULL,
+                        verifiedAt TEXT,
+                        PRIMARY KEY(registeredAppId),
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                        "index_app_repository_bindings_provider_instance_providerRepositoryId_registrationSlot " +
+                        "ON app_repository_bindings(provider, instance, providerRepositoryId, registrationSlot)",
+                )
+                db.query(
+                    "SELECT registeredAppId, provider, canonicalRepositoryUrl FROM registered_apps",
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val registeredAppId = cursor.getString(0)
+                        val legacyProvider = cursor.getString(1)
+                        val repositoryUrl = cursor.getString(2)
+                        val isGitHubProvider = legacyProvider in setOf(
+                            "GITHUB_RELEASES",
+                            "PUBLIC_GITHUB_RELEASES",
+                        )
+                        val hasValidLocator = isGitHubProvider && runCatching {
+                            GitHubRepositoryParser.parse(repositoryUrl)
+                        }.isSuccess
+                        db.execSQL(
+                            """
+                            INSERT INTO app_repository_bindings (
+                                registeredAppId, provider, instance, providerRepositoryId,
+                                identityStatus, registrationSlot, verifiedAt
+                            ) VALUES (?, ?, 'github.com', NULL, ?, 'PRIMARY', NULL)
+                            """.trimIndent(),
+                            arrayOf(
+                                registeredAppId,
+                                if (isGitHubProvider) "GITHUB" else legacyProvider,
+                                if (hasValidLocator) "LEGACY_UNRESOLVED" else "LEGACY_INVALID",
+                            ),
+                        )
+                    }
+                }
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS source_discoveries (
+                        discoveryId TEXT NOT NULL,
+                        registeredAppId TEXT NOT NULL,
+                        repositoryProvider TEXT NOT NULL,
+                        repositoryInstance TEXT NOT NULL,
+                        providerRepositoryId TEXT NOT NULL,
+                        requestedBranch TEXT NOT NULL,
+                        resolvedCommitSha TEXT,
+                        rootTreeSha TEXT,
+                        state TEXT NOT NULL,
+                        reason TEXT,
+                        entryCount INTEGER NOT NULL,
+                        requestCount INTEGER NOT NULL,
+                        receivedBytes INTEGER NOT NULL,
+                        maxDepth INTEGER NOT NULL,
+                        candidateCount INTEGER NOT NULL,
+                        excludedSymlinkCount INTEGER NOT NULL,
+                        excludedSubmoduleCount INTEGER NOT NULL,
+                        excludedCacheTreeCount INTEGER NOT NULL,
+                        startedAt TEXT NOT NULL,
+                        finishedAt TEXT,
+                        PRIMARY KEY(discoveryId),
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_source_discoveries_registeredAppId " +
+                        "ON source_discoveries(registeredAppId)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_source_discoveries_registeredAppId_discoveryId " +
+                        "ON source_discoveries(registeredAppId, discoveryId)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS gradle_candidates (
+                        discoveryId TEXT NOT NULL,
+                        relativePath TEXT NOT NULL,
+                        buildRoot TEXT NOT NULL,
+                        fileKind TEXT NOT NULL,
+                        blobSha TEXT NOT NULL,
+                        mode TEXT NOT NULL,
+                        dsl TEXT NOT NULL,
+                        PRIMARY KEY(discoveryId, relativePath),
+                        FOREIGN KEY(discoveryId) REFERENCES source_discoveries(discoveryId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_gradle_candidates_discoveryId " +
+                        "ON gradle_candidates(discoveryId)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS app_build_configurations (
+                        registeredAppId TEXT NOT NULL,
+                        revision INTEGER NOT NULL,
+                        schemaVersion INTEGER NOT NULL,
+                        canonicalJson TEXT NOT NULL,
+                        contentSha256 TEXT NOT NULL,
+                        validationState TEXT NOT NULL,
+                        createdAt TEXT NOT NULL,
+                        PRIMARY KEY(registeredAppId, revision),
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_app_build_configurations_registeredAppId " +
+                        "ON app_build_configurations(registeredAppId)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_app_build_configurations_registeredAppId_revision " +
+                        "ON app_build_configurations(registeredAppId, revision)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_app_build_configurations_registeredAppId_contentSha256 " +
+                        "ON app_build_configurations(registeredAppId, contentSha256)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS app_source_heads (
+                        registeredAppId TEXT NOT NULL,
+                        latestDiscoveryId TEXT,
+                        selectedConfigurationRevision INTEGER,
+                        updatedAt TEXT NOT NULL,
+                        PRIMARY KEY(registeredAppId),
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(registeredAppId, latestDiscoveryId)
+                            REFERENCES source_discoveries(registeredAppId, discoveryId)
+                            ON UPDATE NO ACTION ON DELETE NO ACTION,
+                        FOREIGN KEY(registeredAppId, selectedConfigurationRevision)
+                            REFERENCES app_build_configurations(registeredAppId, revision)
+                            ON UPDATE NO ACTION ON DELETE NO ACTION
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_app_source_heads_registeredAppId_latestDiscoveryId " +
+                        "ON app_source_heads(registeredAppId, latestDiscoveryId)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_app_source_heads_registeredAppId_selectedConfigurationRevision " +
+                        "ON app_source_heads(registeredAppId, selectedConfigurationRevision)",
+                )
+            }
+        }
+
         val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE jobs ADD COLUMN sandboxMode TEXT")
