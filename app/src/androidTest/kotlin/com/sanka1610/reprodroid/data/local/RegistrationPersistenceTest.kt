@@ -21,6 +21,14 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -188,6 +196,91 @@ class RegistrationPersistenceTest {
     }
 
     @Test
+    fun settingsOnlySourceRegistrationSurvivesColdDatabaseOpenWithoutReleaseOrRunner() = runBlocking {
+        val databaseName = "phase4-settings-only-cold.sqlite3"
+        context.deleteDatabase(databaseName)
+        var runnerRequests = 0
+        val runnerEngine = MockEngine {
+            runnerRequests++
+            respond("unexpected", HttpStatusCode.InternalServerError)
+        }
+        val first = Room.databaseBuilder(context, ReproDroidDatabase::class.java, databaseName).build()
+        lateinit var appId: String
+        try {
+            val jobs = JobRepository(context, first, RunnerApiClient("", runnerEngine))
+            val repository = ManagedAppRepository(context, first, jobs)
+            repository.ensureSettings()
+            appId = repository.registerRepository(
+                preview().copy(
+                    discovery = preview().discovery.copy(
+                        candidates = listOf(
+                            preview().discovery.candidates.single().copy(
+                                relativePath = "settings.gradle.kts",
+                                fileKind = "settings.gradle.kts",
+                            ),
+                        ),
+                    ),
+                ),
+                ManagementMode.VERIFICATION,
+                InstallationSource.OFFICIAL_RELEASE,
+            )
+        } finally {
+            first.close()
+        }
+
+        val reopened = Room.databaseBuilder(context, ReproDroidDatabase::class.java, databaseName).build()
+        try {
+            val record = requireNotNull(reopened.managedAppDao().getRegisteredAppRecord(appId))
+            assertEquals("COMPLETE", record.latestSourceDiscovery?.state)
+            val discoveryId = requireNotNull(record.latestSourceDiscovery?.discoveryId)
+            assertEquals(
+                "settings.gradle.kts",
+                reopened.managedAppDao().getGradleCandidates(discoveryId).single().fileKind,
+            )
+            assertTrue(record.releases.isEmpty())
+            assertEquals(0, rowCount(reopened, "jobs"))
+            assertEquals(0, rowCount(reopened, "release_assets"))
+            assertEquals(0, runnerRequests)
+        } finally {
+            reopened.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun concurrentPrimaryRegistrationsConvergeToOneStoredApp() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val jobs = JobRepository(context, database, RunnerApiClient(""))
+            val repository = ManagedAppRepository(context, database, jobs)
+            repository.ensureSettings()
+
+            val outcomes = coroutineScope {
+                (0 until 2).map {
+                    async(Dispatchers.Default) {
+                        runCatching {
+                            repository.registerRepository(
+                                preview(),
+                                ManagementMode.VERIFICATION,
+                                InstallationSource.OFFICIAL_RELEASE,
+                            )
+                        }
+                    }
+                }.awaitAll()
+            }
+
+            assertEquals(1, outcomes.count { it.isSuccess })
+            assertEquals(1, outcomes.count { it.isFailure })
+            assertEquals(1, rowCount(database, "registered_apps"))
+            assertEquals(1, rowCount(database, "app_repository_bindings"))
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
     fun failedRegisteredRepositoryRefreshKeepsPreviousSuccessAndStoresLatestAttempt() = runBlocking {
         val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java)
             .allowMainThreadQueries()
@@ -234,6 +327,102 @@ class RegistrationPersistenceTest {
                 },
             )
             assertEquals(1, rowCount(database, "gradle_candidates"))
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun changedProviderIdentityDoesNotRebindAndStoresFailedAttempt() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val jobs = JobRepository(context, database, RunnerApiClient(""))
+            val appId = ManagedAppRepository(context, database, jobs).run {
+                ensureSettings()
+                registerRepository(
+                    preview(),
+                    ManagementMode.VERIFICATION,
+                    InstallationSource.OFFICIAL_RELEASE,
+                )
+            }
+            val changedIdentity = MockEngine {
+                respond(
+                    """{
+                        "id":987654321,"name":"project","full_name":"example/project","private":false,
+                        "html_url":"https://github.com/example/project","default_branch":"main",
+                        "owner":{"login":"example"}
+                    }""".trimIndent(),
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            }
+            val repository = ManagedAppRepository(
+                context,
+                database,
+                jobs,
+                repositoryDiscoveryClient = GitHubRepositoryDiscoveryClient(changedIdentity),
+            )
+
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking { repository.refreshSourceDiscovery(appId) }
+            }
+
+            val binding = requireNotNull(database.managedAppDao().getRepositoryBinding(appId))
+            assertEquals("123456789012345678", binding.providerRepositoryId)
+            val record = requireNotNull(database.managedAppDao().getRegisteredAppRecord(appId))
+            assertEquals("FAILED", record.latestSourceDiscovery?.state)
+            assertEquals("INVALID_METADATA", record.latestSourceDiscovery?.reason)
+            assertEquals(2, rowCount(database, "source_discoveries"))
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun cancelledRefreshStoresCancelledAttemptAndKeepsPreviousSuccess() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val jobs = JobRepository(context, database, RunnerApiClient(""))
+            val appId = ManagedAppRepository(context, database, jobs).run {
+                ensureSettings()
+                registerRepository(
+                    preview(),
+                    ManagementMode.VERIFICATION,
+                    InstallationSource.OFFICIAL_RELEASE,
+                )
+            }
+            val requestEntered = CompletableDeferred<Unit>()
+            val waitingGitHub = MockEngine {
+                requestEntered.complete(Unit)
+                awaitCancellation()
+            }
+            val repository = ManagedAppRepository(
+                context,
+                database,
+                jobs,
+                repositoryDiscoveryClient = GitHubRepositoryDiscoveryClient(waitingGitHub),
+            )
+
+            val refresh = launch(Dispatchers.Default) { repository.refreshSourceDiscovery(appId) }
+            requestEntered.await()
+            refresh.cancelAndJoin()
+
+            val record = requireNotNull(database.managedAppDao().getRegisteredAppRecord(appId))
+            assertEquals("CANCELLED", record.latestSourceDiscovery?.state)
+            assertEquals(2, rowCount(database, "source_discoveries"))
+            assertEquals(
+                1,
+                database.openHelper.readableDatabase.query(
+                    "SELECT COUNT(*) FROM source_discoveries WHERE state = 'COMPLETE'",
+                ).use { cursor ->
+                    check(cursor.moveToFirst())
+                    cursor.getInt(0)
+                },
+            )
         } finally {
             database.close()
         }

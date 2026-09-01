@@ -55,6 +55,16 @@ class BuildConfigurationTest {
     }
 
     @Test
+    fun `exactly 32 tasks are accepted and task 33 is rejected`() {
+        val maximum = (0 until 32).map { index -> ":task$index" }
+        BuildConfigurationValidator.validate(BuildConfigurationInput(tasks = maximum))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            BuildConfigurationValidator.validate(BuildConfigurationInput(tasks = maximum + ":task32"))
+        }
+    }
+
+    @Test
     fun `JCS library matches a numeric and object ordering vector`() {
         val input = """{"b":2,"numbers":[333333333.33333329,1E30,4.50,2e-3],"a":1}"""
         val canonical = JsonCanonicalizer(input).encodedString

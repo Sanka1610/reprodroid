@@ -68,6 +68,98 @@ class DatabaseMigrationGateTest {
         assertTrue(snapshots.isEmpty())
     }
 
+    @Test
+    fun storageBudgetAndFreeSpaceFailuresKeepOriginalAndCreateNoSnapshot() {
+        listOf(
+            MigrationGatePolicy(storageBudgetBytes = 0),
+            MigrationGatePolicy(usableSpace = { 0 }),
+        ).forEach { policy ->
+            cleanTestState()
+            createRoomDatabase(version = 14)
+
+            assertThrows(IllegalStateException::class.java) {
+                DatabaseMigrationGate.prepare(context, databaseName, targetVersion = 15, policy = policy)
+            }
+
+            assertEquals(14, databaseVersion(context.getDatabasePath(databaseName)))
+            assertTrue(snapshotFiles().isEmpty())
+        }
+    }
+
+    @Test
+    fun corruptedExistingSnapshotFailsClosedAndKeepsOriginal() {
+        createRoomDatabase(version = 14)
+        DatabaseMigrationGate.prepare(context, databaseName, targetVersion = 15)
+        val snapshot = snapshotFiles().single()
+        snapshot.outputStream().use { output -> output.write(byteArrayOf(0x00)) }
+
+        assertThrows(IllegalStateException::class.java) {
+            DatabaseMigrationGate.prepare(context, databaseName, targetVersion = 15)
+        }
+
+        assertEquals(14, databaseVersion(context.getDatabasePath(databaseName)))
+        assertTrue(snapshot.isFile)
+    }
+
+    @Test
+    fun eachSnapshotCutPointCanResumeWithoutReplacingTheOriginal() {
+        MigrationGateCutPoint.entries.forEach { interruptedPoint ->
+            cleanTestState()
+            createRoomDatabase(version = 14)
+            val interruption = IllegalStateException("simulated process interruption at $interruptedPoint")
+
+            val thrown = assertThrows(IllegalStateException::class.java) {
+                DatabaseMigrationGate.prepare(
+                    context,
+                    databaseName,
+                    targetVersion = 15,
+                    policy = MigrationGatePolicy(
+                        onCutPoint = { point -> if (point == interruptedPoint) throw interruption },
+                    ),
+                )
+            }
+            assertTrue(thrown === interruption)
+            assertEquals(14, databaseVersion(context.getDatabasePath(databaseName)))
+
+            DatabaseMigrationGate.prepare(context, databaseName, targetVersion = 15)
+            val snapshot = snapshotFiles().single()
+            assertEquals(14, databaseVersion(snapshot))
+            assertTrue(File(snapshot.parentFile, "${snapshot.name}.sha256").isFile)
+        }
+    }
+
+    @Test
+    fun busyWalReaderStopsCheckpointAndMigrationCanResumeAfterReaderCloses() {
+        createRoomDatabase(version = 14)
+        val file = context.getDatabasePath(databaseName)
+        val writer = SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
+        val reader = SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
+        try {
+            assertTrue(writer.enableWriteAheadLogging())
+            assertTrue(reader.enableWriteAheadLogging())
+            writer.execSQL("CREATE TABLE migration_gate_payload(value TEXT NOT NULL)")
+            reader.beginTransactionReadOnly()
+            reader.rawQuery("SELECT COUNT(*) FROM migration_gate_payload", null).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            writer.execSQL("INSERT INTO migration_gate_payload(value) VALUES('after-reader')")
+
+            assertThrows(IllegalStateException::class.java) {
+                DatabaseMigrationGate.prepare(context, databaseName, targetVersion = 15)
+            }
+            assertTrue(snapshotFiles().isEmpty())
+        } finally {
+            if (reader.inTransaction()) reader.endTransaction()
+            reader.close()
+            writer.close()
+        }
+
+        DatabaseMigrationGate.prepare(context, databaseName, targetVersion = 15)
+        assertEquals(1, snapshotFiles().size)
+        assertEquals(14, databaseVersion(context.getDatabasePath(databaseName)))
+    }
+
     private fun createRoomDatabase(version: Int) {
         val file = context.getDatabasePath(databaseName)
         file.parentFile?.mkdirs()
@@ -79,6 +171,22 @@ class DatabaseMigrationGateTest {
                 "INSERT INTO room_master_table(id, identity_hash) VALUES(42, 'room-identity')",
             )
             database.execSQL("PRAGMA user_version = $version")
+        }
+    }
+
+    private fun snapshotFiles(): List<File> = File(context.noBackupFilesDir, "migration-snapshots")
+        .listFiles()
+        .orEmpty()
+        .filter { it.extension == "sqlite3" }
+
+    private fun databaseVersion(file: File): Int = SQLiteDatabase.openDatabase(
+        file.absolutePath,
+        null,
+        SQLiteDatabase.OPEN_READONLY,
+    ).use { database ->
+        database.rawQuery("PRAGMA user_version", null).use { cursor ->
+            check(cursor.moveToFirst())
+            cursor.getInt(0)
         }
     }
 }

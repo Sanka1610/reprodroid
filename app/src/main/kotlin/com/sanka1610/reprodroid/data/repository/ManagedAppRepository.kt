@@ -60,6 +60,7 @@ import com.sanka1610.reprodroid.data.network.JobState
 import com.sanka1610.reprodroid.data.network.RevisionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -284,7 +285,9 @@ class ManagedAppRepository(
                 dao.upsertRegisteredApp(app.copy(updatedAt = finishedAt))
             }
         } catch (cancellation: CancellationException) {
-            finishSourceDiscoveryAttempt(resolving, "CANCELLED", "CANCELLED")
+            withContext(NonCancellable) {
+                finishSourceDiscoveryAttempt(resolving, "CANCELLED", "CANCELLED")
+            }
             throw cancellation
         } catch (failure: Throwable) {
             finishSourceDiscoveryAttempt(resolving, "FAILED", failure.sourceDiscoveryFailureReason())

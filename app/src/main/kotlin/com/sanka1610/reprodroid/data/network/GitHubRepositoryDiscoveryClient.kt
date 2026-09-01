@@ -13,6 +13,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.URLBuilder
 import io.ktor.http.appendPathSegments
 import io.ktor.utils.io.readAvailable
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -231,6 +232,8 @@ class GitHubRepositoryDiscoveryClient(
         budget.beforeRequest()
         val response = try {
             client.get(url) { githubHeaders() }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (failure: Exception) {
             throw GitHubProviderException(null, "NETWORK_ERROR", failure.message ?: "GitHub request failed.")
         }

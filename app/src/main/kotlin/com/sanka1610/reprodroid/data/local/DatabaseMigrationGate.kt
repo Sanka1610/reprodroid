@@ -12,6 +12,15 @@ import java.security.MessageDigest
 
 object DatabaseMigrationGate {
     fun prepare(context: Context, databaseName: String, targetVersion: Int) {
+        prepare(context, databaseName, targetVersion, MigrationGatePolicy())
+    }
+
+    internal fun prepare(
+        context: Context,
+        databaseName: String,
+        targetVersion: Int,
+        policy: MigrationGatePolicy,
+    ) {
         val databaseFile = context.getDatabasePath(databaseName)
         if (!databaseFile.isFile) return
         val snapshotDirectory = File(context.noBackupFilesDir, "migration-snapshots")
@@ -21,29 +30,30 @@ object DatabaseMigrationGate {
         val lockFile = File(snapshotDirectory, "migration.lock")
         FileOutputStream(lockFile, true).channel.use { channel ->
             channel.lock().use {
-                prepareLocked(context, databaseFile, snapshotDirectory, targetVersion)
+                prepareLocked(context, databaseFile, snapshotDirectory, targetVersion, policy)
             }
         }
     }
 
-    @SuppressLint("UsableSpace") // Fail closed; migration must not evict other app caches to manufacture capacity.
     private fun prepareLocked(
         context: Context,
         databaseFile: File,
         snapshotDirectory: File,
         targetVersion: Int,
+        policy: MigrationGatePolicy,
     ) {
         val metadata = inspectAndCheckpoint(databaseFile)
         if (metadata.userVersion == targetVersion) return
         check(metadata.userVersion in 1 until targetVersion) {
             "Unsupported database schema ${metadata.userVersion}; automatic migration is stopped."
         }
+        policy.onCutPoint(MigrationGateCutPoint.AFTER_CHECKPOINT)
         val sourceBytes = databaseAndSidecarBytes(databaseFile)
         val privateUsage = directoryBytes(File(context.applicationInfo.dataDir))
-        check(privateUsage + sourceBytes <= ANDROID_STORAGE_BUDGET_BYTES) {
+        check(privateUsage + sourceBytes <= policy.storageBudgetBytes) {
             "Android storage budget cannot reserve a migration snapshot."
         }
-        check(databaseFile.parentFile?.usableSpace ?: 0L >= sourceBytes * 2 + RECOVERY_RESERVE_BYTES) {
+        check(policy.usableSpace(databaseFile) >= sourceBytes * 2 + policy.recoveryReserveBytes) {
             "Insufficient free space for a verified migration snapshot."
         }
 
@@ -72,11 +82,13 @@ object DatabaseMigrationGate {
                 }
             }
             validateSnapshot(temporary, metadata, sourceSha256)
+            policy.onCutPoint(MigrationGateCutPoint.AFTER_TEMPORARY_VALIDATED)
             Files.move(
                 temporary.toPath(),
                 snapshotFile.toPath(),
                 StandardCopyOption.ATOMIC_MOVE,
             )
+            policy.onCutPoint(MigrationGateCutPoint.AFTER_SNAPSHOT_MOVED)
             writeChecksum(snapshotDirectory, snapshotFile, sourceSha256)
         } catch (failure: Throwable) {
             temporary.delete()
@@ -184,6 +196,20 @@ object DatabaseMigrationGate {
 
     private data class DatabaseMetadata(val userVersion: Int, val roomIdentity: String)
 
-    private const val ANDROID_STORAGE_BUDGET_BYTES = 4L * 1024 * 1024 * 1024
-    private const val RECOVERY_RESERVE_BYTES = 16L * 1024 * 1024
+}
+
+internal data class MigrationGatePolicy(
+    val storageBudgetBytes: Long = 4L * 1024 * 1024 * 1024,
+    val recoveryReserveBytes: Long = 16L * 1024 * 1024,
+    val usableSpace: (File) -> Long = ::migrationUsableSpace,
+    val onCutPoint: (MigrationGateCutPoint) -> Unit = {},
+)
+
+@SuppressLint("UsableSpace") // Fail closed; migration must not evict other app caches to manufacture capacity.
+private fun migrationUsableSpace(database: File): Long = database.parentFile?.usableSpace ?: 0L
+
+internal enum class MigrationGateCutPoint {
+    AFTER_CHECKPOINT,
+    AFTER_TEMPORARY_VALIDATED,
+    AFTER_SNAPSHOT_MOVED,
 }

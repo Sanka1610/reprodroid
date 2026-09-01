@@ -1,6 +1,6 @@
 # ReproDroid
 
-**Phase 4 現在地（2026-09-01）:** 4.1のpublic GitHub metadata登録、full SHA固定の静的tree探索、source-only管理、構造化build設定、Room15 migrationを実装しました。Android 16の自動test、Phase 3E実Room14 snapshot移行、lint、debug／release assembleは成功しています。実public GitHubの製品経路は未認証rate limitで完走しておらず、上限境界とmigration kill-pointを含む未完了項目は[4.1契約](../reprodroid-project/docs/design/phase-4-registration-contract.md)のledgerで分離します。Runner API v2は未実装のため、新Job／confirm／retryはv1へfallbackせず停止します。
+**Phase 4 現在地（2026-09-01）:** 4.1のpublic GitHub metadata登録、full SHA固定の静的tree探索、source-only管理、構造化build設定、Room15 migrationを実装しました。Android 16の自動test、Phase 3E実Room14 snapshot移行、上限境界、migrationの実プロセスkill-point、lint、debug／release assembleは成功しています。実public GitHubの製品経路だけは未認証rate limitで完走しておらず、[4.1契約](../reprodroid-project/docs/design/phase-4-registration-contract.md)のledgerで分離します。Runner API v2は未実装のため、新Job／confirm／retryはv1へfallbackせず停止します。
 
 OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの情報を確認してAndroid標準インストーラへ渡すクライアントです。最終的には公式APKとローカルビルドAPKを比較し、利用者自身が再現性を判断できる状態を目指します。
 
@@ -263,7 +263,7 @@ Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト�
 
 ## Phase 3E完了後の計画・対象外
 
-Phase 3Eの固定profileによるopt-in Docker実装・受入は完了しています。Phase 4は要件合意、4.0基礎契約、4.1登録契約、開始時の証拠archive／cleanupまで完了し、4.1のAndroid code実装へ移行しました。[Phase 4 roadmap](../reprodroid-project/docs/design/phase-4-roadmap.md)と[計画合意事項](../reprodroid-project/docs/design/phase-4-planning-decisions.md)を正本とします。現行API v1／Room v14は実装開始時のbaselineであり、Room15機能の実装・migration・製品経路受入は未完了です。
+Phase 3Eの固定profileによるopt-in Docker実装・受入は完了しています。Phase 4は要件合意、4.0基礎契約、4.1登録契約、開始時の証拠archive／cleanup、Room15機能とmigrationの実装・内部受入まで完了しました。[Phase 4 roadmap](../reprodroid-project/docs/design/phase-4-roadmap.md)と[計画合意事項](../reprodroid-project/docs/design/phase-4-planning-decisions.md)を正本とします。4.1で未完了なのは、未認証rate limitのため完走できていない実public GitHub製品経路だけです。
 
 計画範囲はpublic GitHub／Codebergのsource-onlyを含むGradle登録、汎用build／comparison、不足toolchain導入、history／手動cleanup／監査export、定期確認・通知、release HTTPS／pairing、暗号化backup／migration、Android／Runnerのlog export、署名releaseとlicense・privacy対応です。GitLabは将来候補。Play Store／F-Droid配布・適合性評価、Google Play services、共有用診断・自動送信は対象外です。
 
