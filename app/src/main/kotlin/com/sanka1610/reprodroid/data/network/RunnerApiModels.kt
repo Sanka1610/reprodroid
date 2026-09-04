@@ -263,3 +263,126 @@ data class ApiErrorResponse(
     val code: String,
     val message: String,
 )
+
+@Serializable
+data class V2Capability(val id: String, val contractVersion: Int)
+
+@Serializable
+data class V2CapabilitiesResponse(
+    val apiVersion: String,
+    val foundationContractVersion: Int,
+    val runnerId: String,
+    val runnerVersion: String,
+    val capabilities: List<V2Capability>,
+)
+
+@Serializable
+enum class V2OperationState { RESERVED, APPLYING, COMPLETED, REJECTED, RECONCILIATION_REQUIRED }
+
+@Serializable
+data class V2OperationResult(val type: String, val resourceId: String)
+
+@Serializable
+data class V2PublicReason(val code: String, val message: String)
+
+@Serializable
+data class V2OperationResponse(
+    val operationId: String,
+    val state: V2OperationState,
+    val kind: String,
+    val requestSha256: String,
+    val result: V2OperationResult? = null,
+    val reason: V2PublicReason? = null,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+@Serializable
+data class V2ResourceRequest(val kind: String, val id: String)
+
+@Serializable
+data class V2ClientReferenceRequest(val type: String, val id: String)
+
+@Serializable
+data class V2RetentionHoldRequest(
+    val resource: V2ResourceRequest,
+    val reason: String,
+    val clientReference: V2ClientReferenceRequest,
+)
+
+@Serializable
+data class V2ReasonRequest(val reason: String)
+
+@Serializable
+data class V2StorageAreaSummary(
+    val area: String,
+    val budgetBytes: String,
+    val usedBytes: String,
+    val reservedBytes: String,
+    val unclassifiedBytes: String,
+    val usableBytes: String,
+    val warningPercent: Int,
+    val state: String,
+    val measurementState: String,
+    val measuredAt: String,
+)
+
+@Serializable
+data class V2StorageSummaryResponse(
+    val schemaVersion: Int,
+    val runnerId: String,
+    val areas: List<V2StorageAreaSummary>,
+)
+
+@Serializable
+data class V2CleanupPreviewRequest(
+    val area: String,
+    val resourceKinds: List<String>,
+    val eligibleBefore: String,
+    val resourceIds: List<String>,
+)
+
+@Serializable
+data class V2CleanupExecuteRequest(val itemIds: List<String>)
+
+@Serializable
+data class V2CleanupPreviewItem(
+    val itemId: String,
+    val resourceKind: String,
+    val resourceId: String,
+    val observedBytes: String,
+    val observedToken: String,
+    val eligibleAt: String,
+    val protectionReasons: List<String>,
+)
+
+@Serializable
+data class V2CleanupPreviewResponse(
+    val schemaVersion: Int,
+    val previewId: String,
+    val runnerId: String,
+    val state: String,
+    val expiresAt: String,
+    val truncated: Boolean,
+    val items: List<V2CleanupPreviewItem>,
+)
+
+@Serializable
+data class V2CleanupItemResult(
+    val itemId: String,
+    val result: String,
+    val releasedBytes: String,
+    val reason: V2PublicReason? = null,
+)
+
+@Serializable
+data class V2CleanupRunResponse(
+    val schemaVersion: Int,
+    val cleanupRunId: String,
+    val previewId: String,
+    val state: String,
+    val releasedBytes: String,
+    val items: List<V2CleanupItemResult>,
+    val startedAt: String? = null,
+    val finishedAt: String? = null,
+)

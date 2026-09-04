@@ -1,6 +1,7 @@
 package com.sanka1610.reprodroid.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.sanka1610.reprodroid.ReproDroidApplication
@@ -10,6 +11,9 @@ import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.provider.RepositoryRegistrationPreview
 import com.sanka1610.reprodroid.data.repository.BuildConfigurationInput
+import com.sanka1610.reprodroid.data.storage.AndroidCleanupPreview
+import com.sanka1610.reprodroid.data.storage.AndroidStorageSummary
+import com.sanka1610.reprodroid.data.storage.StagedAuditExport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +34,10 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     private val reprodroidApplication = application as ReproDroidApplication
     private val repository = reprodroidApplication.managedAppRepository
     private val jobRepository = reprodroidApplication.jobRepository
+    private val storageManager = reprodroidApplication.storageManager
+    private val cleanupManager = reprodroidApplication.cleanupManager
+    private val retentionCoordinator = reprodroidApplication.retentionCoordinator
+    private val auditExportManager = reprodroidApplication.auditExportManager
 
     val apps = repository.observeApps().stateIn(
         scope = viewModelScope,
@@ -58,6 +66,24 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     val buildManifestWarnings = jobRepository.buildManifestWarnings
     val sourceScanWarnings = jobRepository.sourceScanWarnings
     val sandboxWarnings = jobRepository.sandboxWarnings
+    val runnerStorageState = retentionCoordinator.state
+    val runnerCleanupPreview = retentionCoordinator.cleanupPreview
+    val runnerCleanupRun = retentionCoordinator.cleanupRun
+
+    val availability = repository.observeAvailability().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    private val _androidStorageSummary = MutableStateFlow<AndroidStorageSummary?>(null)
+    val androidStorageSummary = _androidStorageSummary.asStateFlow()
+    private val _androidCleanupPreview = MutableStateFlow<AndroidCleanupPreview?>(null)
+    val androidCleanupPreview = _androidCleanupPreview.asStateFlow()
+    private val _storageBusy = MutableStateFlow(false)
+    val storageBusy = _storageBusy.asStateFlow()
+    private val _auditExport = MutableStateFlow<StagedAuditExport?>(null)
+    val auditExport = _auditExport.asStateFlow()
 
     private val _preview = MutableStateFlow(RepositoryPreviewState())
     val preview = _preview.asStateFlow()
@@ -77,6 +103,9 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
                 repository.ensureSettings()
                 repository.recoverInterruptedDownloads()
                 repository.recoverOrphanedReleaseInstallAttempts()
+                auditExportManager.reconcileInterruptedExports()
+                _auditExport.value = auditExportManager.latest()
+                _androidStorageSummary.value = storageManager.summary()
             }
                 .onFailure { _message.value = it.userMessage() }
         }
@@ -220,6 +249,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             try {
                 repository.updateGlobalSettings(settings)
+                _androidStorageSummary.value = storageManager.summary()
                 clearPreview()
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -227,6 +257,55 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
                 _message.value = failure.userMessage()
             }
         }
+    }
+
+    fun refreshStorage() = runStorageAction {
+        storageManager.reconcileAvailability()
+        cleanupManager.reconcileInterruptedRuns()
+        retentionCoordinator.syncCurrentComparisonHolds()
+        _androidStorageSummary.value = storageManager.summary()
+    }
+
+    fun previewAndroidCleanup() = runStorageAction {
+        _androidCleanupPreview.value = cleanupManager.createPreview()
+        _androidStorageSummary.value = storageManager.summary()
+    }
+
+    fun executeAndroidCleanup(itemIds: Set<String>) = runStorageAction {
+        val preview = requireNotNull(_androidCleanupPreview.value) { "Create a cleanup preview first." }
+        _androidCleanupPreview.value = cleanupManager.execute(preview.previewId, itemIds)
+        _androidStorageSummary.value = storageManager.summary()
+    }
+
+    fun previewRunnerCleanup() = runStorageAction {
+        retentionCoordinator.createCleanupPreview()
+    }
+
+    fun executeRunnerCleanup(itemIds: Set<String>) = runStorageAction {
+        retentionCoordinator.executeCleanup(itemIds)
+        retentionCoordinator.syncCurrentComparisonHolds()
+    }
+
+    fun clearAndroidCleanupPreview() {
+        _androidCleanupPreview.value = null
+    }
+
+    fun stageAuditExport(registeredAppIds: Set<String> = emptySet()) = runStorageAction {
+        _auditExport.value = if (registeredAppIds.isEmpty()) {
+            auditExportManager.stageAll()
+        } else {
+            auditExportManager.stageApps(registeredAppIds)
+        }
+        _androidStorageSummary.value = storageManager.summary()
+    }
+
+    fun copyAuditExport(destination: Uri) = runStorageAction {
+        val staged = requireNotNull(_auditExport.value) { "Stage an audit export first." }
+        _auditExport.value = auditExportManager.copyTo(staged.auditExportId, destination)
+    }
+
+    fun clearAuditExport() {
+        _auditExport.value = null
     }
 
     fun clearPreview() {
@@ -248,6 +327,22 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
                 _message.value = failure.userMessage()
             } finally {
                 _activeAppIds.value -= registeredAppId
+            }
+        }
+    }
+
+    private fun runStorageAction(action: suspend () -> Unit) {
+        if (_storageBusy.value) return
+        viewModelScope.launch {
+            _storageBusy.value = true
+            try {
+                action()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                _message.value = failure.userMessage()
+            } finally {
+                _storageBusy.value = false
             }
         }
     }

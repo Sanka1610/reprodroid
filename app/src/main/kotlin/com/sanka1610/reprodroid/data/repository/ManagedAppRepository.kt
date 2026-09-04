@@ -43,6 +43,9 @@ import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
 import com.sanka1610.reprodroid.data.local.ReleaseDiscoveryStatus
 import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
 import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
+import com.sanka1610.reprodroid.data.local.ResourceAvailabilityEntity
+import com.sanka1610.reprodroid.data.local.ReleaseObservationHasher
+import com.sanka1610.reprodroid.data.local.ReleaseObservationInput
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.local.SemanticDifferenceEvidenceEntity
 import com.sanka1610.reprodroid.data.local.SourceDiscoveryEntity
@@ -57,6 +60,9 @@ import com.sanka1610.reprodroid.data.provider.RepositoryRegistrationPreview
 import com.sanka1610.reprodroid.data.provider.ResolvedGitHubRelease
 import com.sanka1610.reprodroid.data.provider.ReleaseAssetSelectionException
 import com.sanka1610.reprodroid.data.network.JobState
+import com.sanka1610.reprodroid.data.storage.AndroidStorageManager
+import com.sanka1610.reprodroid.data.storage.AndroidCleanupManager
+import com.sanka1610.reprodroid.data.storage.RunnerRetentionCoordinator
 import com.sanka1610.reprodroid.data.network.RevisionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -81,6 +87,9 @@ class ManagedAppRepository(
     private val downloader: GitHubAssetDownloader = GitHubAssetDownloader(),
     private val comparator: ApkContentComparator = ApkContentComparator(),
     private val advancedComparator: AdvancedApkComparator = AdvancedApkComparator(),
+    private val storageManager: AndroidStorageManager = AndroidStorageManager(context, database),
+    private val cleanupManager: AndroidCleanupManager = AndroidCleanupManager(context, database),
+    private val retentionCoordinator: RunnerRetentionCoordinator? = null,
 ) {
     private val dao: ManagedAppDao = database.managedAppDao()
     private val inspector = ApkInspector(context.packageManager)
@@ -95,9 +104,14 @@ class ManagedAppRepository(
         settings ?: defaultSettings()
     }
 
+    fun observeAvailability(): Flow<List<ResourceAvailabilityEntity>> = database.storageDao().observeAvailability()
+
     suspend fun ensureSettings() {
         if (dao.getGlobalSettings() == null) dao.upsertGlobalSettings(defaultSettings())
         dao.interruptRunningSourceDiscoveries(Instant.now().toString())
+        storageManager.reconcileAvailability()
+        cleanupManager.reconcileInterruptedRuns()
+        retentionCoordinator?.syncCurrentComparisonHolds()
     }
 
     fun observeApp(registeredAppId: String): Flow<RegisteredAppRecord?> =
@@ -431,7 +445,8 @@ class ManagedAppRepository(
         val settings = currentSettings()
         val now = Instant.now().toString()
         val appId = UUID.randomUUID().toString()
-        val snapshotId = stableId("$appId/release/${preview.release.id}")
+        val observationHash = preview.observationSha256(preview.repository.canonicalUrl)
+        val snapshotId = stableId("$appId/release-observation/$observationHash")
         val assetId = stableId("$snapshotId/asset/${preview.selectedAsset.asset.id}")
         val app = RegisteredAppEntity(
             registeredAppId = appId,
@@ -453,7 +468,7 @@ class ManagedAppRepository(
             createdAt = now,
             updatedAt = now,
         )
-        val snapshot = preview.toSnapshot(appId, snapshotId, now)
+        val snapshot = preview.toSnapshot(appId, snapshotId, observationHash, now)
         val asset = preview.toAsset(snapshotId, assetId)
         database.withTransaction {
             dao.upsertRegisteredApp(app)
@@ -470,10 +485,21 @@ class ManagedAppRepository(
                 }
             }
         } catch (failure: Throwable) {
-            dao.deleteRegisteredApp(appId)
-            partFile(assetId).delete()
-            finalFile(assetId).delete()
-            iconFile(assetId).delete()
+            val partCleanupFailure = runCatching {
+                withContext(NonCancellable + Dispatchers.IO) { Files.deleteIfExists(partFile(assetId).toPath()) }
+            }.exceptionOrNull()
+            val retainedBytes = runCatching {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    Files.exists(finalFile(assetId).toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) ||
+                        Files.exists(iconFile(assetId).toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                }
+            }.getOrDefault(true)
+            val rollbackFailure = if (!retainedBytes) {
+                runCatching { withContext(NonCancellable) { dao.deleteRegisteredApp(appId) } }.exceptionOrNull()
+            } else {
+                null
+            }
+            listOfNotNull(partCleanupFailure, rollbackFailure).forEach(failure::addSuppressed)
             throw failure
         }
         return appId
@@ -534,14 +560,22 @@ class ManagedAppRepository(
                 return
             }
             val now = Instant.now().toString()
-            val existingSnapshot = dao.getReleaseSnapshot(registeredAppId, latest.release.id)
+            val providerRepositoryId = binding?.providerRepositoryId ?: app.canonicalRepositoryUrl
+            val observationHash = latest.observationSha256(providerRepositoryId)
+            val existingSnapshot = dao.getReleaseSnapshotByObservationHash(registeredAppId, observationHash)
             val snapshotId = existingSnapshot?.releaseSnapshotId
-                ?: stableId("$registeredAppId/release/${latest.release.id}")
-            val existingAsset = dao.getReleaseAsset(snapshotId, latest.selectedAsset.asset.id)
+                ?: stableId("$registeredAppId/release-observation/$observationHash")
+            val existingAsset = existingSnapshot?.let {
+                dao.getReleaseAsset(snapshotId, latest.selectedAsset.asset.id)
+                    ?: error("The immutable release observation lost its selected asset.")
+            }
             val assetId = existingAsset?.releaseAssetId
                 ?: stableId("$snapshotId/asset/${latest.selectedAsset.asset.id}")
             database.withTransaction {
-                dao.upsertReleaseSnapshot(latest.toSnapshot(registeredAppId, snapshotId, now))
+                dao.upsertReleaseSnapshot(
+                    existingSnapshot?.copy(lastObservedAt = now)
+                        ?: latest.toSnapshot(registeredAppId, snapshotId, observationHash, now),
+                )
                 dao.upsertReleaseAsset(existingAsset ?: latest.toAsset(snapshotId, assetId))
                 dao.upsertRegisteredApp(
                     app.copy(
@@ -686,6 +720,12 @@ class ManagedAppRepository(
         require(settings.defaultMaxApkSizeBytes in SUPPORTED_APK_LIMITS) {
             "The default APK size limit is not supported."
         }
+        require(settings.androidStorageBudgetBytes in MIN_ANDROID_STORAGE_BUDGET..MAX_ANDROID_STORAGE_BUDGET) {
+            "The Android storage budget must be between 1 GiB and 64 GiB."
+        }
+        require(settings.storageWarningPercent in 50..95) {
+            "The storage warning threshold must be between 50 and 95 percent."
+        }
         val previous = currentSettings()
         val now = Instant.now().toString()
         val updated = settings.copy(updatedAt = now)
@@ -714,6 +754,7 @@ class ManagedAppRepository(
         val record = dao.getRegisteredAppRecord(registeredAppId) ?: return
         val asset = record.latestRelease?.selectedAsset ?: return
         if (asset.downloadStatus != ReferenceDownloadStatus.VERIFIED.name) return
+        if (!storageManager.isPresent("REFERENCE_APK", asset.releaseAssetId)) return
         val path = asset.localContentPath?.let(::File) ?: return
         val inspection = withContext(Dispatchers.IO) { inspector.inspect(path) }
         check(inspection.packageName == asset.packageName) {
@@ -753,7 +794,11 @@ class ManagedAppRepository(
             "The signer or reproducibility warning must be acknowledged before installation."
         }
         return when (enumValueOrDefault(record.app.installationSource, InstallationSource.OFFICIAL_RELEASE)) {
-            InstallationSource.OFFICIAL_RELEASE -> releaseInstaller.install(registeredAppId, asset)
+            InstallationSource.OFFICIAL_RELEASE -> {
+                storageManager.requirePresent("REFERENCE_APK", asset.releaseAssetId)
+                storageManager.markUsed("REFERENCE_APK", asset.releaseAssetId)
+                releaseInstaller.install(registeredAppId, asset)
+            }
             InstallationSource.LOCAL_BUILD -> {
                 check(record.app.managementMode == ManagementMode.VERIFICATION.name) {
                     "Only verification mode can install a local build."
@@ -835,6 +880,7 @@ class ManagedAppRepository(
         check(asset.downloadStatus == ReferenceDownloadStatus.VERIFIED.name) {
             "The official reference APK must be verified before comparison."
         }
+        storageManager.requirePresent("REFERENCE_APK", asset.releaseAssetId)
         check(asset.comparisonEligibility != ComparisonEligibility.INCOMPARABLE.name) {
             asset.incomparableReason ?: "The selected APK is not eligible for comparison."
         }
@@ -931,14 +977,18 @@ class ManagedAppRepository(
     }
 
     suspend fun refreshComparison(comparisonRunId: String) {
-        val run = dao.getComparisonRun(comparisonRunId)
-            ?: throw IllegalArgumentException("Comparison run was not found.")
-        if (run.status == ComparisonRunStatus.COMPLETED.name) return
-        if (run.repeatRunnerJobId != null) {
-            refreshRepeatComparison(run)
-            return
+        try {
+            val run = dao.getComparisonRun(comparisonRunId)
+                ?: throw IllegalArgumentException("Comparison run was not found.")
+            if (run.status == ComparisonRunStatus.COMPLETED.name) return
+            if (run.repeatRunnerJobId != null) {
+                refreshRepeatComparison(run)
+                return
+            }
+            refreshPrimaryComparison(run)
+        } finally {
+            retentionCoordinator?.syncCurrentComparisonHolds()
         }
-        refreshPrimaryComparison(run)
     }
 
     private suspend fun refreshPrimaryComparison(run: ComparisonRunEntity) {
@@ -1640,11 +1690,12 @@ class ManagedAppRepository(
             downloadErrorCode = null,
             downloadErrorMessage = null,
         )
-        dao.upsertReleaseAsset(downloading)
+        val reservation = storageManager.reserveDownload("REFERENCE_APK", assetId, asset.providerSizeBytes)
         val partFile = partFile(assetId)
         val finalFile = finalFile(assetId)
-        partFile.delete()
         try {
+            dao.upsertReleaseAsset(downloading)
+            partFile.delete()
             val downloaded = downloader.download(
                 stableAssetUrl = asset.stableAssetUrl,
                 expectedSizeBytes = asset.providerSizeBytes,
@@ -1690,20 +1741,43 @@ class ManagedAppRepository(
                     downloadedAt = Instant.now().toString(),
                 ),
             )
+            storageManager.recordPresentAndConsume(reservation, downloaded.bytesWritten, downloaded.computedSha256)
         } catch (failure: Throwable) {
-            partFile.delete()
-            dao.upsertReleaseAsset(
-                downloading.copy(
-                    downloadStatus = ReferenceDownloadStatus.FAILED.name,
-                    downloadErrorCode = failure.errorCode(),
-                    downloadErrorMessage = failure.message ?: "Reference APK verification failed.",
-                ),
-            )
+            val partCleanupFailure = runCatching {
+                withContext(NonCancellable + Dispatchers.IO) { Files.deleteIfExists(partFile.toPath()) }
+            }.exceptionOrNull()
+            val finalBytesMayExist = runCatching {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    Files.exists(finalFile.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                }
+            }.getOrDefault(true)
+            val metadataFailure = runCatching {
+                withContext(NonCancellable) {
+                    dao.upsertReleaseAsset(
+                        downloading.copy(
+                            downloadStatus = ReferenceDownloadStatus.FAILED.name,
+                            downloadErrorCode = failure.errorCode(),
+                            downloadErrorMessage = failure.message ?: "Reference APK verification failed.",
+                        ),
+                    )
+                }
+            }.exceptionOrNull()
+            val reservationFailure = runCatching {
+                withContext(NonCancellable) {
+                    storageManager.recordDownloadFailure(reservation, finalBytesMayExist)
+                }
+            }.exceptionOrNull()
+            listOfNotNull(partCleanupFailure, metadataFailure, reservationFailure).forEach(failure::addSuppressed)
             throw failure
         }
     }
 
-    private fun ResolvedGitHubRelease.toSnapshot(appId: String, snapshotId: String, now: String) =
+    private fun ResolvedGitHubRelease.toSnapshot(
+        appId: String,
+        snapshotId: String,
+        observationSha256: String,
+        now: String,
+    ) =
         ReleaseSnapshotEntity(
             releaseSnapshotId = snapshotId,
             registeredAppId = appId,
@@ -1719,7 +1793,36 @@ class ManagedAppRepository(
             releaseCreatedAt = release.createdAt,
             publishedAt = requireNotNull(release.publishedAt),
             fetchedAt = now,
+            observationSha256 = observationSha256,
+            lastObservedAt = now,
             selectedProviderAssetId = selectedAsset.asset.id,
+        )
+
+    private fun ResolvedGitHubRelease.observationSha256(providerRepositoryId: String): String =
+        ReleaseObservationHasher.sha256(
+            ReleaseObservationInput(
+                provider = PROVIDER_GITHUB,
+                instance = GITHUB_INSTANCE,
+                providerRepositoryId = providerRepositoryId,
+                providerReleaseId = release.id,
+                tagName = release.tagName,
+                resolvedCommitSha = resolvedCommitSha,
+                targetCommitishRaw = release.targetCommitish,
+                releaseName = release.name ?: release.tagName,
+                releaseUrl = release.htmlUrl,
+                isDraft = release.draft,
+                isPrerelease = release.prerelease,
+                isImmutable = release.immutable,
+                releaseCreatedAt = release.createdAt,
+                publishedAt = requireNotNull(release.publishedAt),
+                providerAssetId = selectedAsset.asset.id,
+                assetName = selectedAsset.asset.name,
+                stableAssetUrl = selectedAsset.asset.browserDownloadUrl,
+                contentType = selectedAsset.asset.contentType,
+                providerSizeBytes = selectedAsset.asset.size,
+                providerDigestSha256 = selectedAsset.providerSha256,
+                selectionReason = selectedAsset.reason,
+            ),
         )
 
     private fun ResolvedGitHubRelease.toAsset(snapshotId: String, assetId: String) = ReleaseAssetEntity(
@@ -1902,6 +2005,8 @@ class ManagedAppRepository(
         const val REPEATED_BUILD_PROTOCOL_VERSION = 2
         const val EXPECTED_RELEASE_TASKS = "clean\n:play-services-core:assembleDefaultRelease"
         const val INSTALL_CALLBACK_GRACE_SECONDS = 30L
+        const val MIN_ANDROID_STORAGE_BUDGET = 1L * 1024L * 1024L * 1024L
+        const val MAX_ANDROID_STORAGE_BUDGET = 64L * 1024L * 1024L * 1024L
         val SUPPORTED_APK_LIMITS = setOf(
             64L * 1024L * 1024L,
             128L * 1024L * 1024L,

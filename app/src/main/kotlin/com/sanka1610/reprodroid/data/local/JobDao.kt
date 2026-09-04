@@ -14,6 +14,10 @@ interface JobDao {
     @Query("SELECT * FROM jobs ORDER BY createdAt DESC")
     fun observeJobs(): Flow<List<JobRecord>>
 
+    @Transaction
+    @Query("SELECT * FROM jobs ORDER BY createdAt, jobId")
+    suspend fun getJobRecords(): List<JobRecord>
+
     @Query("SELECT * FROM jobs WHERE jobId = :jobId")
     suspend fun getJob(jobId: String): JobEntity?
 

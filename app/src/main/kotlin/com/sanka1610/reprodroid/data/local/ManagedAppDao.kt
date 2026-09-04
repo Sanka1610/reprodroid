@@ -22,6 +22,10 @@ interface ManagedAppDao {
     suspend fun getRegisteredApps(): List<RegisteredAppEntity>
 
     @Transaction
+    @Query("SELECT * FROM registered_apps ORDER BY registeredAppId")
+    suspend fun getRegisteredAppRecords(): List<RegisteredAppRecord>
+
+    @Transaction
     @Query("SELECT * FROM registered_apps WHERE registeredAppId = :registeredAppId")
     fun observeRegisteredApp(registeredAppId: String): Flow<RegisteredAppRecord?>
 
@@ -81,11 +85,21 @@ interface ManagedAppDao {
 
     @Query(
         "SELECT * FROM release_snapshots WHERE registeredAppId = :registeredAppId " +
-            "AND providerReleaseId = :providerReleaseId",
+            "AND providerReleaseId = :providerReleaseId " +
+            "ORDER BY lastObservedAt DESC, releaseSnapshotId DESC LIMIT 1",
     )
     suspend fun getReleaseSnapshot(
         registeredAppId: String,
         providerReleaseId: Long,
+    ): ReleaseSnapshotEntity?
+
+    @Query(
+        "SELECT * FROM release_snapshots WHERE registeredAppId = :registeredAppId " +
+            "AND observationSha256 = :observationSha256",
+    )
+    suspend fun getReleaseSnapshotByObservationHash(
+        registeredAppId: String,
+        observationSha256: String,
     ): ReleaseSnapshotEntity?
 
     @Query("SELECT * FROM release_assets WHERE releaseAssetId = :releaseAssetId")

@@ -23,12 +23,14 @@ import com.sanka1610.reprodroid.data.network.LogResponse
 import com.sanka1610.reprodroid.data.network.RequestedRevision
 import com.sanka1610.reprodroid.data.network.RevisionType
 import com.sanka1610.reprodroid.data.network.RunnerApiClient
+import com.sanka1610.reprodroid.data.storage.AndroidStorageManager
 import com.sanka1610.reprodroid.data.network.RunnerApiException
 import com.sanka1610.reprodroid.data.network.RunnerResponseIntegrityException
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
 import com.sanka1610.reprodroid.data.network.SourceScanStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +48,7 @@ class JobRepository(
     applicationContext: Context,
     private val database: ReproDroidDatabase,
     private val runnerApi: RunnerApiClient,
+    private val storageManager: AndroidStorageManager = AndroidStorageManager(applicationContext, database),
 ) {
     private val jobDao = database.jobDao()
     private val syncMutex = Mutex()
@@ -414,20 +417,20 @@ class JobRepository(
         check(finalPath.startsWith(filesDirectory) && temporaryPath.startsWith(filesDirectory)) {
             "The APK storage path escaped app-private storage."
         }
-        withContext(Dispatchers.IO) {
-            Files.createDirectories(finalPath.parent)
-            Files.deleteIfExists(temporaryPath)
-        }
-        jobDao.upsertArtifacts(
-            listOf(
-                artifact.copy(
-                    downloadStatus = ArtifactDownloadStatus.DOWNLOADING.name,
-                    downloadError = null,
-                ),
-            ),
-        )
-
+        val reservation = storageManager.reserveDownload("RUNNER_APK", artifactId, artifact.sizeBytes)
         try {
+            withContext(Dispatchers.IO) {
+                Files.createDirectories(finalPath.parent)
+                Files.deleteIfExists(temporaryPath)
+            }
+            jobDao.upsertArtifacts(
+                listOf(
+                    artifact.copy(
+                        downloadStatus = ArtifactDownloadStatus.DOWNLOADING.name,
+                        downloadError = null,
+                    )
+                ),
+            )
             val response = withContext(Dispatchers.IO) {
                 runnerApi.downloadArtifact(jobId, artifactId, temporaryPath.toFile())
             }
@@ -468,32 +471,46 @@ class JobRepository(
                         installedVersionName = inspection.installedVersionName,
                         installedVersionCode = inspection.installedVersionCode,
                         downloadedAt = Instant.now().toString(),
-                    ),
+                    )
                 ),
             )
+            storageManager.recordPresentAndConsume(reservation, response.bytesWritten, downloadedSha256)
         } catch (failure: Throwable) {
-            withContext(Dispatchers.IO) {
-                Files.deleteIfExists(temporaryPath)
-                Files.deleteIfExists(finalPath)
-            }
-            jobDao.upsertArtifacts(
-                listOf(
-                    artifact.copy(
-                        downloadStatus = ArtifactDownloadStatus.FAILED.name,
-                        downloadError = failure.message ?: "APK download or verification failed.",
-                        localContentPath = null,
-                        downloadedSizeBytes = null,
-                        downloadedSha256 = null,
-                        signingCertificateSha256 = null,
-                        currentSignerSha256 = null,
-                        existingInstallStatus = null,
-                        installedVersionName = null,
-                        installedVersionCode = null,
-                        downloadedAt = null,
-                    ),
-                ),
-            )
-            if (failure is CancellationException) throw failure
+            val partCleanupFailure = runCatching {
+                withContext(NonCancellable + Dispatchers.IO) { Files.deleteIfExists(temporaryPath) }
+            }.exceptionOrNull()
+            val finalBytesMayExist = runCatching {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    Files.exists(finalPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                }
+            }.getOrDefault(true)
+            val metadataFailure = runCatching {
+                withContext(NonCancellable) {
+                    jobDao.upsertArtifacts(
+                        listOf(
+                            artifact.copy(
+                                downloadStatus = ArtifactDownloadStatus.FAILED.name,
+                                downloadError = failure.message ?: "APK download or verification failed.",
+                                localContentPath = null,
+                                downloadedSizeBytes = null,
+                                downloadedSha256 = null,
+                                signingCertificateSha256 = null,
+                                currentSignerSha256 = null,
+                                existingInstallStatus = null,
+                                installedVersionName = null,
+                                installedVersionCode = null,
+                                downloadedAt = null,
+                            ),
+                        ),
+                    )
+                }
+            }.exceptionOrNull()
+            val reservationFailure = runCatching {
+                withContext(NonCancellable) {
+                    storageManager.recordDownloadFailure(reservation, finalBytesMayExist)
+                }
+            }.exceptionOrNull()
+            listOfNotNull(partCleanupFailure, metadataFailure, reservationFailure).forEach(failure::addSuppressed)
             throw failure
         }
     }
@@ -506,6 +523,8 @@ class JobRepository(
         ) {
             "Only an APK with verified signing certificate information can be installed."
         }
+        storageManager.requirePresent("RUNNER_APK", artifactId)
+        storageManager.markUsed("RUNNER_APK", artifactId)
         return apkInstaller.install(jobId, artifact)
     }
 

@@ -209,6 +209,8 @@ class ManagedAppPolicyTest {
             releaseCreatedAt = "2026-08-24T00:00:00Z",
             publishedAt = "2026-08-24T00:00:00Z",
             fetchedAt = "2026-08-24T00:00:00Z",
+            observationSha256 = "0".repeat(64),
+            lastObservedAt = "2026-08-24T00:00:00Z",
             selectedProviderAssetId = 1,
         )
         val asset = ReleaseAssetEntity(

@@ -33,15 +33,127 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         GradleCandidateEntity::class,
         AppBuildConfigurationEntity::class,
         AppSourceHeadEntity::class,
+        ResourceAvailabilityEntity::class,
+        StorageReservationEntity::class,
+        RetentionHoldEntity::class,
+        CleanupRunEntity::class,
+        CleanupItemEntity::class,
+        AuditExportEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun jobDao(): JobDao
     abstract fun managedAppDao(): ManagedAppDao
+    abstract fun storageDao(): StorageDao
 
     companion object {
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE global_settings ADD COLUMN androidStorageBudgetBytes INTEGER NOT NULL DEFAULT 4294967296")
+                db.execSQL("ALTER TABLE global_settings ADD COLUMN storageWarningPercent INTEGER NOT NULL DEFAULT 80")
+                db.execSQL("ALTER TABLE release_snapshots ADD COLUMN observationSha256 TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE release_snapshots ADD COLUMN lastObservedAt TEXT NOT NULL DEFAULT ''")
+                populateReleaseObservationHashes(db)
+                db.execSQL("DROP INDEX IF EXISTS index_release_snapshots_registeredAppId_providerReleaseId")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_release_snapshots_registeredAppId_observationSha256 " +
+                        "ON release_snapshots(registeredAppId, observationSha256)",
+                )
+                createStorageTables(db)
+            }
+        }
+
+        private fun populateReleaseObservationHashes(db: SupportSQLiteDatabase) {
+            db.query(
+                """
+                SELECT s.releaseSnapshotId, s.registeredAppId, s.providerReleaseId, s.tagName,
+                    s.resolvedCommitSha, s.releaseName, s.releaseUrl, s.targetCommitishRaw,
+                    s.isDraft, s.isPrerelease, s.isImmutable, s.releaseCreatedAt, s.publishedAt,
+                    s.fetchedAt, a.provider, a.canonicalRepositoryUrl,
+                    b.provider, b.instance, b.providerRepositoryId,
+                    x.providerAssetId, x.assetName, x.stableAssetUrl, x.contentType,
+                    x.providerSizeBytes, x.providerDigestSha256, x.selectionReason
+                FROM release_snapshots s
+                JOIN registered_apps a ON a.registeredAppId = s.registeredAppId
+                LEFT JOIN app_repository_bindings b ON b.registeredAppId = s.registeredAppId
+                LEFT JOIN release_assets x ON x.releaseAssetId = (
+                    SELECT releaseAssetId FROM release_assets candidate
+                    WHERE candidate.releaseSnapshotId = s.releaseSnapshotId
+                        AND candidate.providerAssetId = s.selectedProviderAssetId
+                    ORDER BY candidate.releaseAssetId LIMIT 1
+                )
+                ORDER BY s.releaseSnapshotId
+                """.trimIndent(),
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val snapshotId = cursor.getString(0)
+                    val fallbackProvider = cursor.getString(14)
+                    val repositoryUrl = cursor.getString(15)
+                    val provider = if (cursor.isNull(16)) fallbackProvider else cursor.getString(16)
+                    val instance = if (cursor.isNull(17)) "github.com" else cursor.getString(17)
+                    val repositoryId = if (cursor.isNull(18)) repositoryUrl else cursor.getString(18)
+                    val hasSelectedAsset = !cursor.isNull(19)
+                    val hash = ReleaseObservationHasher.sha256(
+                        ReleaseObservationInput(
+                            provider = provider,
+                            instance = instance,
+                            providerRepositoryId = repositoryId,
+                            providerReleaseId = cursor.getLong(2),
+                            tagName = cursor.getString(3),
+                            resolvedCommitSha = cursor.getString(4),
+                            releaseName = cursor.getString(5),
+                            releaseUrl = cursor.getString(6),
+                            targetCommitishRaw = cursor.getString(7),
+                            isDraft = cursor.getInt(8) != 0,
+                            isPrerelease = cursor.getInt(9) != 0,
+                            isImmutable = cursor.getInt(10) != 0,
+                            releaseCreatedAt = cursor.getString(11),
+                            publishedAt = cursor.getString(12),
+                            providerAssetId = if (hasSelectedAsset) cursor.getLong(19) else null,
+                            assetName = if (hasSelectedAsset) cursor.getString(20) else null,
+                            stableAssetUrl = if (hasSelectedAsset) cursor.getString(21) else null,
+                            contentType = if (hasSelectedAsset) cursor.getString(22) else null,
+                            providerSizeBytes = if (hasSelectedAsset) cursor.getLong(23) else null,
+                            providerDigestSha256 = if (cursor.isNull(24)) null else cursor.getString(24),
+                            selectionReason = if (hasSelectedAsset) cursor.getString(25) else null,
+                        ),
+                    )
+                    db.execSQL(
+                        "UPDATE release_snapshots SET observationSha256 = ?, lastObservedAt = ? WHERE releaseSnapshotId = ?",
+                        arrayOf(hash, cursor.getString(13), snapshotId),
+                    )
+                }
+            }
+        }
+
+        private fun createStorageTables(db: SupportSQLiteDatabase) {
+            STORAGE_SCHEMA_SQL.forEach(db::execSQL)
+        }
+
+        private val STORAGE_SCHEMA_SQL = listOf(
+            """CREATE TABLE IF NOT EXISTS resource_availability (ownerType TEXT NOT NULL, ownerId TEXT NOT NULL, resourceKind TEXT NOT NULL, resourceId TEXT NOT NULL, state TEXT NOT NULL, observedBytes INTEGER, knownSha256 TEXT, lastUsedAt TEXT, checkedAt TEXT NOT NULL, deletionRunId TEXT, deletionReason TEXT, PRIMARY KEY(ownerType, ownerId, resourceKind, resourceId))""",
+            "CREATE INDEX IF NOT EXISTS index_resource_availability_state ON resource_availability(state)",
+            "CREATE INDEX IF NOT EXISTS index_resource_availability_resourceKind_resourceId ON resource_availability(resourceKind, resourceId)",
+            """CREATE TABLE IF NOT EXISTS storage_reservations (reservationId TEXT NOT NULL, area TEXT NOT NULL, purpose TEXT NOT NULL, resourceKind TEXT NOT NULL, resourceId TEXT NOT NULL, requestedBytes INTEGER NOT NULL, principalId TEXT NOT NULL, operationId TEXT NOT NULL, state TEXT NOT NULL, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, PRIMARY KEY(reservationId))""",
+            "CREATE INDEX IF NOT EXISTS index_storage_reservations_state ON storage_reservations(state)",
+            "CREATE INDEX IF NOT EXISTS index_storage_reservations_area_resourceKind_resourceId ON storage_reservations(area, resourceKind, resourceId)",
+            """CREATE TABLE IF NOT EXISTS retention_holds (holdId TEXT NOT NULL, runnerId TEXT NOT NULL, principalId TEXT NOT NULL, resourceKind TEXT NOT NULL, resourceId TEXT NOT NULL, reason TEXT NOT NULL, clientReferenceType TEXT NOT NULL, clientReferenceId TEXT NOT NULL, requestSha256 TEXT NOT NULL, state TEXT NOT NULL, createdOperationId TEXT NOT NULL, releasedOperationId TEXT, createdAt TEXT NOT NULL, releasedAt TEXT, PRIMARY KEY(holdId))""",
+            "CREATE INDEX IF NOT EXISTS index_retention_holds_runnerId ON retention_holds(runnerId)",
+            "CREATE INDEX IF NOT EXISTS index_retention_holds_resourceKind_resourceId ON retention_holds(resourceKind, resourceId)",
+            "CREATE INDEX IF NOT EXISTS index_retention_holds_state ON retention_holds(state)",
+            """CREATE TABLE IF NOT EXISTS cleanup_runs (cleanupRunId TEXT NOT NULL, previewId TEXT NOT NULL, ownerType TEXT NOT NULL, ownerId TEXT NOT NULL, area TEXT NOT NULL, state TEXT NOT NULL, filterSha256 TEXT NOT NULL, truncated INTEGER NOT NULL, expiresAt TEXT NOT NULL, releasedBytes INTEGER NOT NULL, startedAt TEXT, finishedAt TEXT, createdAt TEXT NOT NULL, PRIMARY KEY(cleanupRunId))""",
+            "CREATE INDEX IF NOT EXISTS index_cleanup_runs_state ON cleanup_runs(state)",
+            "CREATE INDEX IF NOT EXISTS index_cleanup_runs_ownerType ON cleanup_runs(ownerType)",
+            """CREATE TABLE IF NOT EXISTS cleanup_items (itemId TEXT NOT NULL, cleanupRunId TEXT NOT NULL, resourceKind TEXT NOT NULL, resourceId TEXT NOT NULL, observedBytes INTEGER NOT NULL, observedToken TEXT NOT NULL, eligibleAt TEXT NOT NULL, protectionReasons TEXT NOT NULL, selected INTEGER NOT NULL, result TEXT, releasedBytes INTEGER NOT NULL, reasonCode TEXT, reasonMessage TEXT, PRIMARY KEY(itemId), FOREIGN KEY(cleanupRunId) REFERENCES cleanup_runs(cleanupRunId) ON UPDATE NO ACTION ON DELETE CASCADE)""",
+            "CREATE INDEX IF NOT EXISTS index_cleanup_items_cleanupRunId ON cleanup_items(cleanupRunId)",
+            "CREATE INDEX IF NOT EXISTS index_cleanup_items_resourceKind_resourceId ON cleanup_items(resourceKind, resourceId)",
+            """CREATE TABLE IF NOT EXISTS audit_exports (auditExportId TEXT NOT NULL, scopeType TEXT NOT NULL, scopeJson TEXT NOT NULL, filterJson TEXT NOT NULL, state TEXT NOT NULL, stagingName TEXT, payloadSha256 TEXT, bundleSha256 TEXT, sizeBytes INTEGER, recordCount INTEGER, errorCode TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, PRIMARY KEY(auditExportId))""",
+            "CREATE INDEX IF NOT EXISTS index_audit_exports_state ON audit_exports(state)",
+            "CREATE INDEX IF NOT EXISTS index_audit_exports_createdAt ON audit_exports(createdAt)",
+        )
+
         val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP INDEX IF EXISTS index_registered_apps_canonicalRepositoryUrl")

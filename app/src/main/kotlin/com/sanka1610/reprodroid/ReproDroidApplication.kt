@@ -8,11 +8,23 @@ import com.sanka1610.reprodroid.data.network.RunnerApiClient
 import com.sanka1610.reprodroid.data.repository.JobRepository
 import com.sanka1610.reprodroid.data.repository.ManagedAppRepository
 import com.sanka1610.reprodroid.work.JobSyncWorker
+import com.sanka1610.reprodroid.data.storage.AndroidStorageManager
+import com.sanka1610.reprodroid.data.storage.AndroidCleanupManager
+import com.sanka1610.reprodroid.data.storage.RunnerRetentionCoordinator
+import com.sanka1610.reprodroid.data.storage.AuditExportManager
 
 class ReproDroidApplication : Application() {
     lateinit var jobRepository: JobRepository
         private set
     lateinit var managedAppRepository: ManagedAppRepository
+        private set
+    lateinit var storageManager: AndroidStorageManager
+        private set
+    lateinit var cleanupManager: AndroidCleanupManager
+        private set
+    lateinit var retentionCoordinator: RunnerRetentionCoordinator
+        private set
+    lateinit var auditExportManager: AuditExportManager
         private set
 
     override fun onCreate() {
@@ -20,7 +32,7 @@ class ReproDroidApplication : Application() {
         DatabaseMigrationGate.prepare(
             context = applicationContext,
             databaseName = "reprodroid.sqlite3",
-            targetVersion = 15,
+            targetVersion = 16,
         )
         val database = Room.databaseBuilder(
             applicationContext,
@@ -41,16 +53,29 @@ class ReproDroidApplication : Application() {
             ReproDroidDatabase.MIGRATION_12_13,
             ReproDroidDatabase.MIGRATION_13_14,
             ReproDroidDatabase.MIGRATION_14_15,
+            ReproDroidDatabase.MIGRATION_15_16,
         ).build()
+        storageManager = AndroidStorageManager(applicationContext, database)
+        cleanupManager = AndroidCleanupManager(applicationContext, database)
+        val runnerApi = RunnerApiClient(
+            BuildConfig.RUNNER_BASE_URL,
+            allowDevelopmentV2 = BuildConfig.DEBUG,
+        )
+        retentionCoordinator = RunnerRetentionCoordinator(database, runnerApi)
+        auditExportManager = AuditExportManager(applicationContext, database, storageManager)
         jobRepository = JobRepository(
             applicationContext = applicationContext,
             database = database,
-            runnerApi = RunnerApiClient(BuildConfig.RUNNER_BASE_URL),
+            runnerApi = runnerApi,
+            storageManager = storageManager,
         )
         managedAppRepository = ManagedAppRepository(
             context = applicationContext,
             database = database,
             jobRepository = jobRepository,
+            storageManager = storageManager,
+            cleanupManager = cleanupManager,
+            retentionCoordinator = retentionCoordinator,
         )
         JobSyncWorker.schedule(this)
     }

@@ -4,6 +4,8 @@ import android.graphics.BitmapFactory
 import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -81,6 +83,7 @@ import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import com.sanka1610.reprodroid.data.local.ThemeMode
 import com.sanka1610.reprodroid.data.local.TrustLevel
 import com.sanka1610.reprodroid.data.local.UpdateStatus
+import com.sanka1610.reprodroid.data.local.ResourceAvailabilityEntity
 import com.sanka1610.reprodroid.data.local.BuildEnvironmentManifestWithDependencies
 import com.sanka1610.reprodroid.data.local.JobRecord
 import com.sanka1610.reprodroid.data.local.SourceScanWithDetails
@@ -93,6 +96,12 @@ import com.sanka1610.reprodroid.data.repository.compareBuildEnvironments
 import com.sanka1610.reprodroid.data.repository.sandboxSelectionText
 import com.sanka1610.reprodroid.data.repository.sandboxManifestText
 import com.sanka1610.reprodroid.data.repository.sandboxAcknowledgementAllowed
+import com.sanka1610.reprodroid.data.storage.AndroidCleanupPreview
+import com.sanka1610.reprodroid.data.storage.AndroidStorageSummary
+import com.sanka1610.reprodroid.data.storage.RunnerStorageConnectionState
+import com.sanka1610.reprodroid.data.storage.StagedAuditExport
+import com.sanka1610.reprodroid.data.network.V2CleanupPreviewResponse
+import com.sanka1610.reprodroid.data.network.V2CleanupRunResponse
 import androidx.compose.ui.platform.LocalContext
 import java.io.File
 import java.util.UUID
@@ -130,10 +139,19 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
     val buildManifestWarnings by managedViewModel.buildManifestWarnings.collectAsStateWithLifecycle()
     val sourceScanWarnings by managedViewModel.sourceScanWarnings.collectAsStateWithLifecycle()
     val sandboxWarnings by managedViewModel.sandboxWarnings.collectAsStateWithLifecycle()
+    val availability by managedViewModel.availability.collectAsStateWithLifecycle()
+    val androidStorageSummary by managedViewModel.androidStorageSummary.collectAsStateWithLifecycle()
+    val androidCleanupPreview by managedViewModel.androidCleanupPreview.collectAsStateWithLifecycle()
+    val runnerStorageState by managedViewModel.runnerStorageState.collectAsStateWithLifecycle()
+    val storageBusy by managedViewModel.storageBusy.collectAsStateWithLifecycle()
+    val auditExport by managedViewModel.auditExport.collectAsStateWithLifecycle()
+    val runnerCleanupPreview by managedViewModel.runnerCleanupPreview.collectAsStateWithLifecycle()
+    val runnerCleanupRun by managedViewModel.runnerCleanupRun.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(MainDestination.APPS) }
     var selectedAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var showRunnerJobs by rememberSaveable { mutableStateOf(false) }
+    var showStorage by rememberSaveable { mutableStateOf(false) }
     val useDark = when (enumValue(globalSettings.themeMode, ThemeMode.DARK)) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
@@ -147,19 +165,37 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                     NavigationBar {
                         NavigationBarItem(
                             selected = destination == MainDestination.APPS,
-                            onClick = { destination = MainDestination.APPS; selectedAppId = null; settingsAppId = null },
+                            onClick = {
+                                destination = MainDestination.APPS
+                                selectedAppId = null
+                                settingsAppId = null
+                                showRunnerJobs = false
+                                showStorage = false
+                            },
                             icon = { NavigationGlyph("▦") },
                             label = { Text("Apps") },
                         )
                         NavigationBarItem(
                             selected = destination == MainDestination.ADD,
-                            onClick = { destination = MainDestination.ADD; selectedAppId = null; settingsAppId = null },
+                            onClick = {
+                                destination = MainDestination.ADD
+                                selectedAppId = null
+                                settingsAppId = null
+                                showRunnerJobs = false
+                                showStorage = false
+                            },
                             icon = { NavigationGlyph("＋") },
                             label = { Text("Add") },
                         )
                         NavigationBarItem(
                             selected = destination == MainDestination.SETTINGS,
-                            onClick = { destination = MainDestination.SETTINGS; selectedAppId = null; settingsAppId = null },
+                            onClick = {
+                                destination = MainDestination.SETTINGS
+                                selectedAppId = null
+                                settingsAppId = null
+                                showRunnerJobs = false
+                                showStorage = false
+                            },
                             icon = { NavigationGlyph("⚙") },
                             label = { Text("Settings") },
                         )
@@ -250,6 +286,7 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                     buildManifestWarnings = buildManifestWarnings,
                                     sourceScanWarnings = sourceScanWarnings,
                                     sandboxWarnings = sandboxWarnings,
+                                    availability = availability,
                                 )
                             }
                         }
@@ -281,10 +318,36 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                 JobScreen(jobViewModel)
                             }
                         }
+                        destination == MainDestination.SETTINGS && showStorage -> {
+                            StorageScreen(
+                                apps = apps,
+                                settings = globalSettings,
+                                androidSummary = androidStorageSummary,
+                                runnerState = runnerStorageState,
+                                cleanupPreview = androidCleanupPreview,
+                                busy = storageBusy,
+                                auditExport = auditExport,
+                                runnerCleanupPreview = runnerCleanupPreview,
+                                runnerCleanupRun = runnerCleanupRun,
+                                onBack = {
+                                    showStorage = false
+                                    managedViewModel.clearAndroidCleanupPreview()
+                                },
+                                onUpdate = managedViewModel::updateGlobalSettings,
+                                onRefresh = managedViewModel::refreshStorage,
+                                onPreviewCleanup = managedViewModel::previewAndroidCleanup,
+                                onExecuteCleanup = managedViewModel::executeAndroidCleanup,
+                                onStageAudit = managedViewModel::stageAuditExport,
+                                onCopyAudit = managedViewModel::copyAuditExport,
+                                onPreviewRunnerCleanup = managedViewModel::previewRunnerCleanup,
+                                onExecuteRunnerCleanup = managedViewModel::executeRunnerCleanup,
+                            )
+                        }
                         else -> SettingsScreen(
                             settings = globalSettings,
                             onUpdate = managedViewModel::updateGlobalSettings,
                             onOpenRunnerJobs = { showRunnerJobs = true },
+                            onOpenStorage = { showStorage = true; managedViewModel.refreshStorage() },
                         )
                     }
                 }
@@ -554,6 +617,7 @@ private fun AppDetailScreen(
     buildManifestWarnings: Map<String, BuildManifestWarning>,
     sourceScanWarnings: Map<String, SourceScanWarning>,
     sandboxWarnings: Map<String, String>,
+    availability: List<ResourceAvailabilityEntity>,
 ) {
     BackHandler(onBack = onBack)
     val latest = record.latestRelease
@@ -677,6 +741,49 @@ private fun AppDetailScreen(
                         DetailValue("Comparison", current.comparisonEligibility)
                         current.incomparableReason?.let { DetailValue("Reason", it) }
                         current.downloadErrorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
+            item {
+                DetailCard("History") {
+                    Text(
+                        "Release observations are immutable. Deleting retained bytes does not remove comparison, signer, or install history.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    record.releases
+                        .sortedWith(
+                            compareByDescending<com.sanka1610.reprodroid.data.local.ReleaseSnapshotWithAssets> {
+                                it.snapshot.lastObservedAt
+                            }.thenByDescending { it.snapshot.releaseSnapshotId },
+                        )
+                        .forEach { observation ->
+                            val observedAsset = observation.selectedAsset
+                            val availabilityState = observedAsset?.let { selected ->
+                                availability.firstOrNull {
+                                    it.ownerType == "ANDROID" &&
+                                        it.resourceKind == "REFERENCE_APK" &&
+                                        it.resourceId == selected.releaseAssetId
+                                }?.state
+                            } ?: "UNKNOWN"
+                            HorizontalDivider()
+                            DetailValue("Release", "${observation.snapshot.tagName} · ${observation.snapshot.publishedAt}")
+                            DetailValue("Observation", observation.snapshot.observationSha256, monospace = true)
+                            DetailValue("Last observed", observation.snapshot.lastObservedAt)
+                            DetailValue("APK availability", availabilityState)
+                        }
+                    record.comparisons.sortedByDescending { it.createdAt }.forEach { comparison ->
+                        HorizontalDivider()
+                        DetailValue("Comparison", "${comparison.createdAt} · ${comparison.status}")
+                        DetailValue("Raw outcomes", buildString {
+                            append(comparison.outcome)
+                            if (comparison.protocolVersion >= 2) {
+                                append(" / ${comparison.repeatOfficialOutcome} / ${comparison.repeatabilityOutcome}")
+                            }
+                        })
+                    }
+                    record.releaseInstallAttempts.sortedByDescending { it.createdAt }.forEach { attempt ->
+                        HorizontalDivider()
+                        DetailValue("Install attempt", "${attempt.createdAt} · ${attempt.status}")
                     }
                 }
             }
@@ -1367,6 +1474,7 @@ private fun SettingsScreen(
     settings: GlobalSettingsEntity,
     onUpdate: (GlobalSettingsEntity) -> Unit,
     onOpenRunnerJobs: () -> Unit,
+    onOpenStorage: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -1460,11 +1568,264 @@ private fun SettingsScreen(
         item { SettingInfo("GitHub API", "Unauthenticated · manual refresh") }
         item {
             HorizontalDivider()
+            TextButton(onClick = onOpenStorage, modifier = Modifier.fillMaxWidth()) {
+                Text("Open Storage, cleanup, and audit tools")
+            }
+        }
+        item {
             TextButton(onClick = onOpenRunnerJobs, modifier = Modifier.fillMaxWidth()) {
                 Text("Open Runner jobs and Phase 1 tools")
             }
         }
-        item { SettingInfo("ReproDroid", "0.1.0-alpha01 · Phase 2C") }
+        item { SettingInfo("ReproDroid", "0.1.0-alpha01 · Phase 4.2") }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StorageScreen(
+    apps: List<RegisteredAppRecord>,
+    settings: GlobalSettingsEntity,
+    androidSummary: AndroidStorageSummary?,
+    runnerState: RunnerStorageConnectionState,
+    cleanupPreview: AndroidCleanupPreview?,
+    busy: Boolean,
+    auditExport: StagedAuditExport?,
+    runnerCleanupPreview: V2CleanupPreviewResponse?,
+    runnerCleanupRun: V2CleanupRunResponse?,
+    onBack: () -> Unit,
+    onUpdate: (GlobalSettingsEntity) -> Unit,
+    onRefresh: () -> Unit,
+    onPreviewCleanup: () -> Unit,
+    onExecuteCleanup: (Set<String>) -> Unit,
+    onStageAudit: (Set<String>) -> Unit,
+    onCopyAudit: (android.net.Uri) -> Unit,
+    onPreviewRunnerCleanup: () -> Unit,
+    onExecuteRunnerCleanup: (Set<String>) -> Unit,
+) {
+    BackHandler(onBack = onBack)
+    var selectedItemIds by remember(cleanupPreview?.previewId) { mutableStateOf(emptySet<String>()) }
+    var auditScope by rememberSaveable { mutableStateOf("ALL") }
+    var selectedRunnerItemIds by remember(runnerCleanupPreview?.previewId) { mutableStateOf(emptySet<String>()) }
+    val auditDestination = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(AUDIT_MIME_TYPE),
+    ) { destination -> destination?.let(onCopyAudit) }
+    Column(Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("Storage") },
+            navigationIcon = { IconButton(onClick = onBack) { NavigationGlyph("‹") } },
+            actions = { IconButton(enabled = !busy, onClick = onRefresh) { NavigationGlyph("↻") } },
+        )
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                DetailCard("Android app-private storage") {
+                    if (androidSummary == null) {
+                        Text("Storage has not been measured.")
+                    } else {
+                        DetailValue("State", "${androidSummary.state} · ${androidSummary.measurementState}")
+                        DetailValue("Used", formatBytes(androidSummary.usedBytes))
+                        DetailValue("Reserved", formatBytes(androidSummary.reservedBytes))
+                        DetailValue("Budget", formatBytes(androidSummary.budgetBytes))
+                        DetailValue(
+                            "Unclassified",
+                            androidSummary.unclassifiedBytes?.let(::formatBytes) ?: "Unavailable",
+                        )
+                        DetailValue("Usable filesystem", androidSummary.usableBytes?.let(::formatBytes) ?: "Unavailable")
+                        DetailValue("Measured", androidSummary.measuredAt)
+                    }
+                    Text(
+                        "Lowering the budget below current usage never deletes files automatically.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            item {
+                DropdownSetting(
+                    label = "Android storage budget",
+                    value = settings.androidStorageBudgetBytes,
+                    options = listOf(1L, 2L, 4L, 8L, 16L, 32L, 64L)
+                        .associate { gib -> gib * 1024L * 1024L * 1024L to "$gib GiB" },
+                    onSelect = { onUpdate(settings.copy(androidStorageBudgetBytes = it)) },
+                    enabled = !busy,
+                )
+            }
+            item {
+                DropdownSetting(
+                    label = "Storage warning threshold",
+                    value = settings.storageWarningPercent,
+                    options = listOf(50, 60, 70, 80, 90, 95).associateWith { "$it%" },
+                    onSelect = { onUpdate(settings.copy(storageWarningPercent = it)) },
+                    enabled = !busy,
+                )
+            }
+            item {
+                DetailCard("Runner storage") {
+                    DetailValue("Connection", runnerState.status.name)
+                    runnerState.runnerId?.let { DetailValue("Runner ID", it, monospace = true) }
+                    runnerState.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    runnerState.summary?.areas?.forEach { area ->
+                        HorizontalDivider()
+                        DetailValue("Area", area.area)
+                        DetailValue("State", "${area.state} · ${area.measurementState}")
+                        DetailValue("Used / reserved", "${formatDecimalBytes(area.usedBytes)} / ${formatDecimalBytes(area.reservedBytes)}")
+                        DetailValue("Budget", formatDecimalBytes(area.budgetBytes))
+                        DetailValue("Usable filesystem", formatDecimalBytes(area.usableBytes))
+                    }
+                    Text(
+                        "Unavailable or incompatible Runner storage is never treated as empty. Local Android history remains available.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            item {
+                DetailCard("Local audit export") {
+                    Text(
+                        "Exports public allowlisted history only. APKs, source text, private Manifests, raw logs, credentials, and storage paths are excluded.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    DropdownSetting(
+                        label = "Scope",
+                        value = auditScope,
+                        options = linkedMapOf("ALL" to "All registered apps") +
+                            apps.associate { it.app.registeredAppId to it.app.displayName },
+                        onSelect = { auditScope = it },
+                        enabled = !busy,
+                    )
+                    Button(
+                        enabled = !busy && (auditScope == "ALL" || apps.any { it.app.registeredAppId == auditScope }),
+                        onClick = { onStageAudit(if (auditScope == "ALL") emptySet() else setOf(auditScope)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Stage audit export") }
+                    auditExport?.let { export ->
+                        DetailValue("State", export.state)
+                        DetailValue("Records", export.recordCount.toString())
+                        DetailValue("Size", formatBytes(export.sizeBytes))
+                        DetailValue("Payload SHA-256", export.payloadSha256, monospace = true)
+                        export.errorCode?.let { DetailValue("Error", it) }
+                        Button(
+                            enabled = !busy && export.state in setOf("STAGED", "FAILED"),
+                            onClick = { auditDestination.launch(export.suggestedName) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Choose local destination") }
+                    }
+                }
+            }
+            item {
+                Button(enabled = !busy, onClick = onPreviewCleanup, modifier = Modifier.fillMaxWidth()) {
+                    Text("Preview Android cleanup")
+                }
+            }
+            cleanupPreview?.let { preview ->
+                item {
+                    DetailCard("Manual cleanup preview") {
+                        DetailValue("State", preview.state)
+                        DetailValue("Expires", preview.expiresAt)
+                        DetailValue("Items", preview.items.size.toString())
+                        if (preview.truncated) {
+                            Text("The preview is truncated and cannot be executed.", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                items(preview.items, key = { it.itemId }) { item ->
+                    val selectable = item.protectionReasons.isEmpty() && item.result == null && !preview.truncated
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Checkbox(
+                                checked = item.itemId in selectedItemIds,
+                                enabled = selectable && !busy,
+                                onCheckedChange = { selected ->
+                                    selectedItemIds = if (selected) selectedItemIds + item.itemId else selectedItemIds - item.itemId
+                                },
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text("${item.resourceKind} · ${formatBytes(item.observedBytes)}")
+                                Text(item.resourceId, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                                Text("Eligible ${item.eligibleAt}", style = MaterialTheme.typography.bodySmall)
+                                if (item.protectionReasons.isNotEmpty()) {
+                                    Text("Protected: ${item.protectionReasons.joinToString()}", color = MaterialTheme.colorScheme.error)
+                                }
+                                item.result?.let { DetailValue("Result", it) }
+                                item.reasonCode?.let { DetailValue("Reason", it) }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Button(
+                        enabled = !busy && selectedItemIds.isNotEmpty() && !preview.truncated && preview.state == "PREVIEWED",
+                        onClick = { onExecuteCleanup(selectedItemIds) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Delete selected retained bytes") }
+                }
+            }
+            item {
+                HorizontalDivider()
+                Button(
+                    enabled = !busy && runnerState.status.name == "AVAILABLE",
+                    onClick = onPreviewRunnerCleanup,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Preview Runner cleanup") }
+            }
+            runnerCleanupPreview?.let { preview ->
+                item {
+                    DetailCard("Runner manual cleanup preview") {
+                        DetailValue("State", preview.state)
+                        DetailValue("Expires", preview.expiresAt)
+                        DetailValue("Items", preview.items.size.toString())
+                        if (preview.truncated) {
+                            Text("The preview is truncated and cannot be executed.", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                items(preview.items, key = { "runner-${it.itemId}" }) { item ->
+                    val runItem = runnerCleanupRun?.items?.firstOrNull { it.itemId == item.itemId }
+                    val selectable = item.protectionReasons.isEmpty() && runItem == null && !preview.truncated
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Top) {
+                            Checkbox(
+                                checked = item.itemId in selectedRunnerItemIds,
+                                enabled = selectable && !busy,
+                                onCheckedChange = { selected ->
+                                    selectedRunnerItemIds = if (selected) {
+                                        selectedRunnerItemIds + item.itemId
+                                    } else {
+                                        selectedRunnerItemIds - item.itemId
+                                    }
+                                },
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text("${item.resourceKind} · ${formatDecimalBytes(item.observedBytes)}")
+                                Text(item.resourceId, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                                Text("Eligible ${item.eligibleAt}", style = MaterialTheme.typography.bodySmall)
+                                if (item.protectionReasons.isNotEmpty()) {
+                                    Text("Protected: ${item.protectionReasons.joinToString()}", color = MaterialTheme.colorScheme.error)
+                                }
+                                runItem?.let {
+                                    DetailValue("Result", it.result)
+                                    it.reason?.let { reason -> DetailValue("Reason", reason.code) }
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Button(
+                        enabled = !busy && selectedRunnerItemIds.isNotEmpty() && !preview.truncated &&
+                            runnerCleanupRun == null,
+                        onClick = { onExecuteRunnerCleanup(selectedRunnerItemIds) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Delete selected Runner bytes") }
+                }
+            }
+            item { Spacer(Modifier.height(12.dp)) }
+        }
     }
 }
 
@@ -1664,6 +2025,15 @@ private inline fun <reified T : Enum<T>> enumValue(value: String, fallback: T): 
 
 private fun String.displayEnum(): String = lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
+private fun formatDecimalBytes(value: String): String = value.toLongOrNull()?.let(::formatBytes) ?: "Unavailable"
+
+private fun formatBytes(value: Long): String = when {
+    value >= 1024L * 1024L * 1024L -> "%.2f GiB".format(value.toDouble() / (1024L * 1024L * 1024L))
+    value >= MIB -> "%.2f MiB".format(value.toDouble() / MIB)
+    value >= 1024L -> "%.2f KiB".format(value.toDouble() / 1024L)
+    else -> "$value B"
+}
+
 @Composable
 private fun NavigationGlyph(value: String) {
     Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1673,4 +2043,5 @@ private const val MIB = 1024L * 1024L
 private const val MAX_SEMANTIC_DIFFERENCES_IN_UI = 3
 private const val MAX_DEPENDENCY_DIFFERENCES_IN_UI = 40
 private const val MAX_SOURCE_SCAN_FINDINGS_IN_UI = 40
+private const val AUDIT_MIME_TYPE = "application/vnd.reprodroid.audit+json"
 private val APK_LIMITS = listOf(64L * MIB, 128L * MIB, 256L * MIB, 512L * MIB)

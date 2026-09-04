@@ -135,11 +135,17 @@ data class GlobalSettingsEntity(
     val defaultReleaseVariantPreference: String = ReleaseVariantPreference.RELEASE.name,
     val defaultPreferredAbi: String = PreferredAbi.ARM64_V8A.name,
     val defaultMaxApkSizeBytes: Long = MAX_APK_SIZE_BYTES,
+    @ColumnInfo(defaultValue = "4294967296")
+    val androidStorageBudgetBytes: Long = ANDROID_STORAGE_BUDGET_BYTES,
+    @ColumnInfo(defaultValue = "80")
+    val storageWarningPercent: Int = STORAGE_WARNING_PERCENT,
     val updatedAt: String,
 ) {
     companion object {
         const val SINGLETON_ID = 1
         const val MAX_APK_SIZE_BYTES = 512L * 1024L * 1024L
+        const val ANDROID_STORAGE_BUDGET_BYTES = 4L * 1024L * 1024L * 1024L
+        const val STORAGE_WARNING_PERCENT = 80
     }
 }
 
@@ -155,7 +161,7 @@ data class GlobalSettingsEntity(
     ],
     indices = [
         Index("registeredAppId"),
-        Index(value = ["registeredAppId", "providerReleaseId"], unique = true),
+        Index(value = ["registeredAppId", "observationSha256"], unique = true),
     ],
 )
 data class ReleaseSnapshotEntity(
@@ -173,6 +179,10 @@ data class ReleaseSnapshotEntity(
     val releaseCreatedAt: String,
     val publishedAt: String,
     val fetchedAt: String,
+    @ColumnInfo(defaultValue = "''")
+    val observationSha256: String,
+    @ColumnInfo(defaultValue = "''")
+    val lastObservedAt: String,
     val selectedProviderAssetId: Long? = null,
 )
 
@@ -305,7 +315,10 @@ data class RegisteredAppRecord(
         }
 
     val latestRelease: ReleaseSnapshotWithAssets?
-        get() = releases.maxByOrNull { it.snapshot.publishedAt }
+        get() = releases.maxWithOrNull(
+            compareBy<ReleaseSnapshotWithAssets> { it.snapshot.lastObservedAt }
+                .thenBy { it.snapshot.releaseSnapshotId },
+        )
 
     val currentComparison: ComparisonRunEntity?
         get() {

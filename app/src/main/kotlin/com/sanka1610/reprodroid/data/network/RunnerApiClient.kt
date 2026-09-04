@@ -8,6 +8,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.prepareGet
 import io.ktor.client.request.setBody
@@ -30,6 +31,7 @@ import java.nio.charset.CharacterCodingException
 import java.io.File
 import java.io.FileOutputStream
 import java.net.URI
+import java.time.Instant
 
 class RunnerApiException(
     val statusCode: Int,
@@ -51,6 +53,7 @@ data class ArtifactDownloadResponse(
 class RunnerApiClient(
     baseUrl: String,
     engine: HttpClientEngine? = null,
+    private val allowDevelopmentV2: Boolean = false,
 ) {
     private val runnerBaseUrl = baseUrl.trim().trimEnd('/').also(::validateBaseUrl)
     private val client = if (engine == null) HttpClient(CIO) { configure() } else HttpClient(engine) { configure() }
@@ -139,6 +142,71 @@ class RunnerApiClient(
     suspend fun retryJob(jobId: String): CreateJobResponse =
         client.post(endpoint("/v1/jobs/$jobId/retry")).successBody()
 
+    suspend fun getV2Capabilities(): V2CapabilitiesResponse =
+        client.prepareGet(endpoint("/v2/capabilities")).execute { response ->
+            response.v2Body<V2CapabilitiesResponse>().also(::validateCapabilities)
+        }
+
+    suspend fun getV2Operation(operationId: String): V2OperationResponse {
+        requireCanonicalUuid(operationId, "operationId")
+        return client.prepareGet(endpoint("/v2/operations/$operationId")).execute { response ->
+            response.v2Body<V2OperationResponse>().also(::validateOperation)
+        }
+    }
+
+    suspend fun getV2StorageSummary(): V2StorageSummaryResponse =
+        client.prepareGet(endpoint("/v2/storage/summary")).execute { response ->
+            response.v2Body<V2StorageSummaryResponse>().also(::validateStorageSummary)
+        }
+
+    suspend fun createV2RetentionHold(
+        request: V2RetentionHoldRequest,
+        idempotencyKey: String,
+    ): V2OperationResponse = v2Mutation("/v2/retention/holds", request, idempotencyKey)
+
+    suspend fun releaseV2RetentionHold(
+        holdId: String,
+        reason: String,
+        idempotencyKey: String,
+    ): V2OperationResponse {
+        requireCanonicalUuid(holdId, "holdId")
+        return v2Mutation("/v2/retention/holds/$holdId/release", V2ReasonRequest(reason), idempotencyKey)
+    }
+
+    suspend fun createV2CleanupPreview(
+        request: V2CleanupPreviewRequest,
+        idempotencyKey: String,
+    ): V2OperationResponse = v2Mutation("/v2/cleanup/previews", request, idempotencyKey)
+
+    suspend fun getV2CleanupPreview(previewId: String): V2CleanupPreviewResponse {
+        requireCanonicalUuid(previewId, "previewId")
+        return client.prepareGet(endpoint("/v2/cleanup/previews/$previewId")).execute { response ->
+            response.v2Body<V2CleanupPreviewResponse>().also(::validateCleanupPreview)
+        }
+    }
+
+    suspend fun executeV2Cleanup(
+        previewId: String,
+        itemIds: List<String>,
+        idempotencyKey: String,
+    ): V2OperationResponse {
+        requireCanonicalUuid(previewId, "previewId")
+        require(itemIds.isNotEmpty() && itemIds.size <= 100 && itemIds.distinct().size == itemIds.size)
+        itemIds.forEach { requireCanonicalUuid(it, "itemId") }
+        return v2Mutation(
+            "/v2/cleanup/previews/$previewId/execute",
+            V2CleanupExecuteRequest(itemIds.sorted()),
+            idempotencyKey,
+        )
+    }
+
+    suspend fun getV2CleanupRun(cleanupRunId: String): V2CleanupRunResponse {
+        requireCanonicalUuid(cleanupRunId, "cleanupRunId")
+        return client.prepareGet(endpoint("/v2/cleanup/runs/$cleanupRunId")).execute { response ->
+            response.v2Body<V2CleanupRunResponse>().also(::validateCleanupRun)
+        }
+    }
+
     suspend fun downloadArtifact(jobId: String, artifactId: String, destination: File): ArtifactDownloadResponse =
         client.prepareGet(endpoint("/v1/jobs/$jobId/artifacts/$artifactId/content")) {
             timeout {
@@ -171,6 +239,7 @@ class RunnerApiClient(
 
     private fun io.ktor.client.HttpClientConfig<*>.configure() {
         expectSuccess = false
+        followRedirects = false
         install(HttpTimeout) {
             connectTimeoutMillis = CONNECT_TIMEOUT_MILLIS
             requestTimeoutMillis = REQUEST_TIMEOUT_MILLIS
@@ -189,6 +258,30 @@ class RunnerApiClient(
     private suspend inline fun <reified T> HttpResponse.successBody(): T {
         ensureSuccess()
         return body()
+    }
+
+    private suspend inline fun <reified Request, reified Response> v2Mutation(
+        path: String,
+        request: Request,
+        idempotencyKey: String,
+    ): Response {
+        requireCanonicalUuid(idempotencyKey, "Idempotency-Key")
+        return client.post(endpoint(path)) {
+            contentType(ContentType.Application.Json)
+            header(V2_CONTRACT_HEADER, V2_STORAGE_CONTRACT)
+            header(V2_IDEMPOTENCY_HEADER, idempotencyKey)
+            setBody(request)
+        }.v2Body()
+    }
+
+    private suspend inline fun <reified T> HttpResponse.v2Body(): T {
+        val text = boundedUtf8Body(MAX_V2_RESPONSE_BYTES, "API v2")
+        return try {
+            StrictJsonAuditor(text).audit()
+            V2_JSON.decodeFromString(text)
+        } catch (_: Exception) {
+            throw RunnerResponseIntegrityException("Runner API v2 response is invalid.")
+        }
     }
 
     private suspend fun HttpResponse.ensureSuccess() {
@@ -237,7 +330,20 @@ class RunnerApiClient(
         if (runnerBaseUrl.isBlank()) {
             throw RunnerConfigurationException("Runner base URL is not configured for this build.")
         }
+        if (path.startsWith("/v2/")) requireDevelopmentV2Transport()
         return runnerBaseUrl + path
+    }
+
+    private fun requireDevelopmentV2Transport() {
+        if (!allowDevelopmentV2) {
+            throw RunnerConfigurationException("Runner API v2 development access is disabled for this build.")
+        }
+        val host = URI(runnerBaseUrl).host?.lowercase()
+        if (host !in setOf("127.0.0.1", "localhost", "::1")) {
+            throw RunnerConfigurationException(
+                "Runner API v2 is limited to the loopback development transport before pairing is implemented.",
+            )
+        }
     }
 
     private fun validateBaseUrl(baseUrl: String) {
@@ -260,6 +366,99 @@ class RunnerApiClient(
         }
     }
 
+    private fun validateCapabilities(response: V2CapabilitiesResponse) {
+        checkV2(response.apiVersion == "v2" && response.foundationContractVersion == 1)
+        requireCanonicalUuid(response.runnerId, "runnerId")
+        checkV2(response.runnerVersion.isNotBlank() && response.runnerVersion.length <= 128)
+        checkV2(response.capabilities.size <= 64)
+        checkV2(response.capabilities.map(V2Capability::id).distinct().size == response.capabilities.size)
+        response.capabilities.forEach {
+            checkV2(CAPABILITY_ID.matches(it.id) && it.contractVersion in 1..Int.MAX_VALUE)
+        }
+    }
+
+    private fun validateOperation(operation: V2OperationResponse) {
+        requireCanonicalUuid(operation.operationId, "operationId")
+        checkV2(OPERATION_KIND.matches(operation.kind) && SHA256.matches(operation.requestSha256))
+        checkV2(runCatching { Instant.parse(operation.createdAt) }.isSuccess)
+        checkV2(runCatching { Instant.parse(operation.updatedAt) }.isSuccess)
+        when (operation.state) {
+            V2OperationState.COMPLETED -> checkV2(operation.result != null && operation.reason == null)
+            V2OperationState.REJECTED, V2OperationState.RECONCILIATION_REQUIRED ->
+                checkV2(operation.result == null && operation.reason != null)
+            V2OperationState.RESERVED, V2OperationState.APPLYING ->
+                checkV2(operation.result == null && operation.reason == null)
+        }
+        operation.result?.let {
+            checkV2(it.type in V2_RESULT_TYPES)
+            requireCanonicalUuid(it.resourceId, "result.resourceId")
+        }
+        operation.reason?.let { checkV2(REASON_CODE.matches(it.code) && it.message.length <= 1_024) }
+    }
+
+    private fun validateStorageSummary(response: V2StorageSummaryResponse) {
+        checkV2(response.schemaVersion == 1)
+        requireCanonicalUuid(response.runnerId, "runnerId")
+        checkV2(response.areas.map(V2StorageAreaSummary::area).toSet() == setOf("RUNNER_JOB", "RUNNER_TOOLCHAIN"))
+        checkV2(response.areas.size == 2)
+        response.areas.forEach { area ->
+            listOf(
+                area.budgetBytes,
+                area.usedBytes,
+                area.reservedBytes,
+                area.unclassifiedBytes,
+                area.usableBytes,
+            ).forEach(::validateV2Bytes)
+            checkV2(area.warningPercent in 0..100)
+            checkV2(area.state in V2_STORAGE_STATES)
+            checkV2(area.measurementState in V2_MEASUREMENT_STATES)
+            checkV2(runCatching { Instant.parse(area.measuredAt) }.isSuccess)
+        }
+    }
+
+    private fun validateCleanupPreview(response: V2CleanupPreviewResponse) {
+        checkV2(response.schemaVersion == 1 && response.state == "PREVIEWED" && response.items.size <= 1_000)
+        requireCanonicalUuid(response.previewId, "previewId")
+        requireCanonicalUuid(response.runnerId, "runnerId")
+        checkV2(runCatching { Instant.parse(response.expiresAt) }.isSuccess)
+        val ordered = response.items.sortedWith(compareBy(V2CleanupPreviewItem::resourceKind, V2CleanupPreviewItem::resourceId, V2CleanupPreviewItem::itemId))
+        checkV2(ordered == response.items && response.items.map(V2CleanupPreviewItem::itemId).distinct().size == response.items.size)
+        response.items.forEach { item ->
+            requireCanonicalUuid(item.itemId, "itemId")
+            requireCanonicalUuid(item.resourceId, "resourceId")
+            validateV2Bytes(item.observedBytes)
+            checkV2(item.resourceKind in V2_CLEANUP_RESOURCE_KINDS && SHA256.matches(item.observedToken))
+            checkV2(runCatching { Instant.parse(item.eligibleAt) }.isSuccess)
+            checkV2(item.protectionReasons.all { it in V2_PROTECTION_REASONS })
+        }
+    }
+
+    private fun validateCleanupRun(response: V2CleanupRunResponse) {
+        checkV2(response.schemaVersion == 1 && response.state in V2_CLEANUP_RUN_STATES && response.items.size <= 100)
+        requireCanonicalUuid(response.cleanupRunId, "cleanupRunId")
+        requireCanonicalUuid(response.previewId, "previewId")
+        validateV2Bytes(response.releasedBytes)
+        response.startedAt?.let { checkV2(runCatching { Instant.parse(it) }.isSuccess) }
+        response.finishedAt?.let { checkV2(runCatching { Instant.parse(it) }.isSuccess) }
+        response.items.forEach { item ->
+            requireCanonicalUuid(item.itemId, "itemId")
+            checkV2(item.result in V2_CLEANUP_ITEM_RESULTS)
+            validateV2Bytes(item.releasedBytes)
+        }
+    }
+
+    private fun validateV2Bytes(value: String) {
+        checkV2(DECIMAL.matches(value) && value.toLongOrNull() in 0..MAX_V2_BYTES)
+    }
+
+    private fun requireCanonicalUuid(value: String, field: String) {
+        if (!UUID.matches(value)) throw RunnerResponseIntegrityException("Runner API v2 $field is invalid.")
+    }
+
+    private fun checkV2(condition: Boolean) {
+        if (!condition) throw RunnerResponseIntegrityException("Runner API v2 response violates its contract.")
+    }
+
     private companion object {
         const val CONNECT_TIMEOUT_MILLIS = 5_000L
         const val REQUEST_TIMEOUT_MILLIS = 10_000L
@@ -270,7 +469,25 @@ class RunnerApiClient(
         const val BOUNDED_RESPONSE_BUFFER_SIZE = 64 * 1_024
         const val MAX_BUILD_MANIFEST_RESPONSE_BYTES = 8 * 1024 * 1024
         const val MAX_SOURCE_SCAN_RESPONSE_BYTES = 4 * 1024 * 1024
+        const val MAX_V2_RESPONSE_BYTES = 1024 * 1024
+        const val MAX_V2_BYTES = 4L * 1024 * 1024 * 1024 * 1024
         const val MIB = 1024 * 1024
+        const val V2_CONTRACT_HEADER = "X-ReproDroid-Contract"
+        const val V2_STORAGE_CONTRACT = "storage-retention@1"
+        const val V2_IDEMPOTENCY_HEADER = "Idempotency-Key"
+        val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+        val SHA256 = Regex("[0-9a-f]{64}")
+        val DECIMAL = Regex("0|[1-9][0-9]*")
+        val CAPABILITY_ID = Regex("[a-z0-9.-]{1,64}")
+        val OPERATION_KIND = Regex("[a-z0-9.-]{1,64}")
+        val REASON_CODE = Regex("[A-Z0-9_]{1,64}")
+        val V2_RESULT_TYPES = setOf("RETENTION_HOLD", "STORAGE_RESERVATION", "CLEANUP_PREVIEW", "CLEANUP_RUN")
+        val V2_STORAGE_STATES = setOf("OK", "WARNING", "OVER_BUDGET", "STORAGE_UNAVAILABLE")
+        val V2_MEASUREMENT_STATES = setOf("COMPLETE", "INCOMPLETE", "FAILED")
+        val V2_CLEANUP_RESOURCE_KINDS = setOf("JOB_WORKSPACE", "JOB_ARTIFACT", "JOB_MANIFEST", "JOB_LOG", "SANDBOX_IMPORT")
+        val V2_PROTECTION_REASONS = setOf("ACTIVE_JOB", "AWAITING_REVIEW", "SANDBOX_CLEANUP_PENDING", "RETENTION_HOLD", "ACTIVE_RESERVATION", "RESOURCE_CHANGED")
+        val V2_CLEANUP_RUN_STATES = setOf("PREVIEWED", "APPLYING", "COMPLETE", "PARTIAL", "REJECTED", "RECONCILIATION_REQUIRED")
+        val V2_CLEANUP_ITEM_RESULTS = setOf("DELETED", "ALREADY_MISSING", "SKIPPED_PROTECTED", "FAILED")
         // Additive Job fields remain compatible; sandbox itself is strictly checked before decoding.
         val JOB_JSON = Json { ignoreUnknownKeys = true }
         val BUILD_MANIFEST_JSON = Json {
@@ -280,6 +497,10 @@ class RunnerApiClient(
         val SOURCE_SCAN_JSON = Json {
             ignoreUnknownKeys = false
             explicitNulls = false
+        }
+        val V2_JSON = Json {
+            ignoreUnknownKeys = false
+            explicitNulls = true
         }
     }
 }

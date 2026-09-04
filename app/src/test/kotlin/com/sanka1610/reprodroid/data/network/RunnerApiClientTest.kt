@@ -291,6 +291,113 @@ class RunnerApiClientTest {
         }
     }
 
+    @Test
+    fun `v2 capabilities and storage summary are contract checked`() = runBlocking {
+        var requestNumber = 0
+        val runnerId = "00000000-0000-4000-8000-000000000001"
+        val engine = MockEngine { request ->
+            requestNumber++
+            when (requestNumber) {
+                1 -> {
+                    assertEquals("/v2/capabilities", request.url.encodedPath)
+                    respond(
+                        """{"apiVersion":"v2","foundationContractVersion":1,"runnerId":"$runnerId","runnerVersion":"0.1.0-alpha01","capabilities":[{"id":"foundation","contractVersion":1},{"id":"storage-retention","contractVersion":1}]}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                }
+                else -> {
+                    assertEquals("/v2/storage/summary", request.url.encodedPath)
+                    respond(
+                        """{"schemaVersion":1,"runnerId":"$runnerId","areas":[{"area":"RUNNER_JOB","budgetBytes":"68719476736","usedBytes":"1","reservedBytes":"0","unclassifiedBytes":"0","usableBytes":"100","warningPercent":80,"state":"OK","measurementState":"COMPLETE","measuredAt":"2026-09-02T00:00:00Z"},{"area":"RUNNER_TOOLCHAIN","budgetBytes":"34359738368","usedBytes":"0","reservedBytes":"0","unclassifiedBytes":"0","usableBytes":"100","warningPercent":80,"state":"OK","measurementState":"COMPLETE","measuredAt":"2026-09-02T00:00:00Z"}]}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                }
+            }
+        }
+        val client = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true)
+
+        assertEquals(runnerId, client.getV2Capabilities().runnerId)
+        assertEquals("1", client.getV2StorageSummary().areas.first().usedBytes)
+    }
+
+    @Test
+    fun `v2 hold mutation sends contract and stable idempotency headers`() = runBlocking {
+        val key = "00000000-0000-4000-8000-000000000010"
+        val engine = MockEngine { request ->
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals("/v2/retention/holds", request.url.encodedPath)
+            assertEquals("storage-retention@1", request.headers["X-ReproDroid-Contract"])
+            assertEquals(key, request.headers["Idempotency-Key"])
+            respond(
+                """{"operationId":"00000000-0000-4000-8000-000000000020","state":"COMPLETED","kind":"retention-hold-create","requestSha256":"${"a".repeat(64)}","result":{"type":"RETENTION_HOLD","resourceId":"00000000-0000-4000-8000-000000000030"},"reason":null,"createdAt":"2026-09-02T00:00:00Z","updatedAt":"2026-09-02T00:00:00Z"}""",
+                HttpStatusCode.Accepted,
+                jsonHeaders,
+            )
+        }
+        val response = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true).createV2RetentionHold(
+            V2RetentionHoldRequest(
+                V2ResourceRequest("ARTIFACT", "00000000-0000-4000-8000-000000000001"),
+                "CURRENT_COMPARISON",
+                V2ClientReferenceRequest("COMPARISON", "00000000-0000-4000-8000-000000000002"),
+            ),
+            key,
+        )
+
+        assertEquals("RETENTION_HOLD", response.result?.type)
+    }
+
+    @Test
+    fun `v2 response rejects duplicate and unknown fields`() {
+        listOf(
+            """{"apiVersion":"v2","apiVersion":"v2","foundationContractVersion":1,"runnerId":"00000000-0000-4000-8000-000000000001","runnerVersion":"x","capabilities":[]}""",
+            """{"apiVersion":"v2","foundationContractVersion":1,"runnerId":"00000000-0000-4000-8000-000000000001","runnerVersion":"x","capabilities":[],"future":true}""",
+        ).forEach { body ->
+            val engine = MockEngine { respond(body, HttpStatusCode.OK, jsonHeaders) }
+            assertThrows(RunnerResponseIntegrityException::class.java) {
+                runBlocking {
+                    RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true)
+                        .getV2Capabilities()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `v2 is disabled without the loopback development gate`() {
+        val engine = MockEngine { respond("{}", HttpStatusCode.OK, jsonHeaders) }
+        assertThrows(RunnerConfigurationException::class.java) {
+            runBlocking { RunnerApiClient("http://127.0.0.1:8080", engine).getV2Capabilities() }
+        }
+        assertThrows(RunnerConfigurationException::class.java) {
+            runBlocking {
+                RunnerApiClient("http://192.0.2.1:8080", engine, allowDevelopmentV2 = true)
+                    .getV2Capabilities()
+            }
+        }
+    }
+
+    @Test
+    fun `v2 does not follow redirects`() {
+        var requests = 0
+        val engine = MockEngine {
+            requests++
+            respond(
+                "",
+                HttpStatusCode.Found,
+                headersOf(HttpHeaders.Location, "http://127.0.0.1:8080/v2/capabilities-redirected"),
+            )
+        }
+        assertThrows(RunnerApiException::class.java) {
+            runBlocking {
+                RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true)
+                    .getV2Capabilities()
+            }
+        }
+        assertEquals(1, requests)
+    }
+
     companion object {
         private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
         private val sourceScanJson =

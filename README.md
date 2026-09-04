@@ -1,6 +1,6 @@
 # ReproDroid
 
-**Phase 4 現在地（2026-09-01）:** 4.1のpublic GitHub metadata登録、full SHA固定の静的tree探索、source-only管理、構造化build設定、Room15 migrationを実装しました。Android 16の自動test、Phase 3E実Room14 snapshot移行、上限境界、migrationの実プロセスkill-point、lint、debug／release assembleは成功しています。実public GitHubの製品経路だけは未認証rate limitで完走しておらず、[4.1契約](../reprodroid-project/docs/design/phase-4-registration-contract.md)のledgerで分離します。Runner API v2は未実装のため、新Job／confirm／retryはv1へfallbackせず停止します。
+**Phase 4 現在地（2026-09-04）:** 4.1のsource-only登録に続き、4.2のimmutable release history、bytes availability、storage budget／reservation、retention hold、manual cleanup、local audit export、Room16、Runner `storage-retention@1` clientを実装しました。Android 16でlocal／Runner summary、Runner停止時のlocal継続、cold start、空のRunner cleanup preview、audit staging／復元を製品UIから確認しています。JVM 234件とinstrumentation 54件はfailure 0で、後者の明示的opt-in 8件はskipとして分離します。実public GitHubの4.1製品経路、SAFによる外部destinationへの実ファイル保存、実Room14／15 archive fixtureは未完走のまま受入記録へ残します。generic Job／toolchain／pairingは未実装で、実行mutationをv1へfallbackしません。
 
 OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの情報を確認してAndroid標準インストーラへ渡すクライアントです。最終的には公式APKとローカルビルドAPKを比較し、利用者自身が再現性を判断できる状態を目指します。
 
@@ -13,6 +13,10 @@ Phase 3A（Build Environment Manifest public API、Room v10、Build A / B depend
 Phase 4.1では、release／APK／package名／Runner接続を登録条件から分離しました。bounded GitHub metadata readerはrepository IDとpublic状態を検証し、default branchをfull commit SHAへ解決して非再帰treeだけを走査します。blob本文、symlink、submodule、`.git`／`.gradle`配下を取得・実行しません。登録、再探索、設定保存はAPK download、Gradle、Job、comparison、installを開始せず、既存raw comparison／trust／signer policyも変更しません。
 
 Room15はprovider repository IDと管理slot、immutableなsource discovery、Gradle候補、JCS SHA-256付きbuild設定revision、current headを既存tableのsidecarとして追加します。Room14からの起動前migration gateはWAL checkpoint後のprivate snapshotをSHA-256／integrity／Room identityまで検証し、未知schema・容量不足・snapshot破損ではdestructive fallbackせず停止します。
+
+Room16は同じprovider release IDの再観測をJCS SHA-256で区別し、旧comparisonが参照するrelease／asset rowを上書きしません。過去のraw outcome、trust、signer、install attemptをbytes availabilityから分離し、bytesが`DELETED`／`MISSING`／`CORRUPT`なら現在のinstall／再比較だけを閉じます。Androidの4 GiB budget、16 MiB recovery reserve、永続reservation、NOFOLLOW集計、保護理由付きmanual cleanup、item別partial／reconciliationを追加しました。
+
+Storage画面はAndroidと互換Runnerのused／reserved／budget／usable spaceを表示します。Runner停止、capability不一致、runnerId変更を空容量へ変換せず、Android側の履歴と監査exportは維持します。監査exportは公開allowlistからschema1 JCSを再構築し、APK、source本文、private Manifest、raw log、credential、storage pathを含めません。app-private staging後にSAFへcopyし、destinationを再読込してsize／SHA-256が一致した場合だけ`COMPLETE`とします。自動share／uploadはありません。
 
 - `SIMULATED` Jobの成功・失敗を作成するCompose UI
 - Ktor clientによるRunner API v1接続
