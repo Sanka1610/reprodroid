@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.security.MessageDigest
@@ -49,6 +50,27 @@ class AuditCanonicalTest {
 
         assertEquals(first.payloadSha256, second.payloadSha256)
         assertFalse(first.bytes.contentEquals(second.bytes))
+    }
+
+    @Test
+    fun `audit limits accept exact boundaries and reject one above without truncation`() {
+        AuditExportLimits.requireWithin(
+            AuditExportLimits.MAX_RECORDS,
+            AuditExportLimits.MAX_PAYLOAD_BYTES,
+        )
+
+        assertEquals(
+            "EXPORT_LIMIT_EXCEEDED",
+            assertThrows(IllegalStateException::class.java) {
+                AuditExportLimits.requireWithin(AuditExportLimits.MAX_RECORDS + 1, 0)
+            }.message,
+        )
+        assertEquals(
+            "EXPORT_LIMIT_EXCEEDED",
+            assertThrows(IllegalStateException::class.java) {
+                AuditExportLimits.requireWithin(0, AuditExportLimits.MAX_PAYLOAD_BYTES + 1)
+            }.message,
+        )
     }
 
     private fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes)

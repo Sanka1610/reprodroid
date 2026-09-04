@@ -10,8 +10,11 @@ import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.local.ResourceAvailabilityState
 import com.sanka1610.reprodroid.data.network.BuildSandboxMode
+import com.sanka1610.reprodroid.data.network.SourceScanDetectorId
 import com.sanka1610.reprodroid.data.network.decodeSandboxEvidence
 import com.sanka1610.reprodroid.data.repository.storedSandboxManifestValid
+import com.sanka1610.reprodroid.data.local.SourceScanWithDetails
+import com.sanka1610.reprodroid.data.local.StorageReservationEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
@@ -45,6 +48,51 @@ data class StagedAuditExport(
 )
 
 internal data class CanonicalAuditBundle(val bytes: ByteArray, val payloadSha256: String)
+
+internal object AuditExportLimits {
+    const val MAX_RECORDS = 20_000
+    const val MAX_PAYLOAD_BYTES = 32 * 1024 * 1024
+
+    fun requireWithin(recordCount: Int, payloadBytes: Int) {
+        check(recordCount in 0..MAX_RECORDS) { "EXPORT_LIMIT_EXCEEDED" }
+        check(payloadBytes in 0..MAX_PAYLOAD_BYTES) { "EXPORT_LIMIT_EXCEEDED" }
+    }
+}
+
+internal object StoredPublicEvidenceValidator {
+    private val commitSha = Regex("[0-9a-f]{40}")
+    private val sha256 = Regex("[0-9a-f]{64}")
+    private val detectorIds = SourceScanDetectorId.entries.mapTo(mutableSetOf()) { it.name }
+
+    fun requireValid(scan: SourceScanWithDetails) {
+        val header = scan.scan
+        check(header.schemaVersion == 1)
+        check(commitSha.matches(header.resolvedCommitSha))
+        check(header.scannerVersion == "reprodroid-static-v1")
+        check(sha256.matches(header.resultSha256))
+        check(header.scannedFiles in 0..50_000)
+        check(header.scannedBytes in 0..(256L * 1024L * 1024L))
+        check(header.skippedBinaryFiles in 0..50_000)
+        check(header.skippedSymlinks in 0..50_000)
+        check(header.findingCount in 0..500 && header.findingCount == scan.findings.size)
+        check(header.requiresReview == (header.findingCount > 0))
+        check(!header.reviewed || header.requiresReview)
+        check(scan.detectorCounts.all { it.jobId == header.jobId && it.detectorId in detectorIds && it.count > 0 })
+        check(scan.detectorCounts.map { it.detectorId }.distinct().size == scan.detectorCounts.size)
+        check(scan.findings.all {
+            it.jobId == header.jobId && it.detectorId in detectorIds && safeDisplayPath(it.displayPath) &&
+                (it.line == null) == (it.column == null) && (it.line == null || it.line > 0 && requireNotNull(it.column) > 0)
+        })
+        check(scan.findings.map { it.ordinal }.sorted() == scan.findings.indices.toList())
+        val actualCounts = scan.findings.groupingBy { it.detectorId }.eachCount()
+        check(scan.detectorCounts.associate { it.detectorId to it.count } == actualCounts)
+    }
+
+    private fun safeDisplayPath(path: String): Boolean =
+        path.isNotBlank() && path.toByteArray(StandardCharsets.UTF_8).size <= 1_024 &&
+            !path.startsWith('/') && !path.contains('\\') &&
+            path.split('/').none { it.isEmpty() || it == "." || it == ".." }
+}
 
 internal object AuditCanonical {
     fun recordSha256(type: String, payload: JsonObject): String = sha256(
@@ -163,13 +211,13 @@ class AuditExportManager(
         val exportId = UUID.randomUUID().toString()
         val scope = scopeJson(scopeType, ids)
         val records = buildRecords(ids).distinctBy { listOf(it.type, it.stableId, it.sha256) }
-        check(records.size <= MAX_RECORDS) { "EXPORT_LIMIT_EXCEEDED" }
+        AuditExportLimits.requireWithin(records.size, 0)
         val recordNodes = records.sortedWith(compareBy(AuditRecord::type, AuditRecord::stableId, AuditRecord::order, AuditRecord::sha256))
             .map(AuditRecord::node)
         val canonical = AuditCanonical.bundle(scope, recordNodes, now())
         val payloadSha256 = canonical.payloadSha256
         val bytes = canonical.bytes
-        check(bytes.size <= MAX_PAYLOAD_BYTES) { "EXPORT_LIMIT_EXCEEDED" }
+        AuditExportLimits.requireWithin(records.size, bytes.size)
         val bundleSha256 = sha256(bytes)
         val path = storageManager.expectedAuditExportPath(exportId)
         val relative = "audit-exports/${path.fileName}"
@@ -189,9 +237,11 @@ class AuditExportManager(
             updatedAt = now(),
         )
         storageDao.upsertAuditExport(export)
-        val reservation = storageManager.reserveWrite("AUDIT_EXPORT", exportId, bytes.size.toLong())
         val part = path.resolveSibling("${path.fileName}.part")
+        var reservation: StorageReservationEntity? = null
         try {
+            val activeReservation = storageManager.reserveWrite("AUDIT_EXPORT", exportId, bytes.size.toLong())
+            reservation = activeReservation
             withContext(Dispatchers.IO) {
                 Files.createDirectories(path.parent)
                 val directory = Files.readAttributes(
@@ -213,7 +263,7 @@ class AuditExportManager(
                 }
                 check(Files.size(path) == bytes.size.toLong() && sha256(path) == bundleSha256)
             }
-            storageManager.recordPresentAndConsume(reservation, bytes.size.toLong(), bundleSha256)
+            storageManager.recordPresentAndConsume(activeReservation, bytes.size.toLong(), bundleSha256)
             val staged = export.copy(state = AuditExportState.STAGED.name, updatedAt = now())
             storageDao.upsertAuditExport(staged)
             staged.toResult()
@@ -224,9 +274,13 @@ class AuditExportManager(
             val finalMayExist = runCatching {
                 Files.exists(path, LinkOption.NOFOLLOW_LINKS)
             }.getOrDefault(true)
-            val reservationFailure = runCatching {
-                withContext(NonCancellable) { storageManager.recordDownloadFailure(reservation, finalMayExist) }
-            }.exceptionOrNull()
+            val reservationFailure = reservation?.let { activeReservation ->
+                runCatching {
+                    withContext(NonCancellable) {
+                        storageManager.recordDownloadFailure(activeReservation, finalMayExist)
+                    }
+                }.exceptionOrNull()
+            }
             val persistenceFailure = runCatching {
                 withContext(NonCancellable) {
                     storageDao.upsertAuditExport(
@@ -548,7 +602,7 @@ class AuditExportManager(
         jobId: String,
         scan: com.sanka1610.reprodroid.data.local.SourceScanWithDetails,
     ): AuditRecord {
-        check(scan.scan.schemaVersion == 1 && SHA256.matches(scan.scan.resultSha256)) { "Stored public scan evidence is invalid." }
+        StoredPublicEvidenceValidator.requireValid(scan)
         return record("public-source-scan-summary", jobId, payload = buildJsonObject {
             put("jobId", jobId)
             put("schemaVersion", scan.scan.schemaVersion)
@@ -636,10 +690,7 @@ class AuditExportManager(
 
     private companion object {
         const val SCHEMA_VERSION = 1
-        const val MAX_RECORDS = 20_000
-        const val MAX_PAYLOAD_BYTES = 32 * 1024 * 1024
         const val COPY_BUFFER_BYTES = 64 * 1024
         val UUID_PATTERN = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-        val SHA256 = Regex("[0-9a-f]{64}")
     }
 }

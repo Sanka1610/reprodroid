@@ -5,11 +5,18 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
+import com.sanka1610.reprodroid.data.local.RegisteredAppEntity
+import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
+import com.sanka1610.reprodroid.data.local.ReleaseObservationHasher
+import com.sanka1610.reprodroid.data.local.ReleaseObservationInput
+import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.network.RunnerApiClient
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
 import com.sanka1610.reprodroid.data.network.RevisionType
 import com.sanka1610.reprodroid.data.provider.GitHubProviderException
+import com.sanka1610.reprodroid.data.provider.GitHubReleasesClient
 import com.sanka1610.reprodroid.data.provider.GitHubRepository
 import com.sanka1610.reprodroid.data.provider.GitHubRepositoryDiscoveryClient
 import com.sanka1610.reprodroid.data.provider.GitHubRepositoryIdentity
@@ -428,6 +435,120 @@ class RegistrationPersistenceTest {
         }
     }
 
+    @Test
+    fun identicalReleaseObservationRefreshConvergesWithoutDuplicateOrDownload() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val commitSha = "1".repeat(40)
+        val appId = "00000000-0000-4000-8000-000000000101"
+        val snapshotId = "00000000-0000-4000-8000-000000000102"
+        val assetId = "00000000-0000-4000-8000-000000000103"
+        val observedAt = "2026-09-01T00:00:00Z"
+        val provider = MockEngine { request ->
+            when (request.url.encodedPath) {
+                "/repos/example/project/releases/latest" -> respond(RELEASE_OBSERVATION_JSON, HttpStatusCode.OK, JSON_HEADERS)
+                "/repos/example/project/git/ref/tags/1.0" -> respond(
+                    """{"ref":"refs/tags/1.0","object":{"type":"commit","sha":"$commitSha","url":"unused"}}""",
+                    HttpStatusCode.OK,
+                    JSON_HEADERS,
+                )
+                else -> error("Unexpected request: ${request.url}")
+            }
+        }
+        try {
+            val observationSha = ReleaseObservationHasher.sha256(
+                ReleaseObservationInput(
+                    provider = "GITHUB",
+                    instance = "github.com",
+                    providerRepositoryId = "https://github.com/example/project",
+                    providerReleaseId = 100,
+                    tagName = "1.0",
+                    resolvedCommitSha = commitSha,
+                    targetCommitishRaw = "main",
+                    releaseName = "1.0",
+                    releaseUrl = "https://github.com/example/project/releases/tag/1.0",
+                    isDraft = false,
+                    isPrerelease = false,
+                    isImmutable = false,
+                    releaseCreatedAt = "2026-09-01T00:00:00Z",
+                    publishedAt = "2026-09-01T00:00:00Z",
+                    providerAssetId = 200,
+                    assetName = "project.apk",
+                    stableAssetUrl = "https://github.com/example/project/releases/download/1.0/project.apk",
+                    contentType = "application/vnd.android.package-archive",
+                    providerSizeBytes = 1024,
+                    providerDigestSha256 = "a".repeat(64),
+                    selectionReason = "SINGLE_APK",
+                ),
+            )
+            val dao = database.managedAppDao()
+            dao.upsertRegisteredApp(
+                RegisteredAppEntity(
+                    registeredAppId = appId,
+                    displayName = "project",
+                    repositoryUrl = "https://github.com/example/project",
+                    canonicalRepositoryUrl = "https://github.com/example/project",
+                    provider = "PUBLIC_GITHUB_RELEASES",
+                    managementMode = ManagementMode.VERIFICATION.name,
+                    createdAt = observedAt,
+                    updatedAt = observedAt,
+                ),
+            )
+            dao.upsertReleaseSnapshot(
+                ReleaseSnapshotEntity(
+                    releaseSnapshotId = snapshotId,
+                    registeredAppId = appId,
+                    providerReleaseId = 100,
+                    tagName = "1.0",
+                    resolvedCommitSha = commitSha,
+                    releaseName = "1.0",
+                    releaseUrl = "https://github.com/example/project/releases/tag/1.0",
+                    targetCommitishRaw = "main",
+                    isDraft = false,
+                    isPrerelease = false,
+                    isImmutable = false,
+                    releaseCreatedAt = observedAt,
+                    publishedAt = observedAt,
+                    fetchedAt = observedAt,
+                    observationSha256 = observationSha,
+                    lastObservedAt = observedAt,
+                    selectedProviderAssetId = 200,
+                ),
+            )
+            dao.upsertReleaseAsset(
+                ReleaseAssetEntity(
+                    releaseAssetId = assetId,
+                    releaseSnapshotId = snapshotId,
+                    providerAssetId = 200,
+                    assetName = "project.apk",
+                    stableAssetUrl = "https://github.com/example/project/releases/download/1.0/project.apk",
+                    selectionReason = "SINGLE_APK",
+                    contentType = "application/vnd.android.package-archive",
+                    providerSizeBytes = 1024,
+                    providerDigestSha256 = "a".repeat(64),
+                    downloadStatus = ReferenceDownloadStatus.NOT_DOWNLOADED.name,
+                ),
+            )
+            val repository = ManagedAppRepository(
+                context,
+                database,
+                JobRepository(context, database, RunnerApiClient("")),
+                provider = GitHubReleasesClient(provider),
+            )
+
+            repository.refresh(appId)
+
+            assertEquals(1, rowCount(database, "release_snapshots"))
+            assertEquals(1, rowCount(database, "release_assets"))
+            assertEquals(snapshotId, dao.getReleaseSnapshotByObservationHash(appId, observationSha)?.releaseSnapshotId)
+            assertTrue(requireNotNull(dao.getReleaseSnapshot(snapshotId)).lastObservedAt > observedAt)
+            assertEquals(ReferenceDownloadStatus.NOT_DOWNLOADED.name, dao.getReleaseAsset(assetId)?.downloadStatus)
+        } finally {
+            database.close()
+        }
+    }
+
     private fun preview() = RepositoryRegistrationPreview(
         normalizedInputUrl = "https://github.com/example/project",
         identity = GitHubRepositoryIdentity(
@@ -461,6 +582,33 @@ class RegistrationPersistenceTest {
             ),
         ),
     )
+
+    private companion object {
+        val JSON_HEADERS = headersOf(HttpHeaders.ContentType, "application/json")
+        const val RELEASE_OBSERVATION_JSON = """
+            {
+              "id":100,
+              "tag_name":"1.0",
+              "target_commitish":"main",
+              "name":"1.0",
+              "html_url":"https://github.com/example/project/releases/tag/1.0",
+              "draft":false,
+              "prerelease":false,
+              "immutable":false,
+              "created_at":"2026-09-01T00:00:00Z",
+              "published_at":"2026-09-01T00:00:00Z",
+              "assets":[{
+                "id":200,
+                "name":"project.apk",
+                "state":"uploaded",
+                "content_type":"application/vnd.android.package-archive",
+                "size":1024,
+                "digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "browser_download_url":"https://github.com/example/project/releases/download/1.0/project.apk"
+              }]
+            }
+        """
+    }
 
     private fun rowCount(database: ReproDroidDatabase, table: String): Int =
         database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM $table").use { cursor ->

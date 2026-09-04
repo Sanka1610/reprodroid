@@ -34,7 +34,12 @@ class AuditExportManagerTest {
 
     @After
     fun tearDown() {
-        context.filesDir.resolve("audit-exports").listFiles()?.forEach { it.delete() }
+        val exports = context.filesDir.resolve("audit-exports").toPath()
+        if (Files.isSymbolicLink(exports)) {
+            Files.deleteIfExists(exports)
+        } else {
+            exports.toFile().listFiles()?.forEach { it.delete() }
+        }
         WritableAuditDestinationProvider.destinationFile(
             context,
         ).delete()
@@ -153,5 +158,32 @@ class AuditExportManagerTest {
             AuditExportState.FAILED.name,
             database.storageDao().getAuditExport(staged.auditExportId)?.state,
         )
+    }
+
+    @Test
+    fun unsafeStagingDirectoryFailsWithoutWritingOrConsumingReservation() = runBlocking {
+        val exports = context.filesDir.resolve("audit-exports").toPath()
+        exports.toFile().listFiles()?.forEach { it.delete() }
+        Files.deleteIfExists(exports)
+        val outside = Files.createTempDirectory(context.cacheDir.toPath(), "audit-staging-outside-")
+        val marker = Files.write(outside.resolve("must-remain"), "outside".toByteArray())
+        Files.createSymbolicLink(exports, outside)
+        try {
+            val manager = AuditExportManager(context, database, storage)
+
+            assertTrue(runCatching { manager.stageAll() }.isFailure)
+
+            val failed = requireNotNull(database.storageDao().getLatestAuditExport())
+            assertEquals(AuditExportState.FAILED.name, failed.state)
+            assertEquals("STAGING_FAILED", failed.errorCode)
+            assertTrue(Files.exists(marker))
+            assertEquals(0, database.storageDao().getActiveReservedBytes(AndroidStorageManager.AREA_ANDROID))
+            assertEquals(0, database.storageDao().getReservationReconciliationCount())
+        } finally {
+            Files.deleteIfExists(exports)
+            Files.deleteIfExists(marker)
+            Files.deleteIfExists(outside)
+            Files.createDirectories(exports)
+        }
     }
 }
