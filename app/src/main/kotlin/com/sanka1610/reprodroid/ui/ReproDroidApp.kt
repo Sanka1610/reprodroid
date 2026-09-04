@@ -102,6 +102,7 @@ import com.sanka1610.reprodroid.data.storage.RunnerStorageConnectionState
 import com.sanka1610.reprodroid.data.storage.StagedAuditExport
 import com.sanka1610.reprodroid.data.network.V2CleanupPreviewResponse
 import com.sanka1610.reprodroid.data.network.V2CleanupRunResponse
+import com.sanka1610.reprodroid.data.toolchain.ToolchainUiState
 import androidx.compose.ui.platform.LocalContext
 import java.io.File
 import java.util.UUID
@@ -147,11 +148,13 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
     val auditExport by managedViewModel.auditExport.collectAsStateWithLifecycle()
     val runnerCleanupPreview by managedViewModel.runnerCleanupPreview.collectAsStateWithLifecycle()
     val runnerCleanupRun by managedViewModel.runnerCleanupRun.collectAsStateWithLifecycle()
+    val toolchainState by managedViewModel.toolchainState.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(MainDestination.APPS) }
     var selectedAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var showRunnerJobs by rememberSaveable { mutableStateOf(false) }
     var showStorage by rememberSaveable { mutableStateOf(false) }
+    var showToolchains by rememberSaveable { mutableStateOf(false) }
     val useDark = when (enumValue(globalSettings.themeMode, ThemeMode.DARK)) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
@@ -171,6 +174,7 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                 settingsAppId = null
                                 showRunnerJobs = false
                                 showStorage = false
+                                showToolchains = false
                             },
                             icon = { NavigationGlyph("▦") },
                             label = { Text("Apps") },
@@ -183,6 +187,7 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                 settingsAppId = null
                                 showRunnerJobs = false
                                 showStorage = false
+                                showToolchains = false
                             },
                             icon = { NavigationGlyph("＋") },
                             label = { Text("Add") },
@@ -195,6 +200,7 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                 settingsAppId = null
                                 showRunnerJobs = false
                                 showStorage = false
+                                showToolchains = false
                             },
                             icon = { NavigationGlyph("⚙") },
                             label = { Text("Settings") },
@@ -343,11 +349,23 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                 onExecuteRunnerCleanup = managedViewModel::executeRunnerCleanup,
                             )
                         }
+                        destination == MainDestination.SETTINGS && showToolchains -> {
+                            ToolchainScreen(
+                                state = toolchainState,
+                                onBack = { showToolchains = false },
+                                onRefresh = managedViewModel::refreshToolchains,
+                                onInstall = managedViewModel::installToolchains,
+                                onCancel = managedViewModel::cancelToolchainInstallation,
+                                onPreviewRemoval = managedViewModel::previewToolchainRemoval,
+                                onExecuteRemoval = managedViewModel::executeToolchainRemoval,
+                            )
+                        }
                         else -> SettingsScreen(
                             settings = globalSettings,
                             onUpdate = managedViewModel::updateGlobalSettings,
                             onOpenRunnerJobs = { showRunnerJobs = true },
                             onOpenStorage = { showStorage = true; managedViewModel.refreshStorage() },
+                            onOpenToolchains = { showToolchains = true; managedViewModel.refreshToolchains() },
                         )
                     }
                 }
@@ -1475,6 +1493,7 @@ private fun SettingsScreen(
     onUpdate: (GlobalSettingsEntity) -> Unit,
     onOpenRunnerJobs: () -> Unit,
     onOpenStorage: () -> Unit,
+    onOpenToolchains: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -1568,6 +1587,11 @@ private fun SettingsScreen(
         item { SettingInfo("GitHub API", "Unauthenticated · manual refresh") }
         item {
             HorizontalDivider()
+            TextButton(onClick = onOpenToolchains, modifier = Modifier.fillMaxWidth()) {
+                Text("Open managed build toolchains")
+            }
+        }
+        item {
             TextButton(onClick = onOpenStorage, modifier = Modifier.fillMaxWidth()) {
                 Text("Open Storage, cleanup, and audit tools")
             }
@@ -1577,7 +1601,132 @@ private fun SettingsScreen(
                 Text("Open Runner jobs and Phase 1 tools")
             }
         }
-        item { SettingInfo("ReproDroid", "0.1.0-alpha01 · Phase 4.2") }
+        item { SettingInfo("ReproDroid", "0.1.0-alpha01 · Phase 4.3") }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ToolchainScreen(
+    state: ToolchainUiState,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onInstall: (Set<String>) -> Unit,
+    onCancel: () -> Unit,
+    onPreviewRemoval: (Set<String>) -> Unit,
+    onExecuteRemoval: () -> Unit,
+) {
+    BackHandler(onBack = onBack)
+    var acceptedLicenses by remember(state.plan?.planSha256) { mutableStateOf(emptySet<String>()) }
+    var selectedArtifacts by remember(state.inventory?.items?.map { it.artifactId }) { mutableStateOf(emptySet<String>()) }
+    Column(Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("Managed toolchains") },
+            navigationIcon = { IconButton(onClick = onBack) { NavigationGlyph("‹") } },
+            actions = { IconButton(enabled = !state.busy, onClick = onRefresh) { NavigationGlyph("↻") } },
+        )
+        if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                SectionTitle(
+                    "Trusted catalog plan",
+                    "Runner-owned Linux x86_64 store. Shared developer JDK/SDK paths are not imported or changed.",
+                )
+            }
+            val plan = state.plan
+            if (plan == null) {
+                item { Text("No current plan. Refresh to resolve the bundled catalog snapshot.") }
+            } else {
+                items(plan.items, key = { "plan-${it.artifactId}" }) { item ->
+                    DetailCard(item.component.name.displayEnum()) {
+                        DetailValue("Version", item.version)
+                        DetailValue("Download", formatBytes(item.downloadBytes.toLong()))
+                        DetailValue("Reservation", formatBytes(item.reservedBytes.toLong()))
+                        DetailValue("Status", if (item.alreadyInstalled) "Installed and verified" else "Required")
+                    }
+                }
+                items(plan.requiredLicenses, key = { "license-${it.licenseId}" }) { license ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Top) {
+                            Checkbox(
+                                checked = license.licenseId in acceptedLicenses,
+                                onCheckedChange = { checked ->
+                                    acceptedLicenses = if (checked) acceptedLicenses + license.licenseId else acceptedLicenses - license.licenseId
+                                },
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(license.displayName, fontWeight = FontWeight.SemiBold)
+                                Text(license.text, style = MaterialTheme.typography.bodySmall)
+                                Text("Terms source: ${license.sourceUrl}", style = MaterialTheme.typography.labelSmall)
+                                Text("Consent digest: ${license.textSha256}", style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                }
+                item {
+                    Button(
+                        enabled = !state.busy && acceptedLicenses == plan.requiredLicenses.map { it.licenseId }.toSet(),
+                        onClick = { onInstall(acceptedLicenses) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Install current plan") }
+                }
+            }
+            state.installation?.let { installation ->
+                item {
+                    DetailCard("Installation") {
+                        DetailValue("State", installation.state.name.displayEnum())
+                        DetailValue("Progress", "${installation.progressPercent}%")
+                        installation.reason?.let { DetailValue("Reason", "${it.code}: ${it.message}") }
+                        if (installation.state.name !in setOf("INSTALLED", "CANCELLED", "FAILED", "RECONCILIATION_REQUIRED")) {
+                            TextButton(onClick = onCancel) { Text("Cancel after current I/O stops") }
+                        }
+                    }
+                }
+            }
+            item { HorizontalDivider(); SectionTitle("Runner inventory", "Only Runner-verified product-store entries are shown.") }
+            val inventory = state.inventory
+            if (inventory == null || inventory.items.isEmpty()) {
+                item { Text("Managed toolchain inventory is empty.") }
+            } else {
+                items(inventory.items, key = { "inventory-${it.artifactId}" }) { item ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = item.artifactId in selectedArtifacts,
+                                enabled = item.state == "VERIFIED" && !state.busy,
+                                onCheckedChange = { checked -> selectedArtifacts = if (checked) selectedArtifacts + item.artifactId else selectedArtifacts - item.artifactId },
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text("${item.component.name.displayEnum()} ${item.version}", fontWeight = FontWeight.SemiBold)
+                                Text("${item.state} · ${formatBytes(item.installedBytes.toLong())}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                item {
+                    Button(enabled = selectedArtifacts.isNotEmpty() && !state.busy, onClick = { onPreviewRemoval(selectedArtifacts) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Preview selected toolchains")
+                    }
+                }
+                state.removalPreview?.let { preview ->
+                    item {
+                        DetailCard("Removal confirmation") {
+                            DetailValue("Selected entries", preview.artifactIds.size.toString())
+                            DetailValue("Releasable", formatBytes(preview.releasableBytes.toLong()))
+                            DetailValue("Preview expires", preview.expiresAt)
+                            Text("Only the Runner-owned paths in this preview will be removed. This action does not touch the shared developer JDK or Android SDK.")
+                            Button(enabled = !state.busy, onClick = onExecuteRemoval, modifier = Modifier.fillMaxWidth()) {
+                                Text("Confirm manual removal")
+                            }
+                        }
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(24.dp)) }
+        }
     }
 }
 

@@ -207,6 +207,46 @@ class RunnerApiClient(
         }
     }
 
+    suspend fun resolveToolchainPlan(request: ResolveToolchainPlanRequest): ToolchainPlanResponse =
+        client.post(endpoint("/v2/toolchains/plans:resolve")) { contentType(ContentType.Application.Json); setBody(request) }
+            .v2Body<ToolchainPlanResponse>().also(::validateToolchainPlan)
+
+    suspend fun createToolchainInstallation(request: CreateToolchainInstallationRequest, idempotencyKey: String): ToolchainInstallationResponse =
+        v2Mutation<CreateToolchainInstallationRequest, ToolchainInstallationResponse>(
+            "/v2/toolchains/installations", request, idempotencyKey, V2_TOOLCHAIN_CONTRACT,
+        ).also(::validateToolchainInstallation)
+
+    suspend fun getToolchainInstallation(installationId: String): ToolchainInstallationResponse {
+        requireCanonicalUuid(installationId, "installationId")
+        return client.prepareGet(endpoint("/v2/toolchains/installations/$installationId")).execute { response ->
+            response.v2Body<ToolchainInstallationResponse>().also(::validateToolchainInstallation)
+        }
+    }
+
+    suspend fun cancelToolchainInstallation(installationId: String, idempotencyKey: String): ToolchainInstallationResponse {
+        requireCanonicalUuid(installationId, "installationId")
+        return v2MutationWithoutBody<ToolchainInstallationResponse>(
+            "/v2/toolchains/installations/$installationId:cancel", idempotencyKey, V2_TOOLCHAIN_CONTRACT,
+        ).also(::validateToolchainInstallation)
+    }
+
+    suspend fun getToolchainInventory(): ToolchainInventoryResponse =
+        client.prepareGet(endpoint("/v2/toolchains/inventory")).execute { response ->
+            response.v2Body<ToolchainInventoryResponse>().also(::validateToolchainInventory)
+        }
+
+    suspend fun previewToolchainRemoval(artifactIds: List<String>, idempotencyKey: String): ToolchainRemovalPreviewResponse =
+        v2Mutation<ToolchainRemovalRequest, ToolchainRemovalPreviewResponse>(
+            "/v2/toolchains/removals:preview", ToolchainRemovalRequest(artifactIds), idempotencyKey, V2_TOOLCHAIN_CONTRACT,
+        ).also(::validateToolchainRemovalPreview)
+
+    suspend fun executeToolchainRemoval(previewId: String, idempotencyKey: String): V2OperationResponse {
+        requireCanonicalUuid(previewId, "previewId")
+        return v2Mutation<ExecuteToolchainRemovalRequest, V2OperationResponse>(
+            "/v2/toolchains/removals:execute", ExecuteToolchainRemovalRequest(previewId), idempotencyKey, V2_TOOLCHAIN_CONTRACT,
+        ).also(::validateOperation)
+    }
+
     suspend fun downloadArtifact(jobId: String, artifactId: String, destination: File): ArtifactDownloadResponse =
         client.prepareGet(endpoint("/v1/jobs/$jobId/artifacts/$artifactId/content")) {
             timeout {
@@ -264,13 +304,26 @@ class RunnerApiClient(
         path: String,
         request: Request,
         idempotencyKey: String,
+        contract: String = V2_STORAGE_CONTRACT,
     ): Response {
         requireCanonicalUuid(idempotencyKey, "Idempotency-Key")
         return client.post(endpoint(path)) {
             contentType(ContentType.Application.Json)
-            header(V2_CONTRACT_HEADER, V2_STORAGE_CONTRACT)
+            header(V2_CONTRACT_HEADER, contract)
             header(V2_IDEMPOTENCY_HEADER, idempotencyKey)
             setBody(request)
+        }.v2Body()
+    }
+
+    private suspend inline fun <reified Response> v2MutationWithoutBody(
+        path: String,
+        idempotencyKey: String,
+        contract: String,
+    ): Response {
+        requireCanonicalUuid(idempotencyKey, "Idempotency-Key")
+        return client.post(endpoint(path)) {
+            header(V2_CONTRACT_HEADER, contract)
+            header(V2_IDEMPOTENCY_HEADER, idempotencyKey)
         }.v2Body()
     }
 
@@ -447,6 +500,47 @@ class RunnerApiClient(
         }
     }
 
+    private fun validateToolchainPlan(response: ToolchainPlanResponse) {
+        checkV2(response.schemaVersion == 1 && response.platform == "linux-x86_64")
+        requireCanonicalUuid(response.runnerId, "runnerId")
+        checkV2(SHA256.matches(response.catalogSha256) && SHA256.matches(response.planSha256))
+        validateV2Bytes(response.downloadBytes); validateV2Bytes(response.reservedBytes)
+        checkV2(response.items.isNotEmpty() && response.items.size <= 16)
+        checkV2(response.items.map { it.artifactId }.distinct().size == response.items.size)
+        response.items.forEach { checkV2(SHA256.matches(it.archiveSha256)); validateV2Bytes(it.downloadBytes); validateV2Bytes(it.reservedBytes) }
+        checkV2(response.requiredLicenses.map { it.licenseId }.distinct().size == response.requiredLicenses.size)
+        response.requiredLicenses.forEach { checkV2(SHA256.matches(it.textSha256) && it.text.isNotBlank() && it.sourceUrl.startsWith("https://")) }
+    }
+
+    private fun validateToolchainInstallation(response: ToolchainInstallationResponse) {
+        checkV2(response.schemaVersion == 1 && response.progressPercent in 0..100)
+        requireCanonicalUuid(response.installationId, "installationId"); requireCanonicalUuid(response.operationId, "operationId"); requireCanonicalUuid(response.runnerId, "runnerId")
+        checkV2(SHA256.matches(response.planSha256) && SHA256.matches(response.catalogSha256))
+        checkV2(response.items.isNotEmpty() && response.items.size <= 16)
+        checkV2(response.items.map { it.artifactId }.distinct().size == response.items.size)
+        response.items.forEach { validateV2Bytes(it.downloadedBytes) }
+        checkV2(runCatching { Instant.parse(response.createdAt) }.isSuccess && runCatching { Instant.parse(response.updatedAt) }.isSuccess)
+    }
+
+    private fun validateToolchainInventory(response: ToolchainInventoryResponse) {
+        checkV2(response.schemaVersion == 1); requireCanonicalUuid(response.runnerId, "runnerId"); checkV2(SHA256.matches(response.catalogSha256))
+        checkV2(response.items.size <= 128 && response.items.map { it.artifactId }.distinct().size == response.items.size)
+        response.items.forEach {
+            checkV2(SHA256.matches(it.archiveSha256) && SHA256.matches(it.contentManifestSha256))
+            validateV2Bytes(it.installedBytes)
+            checkV2(it.state in setOf("VERIFIED", "RECONCILIATION_REQUIRED") && runCatching { Instant.parse(it.installedAt) }.isSuccess)
+        }
+    }
+
+    private fun validateToolchainRemovalPreview(response: ToolchainRemovalPreviewResponse) {
+        checkV2(response.schemaVersion == 1)
+        requireCanonicalUuid(response.previewId, "previewId")
+        checkV2(response.artifactIds.isNotEmpty() && response.artifactIds.size <= 32)
+        checkV2(response.artifactIds == response.artifactIds.distinct().sorted())
+        validateV2Bytes(response.releasableBytes)
+        checkV2(runCatching { Instant.parse(response.expiresAt) }.isSuccess)
+    }
+
     private fun validateV2Bytes(value: String) {
         checkV2(DECIMAL.matches(value) && value.toLongOrNull() in 0..MAX_V2_BYTES)
     }
@@ -474,6 +568,7 @@ class RunnerApiClient(
         const val MIB = 1024 * 1024
         const val V2_CONTRACT_HEADER = "X-ReproDroid-Contract"
         const val V2_STORAGE_CONTRACT = "storage-retention@1"
+        const val V2_TOOLCHAIN_CONTRACT = "toolchain-install@1"
         const val V2_IDEMPOTENCY_HEADER = "Idempotency-Key"
         val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         val SHA256 = Regex("[0-9a-f]{64}")
@@ -481,7 +576,7 @@ class RunnerApiClient(
         val CAPABILITY_ID = Regex("[a-z0-9.-]{1,64}")
         val OPERATION_KIND = Regex("[a-z0-9.-]{1,64}")
         val REASON_CODE = Regex("[A-Z0-9_]{1,64}")
-        val V2_RESULT_TYPES = setOf("RETENTION_HOLD", "STORAGE_RESERVATION", "CLEANUP_PREVIEW", "CLEANUP_RUN")
+        val V2_RESULT_TYPES = setOf("RETENTION_HOLD", "STORAGE_RESERVATION", "CLEANUP_PREVIEW", "CLEANUP_RUN", "TOOLCHAIN_INSTALLATION", "TOOLCHAIN_REMOVAL")
         val V2_STORAGE_STATES = setOf("OK", "WARNING", "OVER_BUDGET", "STORAGE_UNAVAILABLE")
         val V2_MEASUREMENT_STATES = setOf("COMPLETE", "INCOMPLETE", "FAILED")
         val V2_CLEANUP_RESOURCE_KINDS = setOf("JOB_WORKSPACE", "JOB_ARTIFACT", "JOB_MANIFEST", "JOB_LOG", "SANDBOX_IMPORT")

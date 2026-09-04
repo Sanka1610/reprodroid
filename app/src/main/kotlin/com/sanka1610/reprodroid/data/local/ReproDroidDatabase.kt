@@ -39,16 +39,39 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         CleanupRunEntity::class,
         CleanupItemEntity::class,
         AuditExportEntity::class,
+        ToolchainInstallationReferenceEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun jobDao(): JobDao
     abstract fun managedAppDao(): ManagedAppDao
     abstract fun storageDao(): StorageDao
+    abstract fun toolchainDao(): ToolchainDao
 
     companion object {
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS toolchain_installation_references (
+                        runnerId TEXT NOT NULL,
+                        installationId TEXT NOT NULL,
+                        operationId TEXT NOT NULL,
+                        registeredAppId TEXT,
+                        buildSettingsRevision INTEGER,
+                        planSha256 TEXT NOT NULL,
+                        catalogSha256 TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        observedAt TEXT NOT NULL,
+                        PRIMARY KEY(runnerId, installationId)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         val MIGRATION_15_16 = object : Migration(15, 16) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE global_settings ADD COLUMN androidStorageBudgetBytes INTEGER NOT NULL DEFAULT 4294967296")

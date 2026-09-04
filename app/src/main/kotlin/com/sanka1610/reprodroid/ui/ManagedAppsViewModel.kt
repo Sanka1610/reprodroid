@@ -38,6 +38,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     private val cleanupManager = reprodroidApplication.cleanupManager
     private val retentionCoordinator = reprodroidApplication.retentionCoordinator
     private val auditExportManager = reprodroidApplication.auditExportManager
+    private val toolchainCoordinator = reprodroidApplication.toolchainCoordinator
 
     val apps = repository.observeApps().stateIn(
         scope = viewModelScope,
@@ -69,6 +70,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     val runnerStorageState = retentionCoordinator.state
     val runnerCleanupPreview = retentionCoordinator.cleanupPreview
     val runnerCleanupRun = retentionCoordinator.cleanupRun
+    val toolchainState = toolchainCoordinator.state
 
     val availability = repository.observeAvailability().stateIn(
         scope = viewModelScope,
@@ -104,6 +106,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
                 repository.recoverInterruptedDownloads()
                 repository.recoverOrphanedReleaseInstallAttempts()
                 auditExportManager.reconcileInterruptedExports()
+                toolchainCoordinator.recoverActive()
                 _auditExport.value = auditExportManager.latest()
                 _androidStorageSummary.value = storageManager.summary()
             }
@@ -308,6 +311,20 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         _auditExport.value = null
     }
 
+    fun refreshToolchains() = runToolchainAction { toolchainCoordinator.refresh() }
+
+    fun installToolchains(acceptedLicenseIds: Set<String>) = runToolchainAction {
+        toolchainCoordinator.install(acceptedLicenseIds)
+    }
+
+    fun cancelToolchainInstallation() = runToolchainAction { toolchainCoordinator.cancel() }
+
+    fun previewToolchainRemoval(artifactIds: Set<String>) = runToolchainAction {
+        toolchainCoordinator.previewRemoval(artifactIds)
+    }
+
+    fun executeToolchainRemoval() = runToolchainAction { toolchainCoordinator.executeRemoval() }
+
     fun clearPreview() {
         previewJob?.cancel()
         registrationJob?.cancel()
@@ -343,6 +360,18 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
                 _message.value = failure.userMessage()
             } finally {
                 _storageBusy.value = false
+            }
+        }
+    }
+
+    private fun runToolchainAction(action: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                action()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                _message.value = failure.userMessage()
             }
         }
     }

@@ -12,6 +12,7 @@ import com.sanka1610.reprodroid.data.storage.AndroidStorageManager
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupManager
 import com.sanka1610.reprodroid.data.storage.RunnerRetentionCoordinator
 import com.sanka1610.reprodroid.data.storage.AuditExportManager
+import com.sanka1610.reprodroid.data.toolchain.ToolchainCoordinator
 
 class ReproDroidApplication : Application() {
     lateinit var jobRepository: JobRepository
@@ -26,13 +27,15 @@ class ReproDroidApplication : Application() {
         private set
     lateinit var auditExportManager: AuditExportManager
         private set
+    lateinit var toolchainCoordinator: ToolchainCoordinator
+        private set
 
     override fun onCreate() {
         super.onCreate()
         DatabaseMigrationGate.prepare(
             context = applicationContext,
             databaseName = "reprodroid.sqlite3",
-            targetVersion = 16,
+            targetVersion = 17,
         )
         val database = Room.databaseBuilder(
             applicationContext,
@@ -54,6 +57,7 @@ class ReproDroidApplication : Application() {
             ReproDroidDatabase.MIGRATION_13_14,
             ReproDroidDatabase.MIGRATION_14_15,
             ReproDroidDatabase.MIGRATION_15_16,
+            ReproDroidDatabase.MIGRATION_16_17,
         ).build()
         storageManager = AndroidStorageManager(applicationContext, database)
         cleanupManager = AndroidCleanupManager(applicationContext, database)
@@ -62,6 +66,7 @@ class ReproDroidApplication : Application() {
             allowDevelopmentV2 = BuildConfig.DEBUG,
         )
         retentionCoordinator = RunnerRetentionCoordinator(database, runnerApi)
+        toolchainCoordinator = ToolchainCoordinator(database, runnerApi)
         auditExportManager = AuditExportManager(applicationContext, database, storageManager)
         jobRepository = JobRepository(
             applicationContext = applicationContext,

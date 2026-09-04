@@ -386,3 +386,53 @@ data class V2CleanupRunResponse(
     val startedAt: String? = null,
     val finishedAt: String? = null,
 )
+
+@Serializable
+enum class ToolchainComponent { JDK, GRADLE, ANDROID_COMMAND_LINE_TOOLS, ANDROID_PLATFORM, ANDROID_BUILD_TOOLS, ANDROID_NDK, CMAKE }
+
+@Serializable
+data class ToolchainRequirement(val component: ToolchainComponent, val version: String)
+
+@Serializable data class ResolveToolchainPlanRequest(val requirements: List<ToolchainRequirement>)
+@Serializable data class ToolchainLicense(val licenseId: String, val displayName: String, val text: String, val textSha256: String, val sourceUrl: String)
+@Serializable data class ToolchainPlanItem(
+    val artifactId: String, val component: ToolchainComponent, val version: String, val archiveSha256: String,
+    val downloadBytes: String, val reservedBytes: String, val alreadyInstalled: Boolean,
+)
+@Serializable data class ToolchainPlanResponse(
+    val schemaVersion: Int, val runnerId: String, val catalogSha256: String, val planSha256: String,
+    val platform: String, val items: List<ToolchainPlanItem>, val requiredLicenses: List<ToolchainLicense>,
+    val downloadBytes: String, val reservedBytes: String,
+)
+@Serializable data class ToolchainLicenseAcceptanceRequest(val licenseId: String, val licenseTextSha256: String, val accepted: Boolean)
+@Serializable data class CreateToolchainInstallationRequest(
+    val planSha256: String, val catalogSha256: String, val requirements: List<ToolchainRequirement>,
+    val licenseAcceptances: List<ToolchainLicenseAcceptanceRequest>,
+)
+@Serializable enum class ToolchainInstallationState {
+    PLANNED, AWAITING_LICENSE, RESERVING, DOWNLOADING, VERIFYING_ARCHIVE, EXTRACTING,
+    VERIFYING_CONTENT, PUBLISHING, INSTALLED, CANCEL_REQUESTED, CANCELLED, FAILED, RECONCILIATION_REQUIRED,
+}
+@Serializable data class ToolchainInstallationItemResponse(
+    val artifactId: String, val component: ToolchainComponent, val version: String,
+    val state: ToolchainInstallationState, val downloadedBytes: String,
+)
+@Serializable data class ToolchainInstallationResponse(
+    val schemaVersion: Int, val installationId: String, val operationId: String, val runnerId: String, val planSha256: String,
+    val catalogSha256: String, val state: ToolchainInstallationState, val progressPercent: Int,
+    val items: List<ToolchainInstallationItemResponse>, val reason: V2PublicReason? = null,
+    val createdAt: String, val updatedAt: String,
+)
+@Serializable data class ToolchainInventoryItem(
+    val artifactId: String, val component: ToolchainComponent, val version: String, val archiveSha256: String,
+    val contentManifestSha256: String, val installedBytes: String, val state: String, val installedAt: String,
+)
+@Serializable data class ToolchainInventoryResponse(
+    val schemaVersion: Int, val runnerId: String, val catalogSha256: String, val items: List<ToolchainInventoryItem>,
+)
+@Serializable data class ToolchainRemovalRequest(val artifactIds: List<String>)
+@Serializable data class ToolchainRemovalPreviewResponse(
+    val schemaVersion: Int, val previewId: String, val artifactIds: List<String>,
+    val releasableBytes: String, val expiresAt: String,
+)
+@Serializable data class ExecuteToolchainRemovalRequest(val previewId: String)

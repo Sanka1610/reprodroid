@@ -1,6 +1,6 @@
 # ReproDroid
 
-**Phase 4 現在地（2026-09-04）:** 4.1のsource-only登録に続き、4.2のimmutable release history、bytes availability、storage budget／reservation、retention hold、manual cleanup、local audit export、Room16、Runner `storage-retention@1` clientを実装しました。Android 16でlocal／Runner summary、Runner停止時のlocal継続、cold start、空のRunner cleanup preview、audit staging／復元を製品UIから確認しています。JVM 234件とinstrumentation 54件はfailure 0で、後者の明示的opt-in 8件はskipとして分離します。実public GitHubの4.1製品経路、SAFによる外部destinationへの実ファイル保存、実Room14／15 archive fixtureは未完走のまま受入記録へ残します。generic Job／toolchain／pairingは未実装で、実行mutationをv1へfallbackしません。
+**Phase 4 現在地（2026-09-05）:** 4.2のhistory／storageに続き、4.3のRoom17 reference、Runner `toolchain-install@1` client、exact plan／license consent／progress／cancel／inventory／二段階manual removal UIを実装しました。AndroidはRunner-owned inventoryやpathをinstalled truthとして複製せず、runner ID・installation／operation ID・plan／catalog digest・最終観測stateだけを保持します。JVM testはdebug／release各120件、合計240件（failure／skip 0）、lintとdebug／release assembleも成功しました。instrumentation test 63件はコンパイル済みですが未実行です。全9 artifactを空storeから導入するAndroid 16製品E2Eは未実施であり、code／fixture検証と区別します。generic Docker build／comparison、pairingは後続工程で、実行mutationをv1へfallbackしません。
 
 OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの情報を確認してAndroid標準インストーラへ渡すクライアントです。最終的には公式APKとローカルビルドAPKを比較し、利用者自身が再現性を判断できる状態を目指します。
 
@@ -15,6 +15,8 @@ Phase 4.1では、release／APK／package名／Runner接続を登録条件から
 Room15はprovider repository IDと管理slot、immutableなsource discovery、Gradle候補、JCS SHA-256付きbuild設定revision、current headを既存tableのsidecarとして追加します。Room14からの起動前migration gateはWAL checkpoint後のprivate snapshotをSHA-256／integrity／Room identityまで検証し、未知schema・容量不足・snapshot破損ではdestructive fallbackせず停止します。
 
 Room16は同じprovider release IDの再観測をJCS SHA-256で区別し、旧comparisonが参照するrelease／asset rowを上書きしません。過去のraw outcome、trust、signer、install attemptをbytes availabilityから分離し、bytesが`DELETED`／`MISSING`／`CORRUPT`なら現在のinstall／再比較だけを閉じます。Androidの4 GiB budget、16 MiB recovery reserve、永続reservation、NOFOLLOW集計、保護理由付きmanual cleanup、item別partial／reconciliationを追加しました。
+
+Room17はtoolchain installationの参照と最終観測だけを追加します。Managed toolchains画面はbundled catalogから解決されたexact plan、download／reservation bytes、license本文・source・digestを表示し、すべてのcurrent licenseへの個別同意後だけ導入を開始します。cancelは現在のI/O停止を待つ要求であり即時成功表示にしません。inventory削除は対象と解放予定bytesをpreviewし、その後の明示的な確定操作を必須とします。共有developer JDK／Android SDKの探索・import・変更は行いません。
 
 Storage画面はAndroidと互換Runnerのused／reserved／budget／usable spaceを表示します。Runner停止、capability不一致、runnerId変更を空容量へ変換せず、Android側の履歴と監査exportは維持します。監査exportは公開allowlistからschema1 JCSを再構築し、APK、source本文、private Manifest、raw log、credential、storage pathを含めません。app-private staging後にSAFへcopyし、destinationを再読込してsize／SHA-256が一致した場合だけ`COMPLETE`とします。自動share／uploadはありません。
 
@@ -267,7 +269,7 @@ Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト�
 
 ## Phase 3E完了後の計画・対象外
 
-Phase 3Eの固定profileによるopt-in Docker実装・受入は完了しています。Phase 4は要件合意、4.0基礎契約、4.1登録契約、開始時の証拠archive／cleanup、Room15機能とmigrationの実装・内部受入まで完了しました。[Phase 4 roadmap](../reprodroid-project/docs/design/phase-4-roadmap.md)と[計画合意事項](../reprodroid-project/docs/design/phase-4-planning-decisions.md)を正本とします。4.1で未完了なのは、未認証rate limitのため完走できていない実public GitHub製品経路だけです。
+Phase 3Eの固定profileによるopt-in Docker実装・受入は完了しています。Phase 4は4.0基礎契約、4.1登録、4.2 history／storage、4.3 trusted toolchain codeとRoom17 migrationまで実装しました。[Phase 4 roadmap](../reprodroid-project/docs/design/phase-4-roadmap.md)、[計画合意事項](../reprodroid-project/docs/design/phase-4-planning-decisions.md)、[4.3実装契約](../reprodroid-project/docs/design/phase-4-toolchain-contract.md)を正本とします。4.1の実public GitHub製品経路、4.2の追加証跡3件、4.3の全seed製品E2Eは独立した未完了証跡として保持します。
 
 計画範囲はpublic GitHub／Codebergのsource-onlyを含むGradle登録、汎用build／comparison、不足toolchain導入、history／手動cleanup／監査export、定期確認・通知、release HTTPS／pairing、暗号化backup／migration、Android／Runnerのlog export、署名releaseとlicense・privacy対応です。GitLabは将来候補。Play Store／F-Droid配布・適合性評価、Google Play services、共有用診断・自動送信は対象外です。
 

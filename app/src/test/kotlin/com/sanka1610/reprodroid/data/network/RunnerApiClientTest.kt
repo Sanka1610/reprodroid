@@ -349,6 +349,32 @@ class RunnerApiClientTest {
     }
 
     @Test
+    fun `toolchain cancel sends contract headers without a synthetic JSON body`() = runBlocking {
+        val installationId = "00000000-0000-4000-8000-000000000041"
+        val operationId = "00000000-0000-4000-8000-000000000042"
+        val runnerId = "00000000-0000-4000-8000-000000000043"
+        val key = "00000000-0000-4000-8000-000000000044"
+        val engine = MockEngine { request ->
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals("/v2/toolchains/installations/$installationId:cancel", request.url.encodedPath)
+            assertEquals("toolchain-install@1", request.headers["X-ReproDroid-Contract"])
+            assertEquals(key, request.headers["Idempotency-Key"])
+            assertEquals(null, request.headers[HttpHeaders.ContentType])
+            assertEquals(0L, request.body.contentLength)
+            respond(
+                """{"schemaVersion":1,"installationId":"$installationId","operationId":"$operationId","runnerId":"$runnerId","planSha256":"${"a".repeat(64)}","catalogSha256":"${"b".repeat(64)}","state":"CANCEL_REQUESTED","progressPercent":42,"items":[{"artifactId":"gradle-8.14.3","component":"GRADLE","version":"8.14.3","state":"CANCEL_REQUESTED","downloadedBytes":"12"}],"reason":null,"createdAt":"2026-09-05T00:00:00Z","updatedAt":"2026-09-05T00:00:01Z"}""",
+                HttpStatusCode.Accepted,
+                jsonHeaders,
+            )
+        }
+
+        val response = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true)
+            .cancelToolchainInstallation(installationId, key)
+
+        assertEquals(ToolchainInstallationState.CANCEL_REQUESTED, response.state)
+    }
+
+    @Test
     fun `v2 response rejects duplicate and unknown fields`() {
         listOf(
             """{"apiVersion":"v2","apiVersion":"v2","foundationContractVersion":1,"runnerId":"00000000-0000-4000-8000-000000000001","runnerVersion":"x","capabilities":[]}""",
