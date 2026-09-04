@@ -176,7 +176,10 @@ class Migration14To15Test {
             ).use { database ->
                 assertEquals(15, database.userVersion())
                 assertEquals("ok", database.integrityResult())
-                assertEquals(before, database.legacyTableSnapshots(before.keys))
+                val after = database.legacyTableSnapshotsUsingColumns(before)
+                before.forEach { (table, snapshot) ->
+                    assertEquals("Migration changed legacy values in $table", snapshot, after.getValue(table))
+                }
                 database.rawQuery(
                     "SELECT COUNT(*) FROM app_repository_bindings",
                     null,
@@ -187,6 +190,68 @@ class Migration14To15Test {
             }
         } finally {
             context.deleteDatabase(REAL_SNAPSHOT_DATABASE_NAME)
+        }
+    }
+
+    @Test
+    fun archivedPhaseThreeESnapshotPreservesEveryLegacyTableValueThroughRoomSixteen() {
+        val sourcePath = getArguments().getString(REAL_SNAPSHOT_ARGUMENT).orEmpty()
+        assumeTrue(
+            "Pass -e $REAL_SNAPSHOT_ARGUMENT with a checkpointed Room 14 database",
+            sourcePath.isNotBlank(),
+        )
+        val source = File(sourcePath)
+        assertTrue("The archived Room 14 snapshot is not readable: $sourcePath", source.isFile && source.canRead())
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(REAL_ROOM_16_DATABASE_NAME)
+        val target = context.getDatabasePath(REAL_ROOM_16_DATABASE_NAME)
+        target.parentFile?.mkdirs()
+        source.inputStream().use { input ->
+            target.outputStream().use(input::copyTo)
+        }
+
+        try {
+            val before = SQLiteDatabase.openDatabase(
+                target.absolutePath,
+                null,
+                SQLiteDatabase.OPEN_READONLY,
+            ).use { database ->
+                assertEquals(14, database.userVersion())
+                assertEquals("ok", database.integrityResult())
+                database.legacyTableSnapshots()
+            }
+
+            helper.runMigrationsAndValidate(
+                REAL_ROOM_16_DATABASE_NAME,
+                16,
+                true,
+                ReproDroidDatabase.MIGRATION_14_15,
+                ReproDroidDatabase.MIGRATION_15_16,
+            ).close()
+
+            SQLiteDatabase.openDatabase(
+                target.absolutePath,
+                null,
+                SQLiteDatabase.OPEN_READONLY,
+            ).use { database ->
+                assertEquals(16, database.userVersion())
+                assertEquals("ok", database.integrityResult())
+                val after = database.legacyTableSnapshotsUsingColumns(before)
+                before.forEach { (table, snapshot) ->
+                    assertEquals("Migration changed legacy values in $table", snapshot, after.getValue(table))
+                }
+                assertEquals(database.rowCount("registered_apps"), database.rowCount("app_repository_bindings"))
+                listOf(
+                    "resource_availability",
+                    "storage_reservations",
+                    "retention_holds",
+                    "cleanup_runs",
+                    "cleanup_items",
+                    "audit_exports",
+                ).forEach { table -> assertEquals(0, database.rowCount(table)) }
+            }
+        } finally {
+            context.deleteDatabase(REAL_ROOM_16_DATABASE_NAME)
         }
     }
 
@@ -223,14 +288,26 @@ class Migration14To15Test {
         return tables.associateWith { table -> snapshotTable(table) }
     }
 
-    private fun SQLiteDatabase.snapshotTable(table: String): TableSnapshot {
-        val columns = rawQuery("PRAGMA table_info(${table.quotedIdentifier()})", null).use { cursor ->
+    private fun SQLiteDatabase.legacyTableSnapshotsUsingColumns(
+        reference: Map<String, TableSnapshot>,
+    ): Map<String, TableSnapshot> = reference.mapValues { (table, snapshot) ->
+        snapshotTable(table, snapshot.columns)
+    }
+
+    private fun SQLiteDatabase.snapshotTable(
+        table: String,
+        requestedColumns: List<String>? = null,
+    ): TableSnapshot {
+        val currentColumns = rawQuery("PRAGMA table_info(${table.quotedIdentifier()})", null).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
             }
         }
+        val columns = requestedColumns ?: currentColumns
+        assertTrue("Migration removed a legacy column from $table", currentColumns.containsAll(columns))
         val order = columns.joinToString(",") { it.quotedIdentifier() }
-        val query = "SELECT * FROM ${table.quotedIdentifier()}" +
+        val projection = columns.joinToString(",") { it.quotedIdentifier() }
+        val query = "SELECT $projection FROM ${table.quotedIdentifier()}" +
             if (order.isEmpty()) "" else " ORDER BY $order"
         val rows = rawQuery(query, null).use { cursor ->
             buildList {
@@ -264,5 +341,6 @@ class Migration14To15Test {
         const val DATABASE_NAME = "phase-4-registration-migration-test"
         const val REAL_SNAPSHOT_ARGUMENT = "phase4Room14DatabasePath"
         const val REAL_SNAPSHOT_DATABASE_NAME = "phase-4-real-snapshot.sqlite3"
+        const val REAL_ROOM_16_DATABASE_NAME = "phase-4-real-snapshot-room16.sqlite3"
     }
 }
