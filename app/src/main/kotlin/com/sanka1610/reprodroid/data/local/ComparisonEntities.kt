@@ -110,6 +110,21 @@ data class ComparisonRunEntity(
     val createdAt: String,
     val updatedAt: String,
     val completedAt: String? = null,
+    @ColumnInfo(defaultValue = "'legacy-v1'")
+    val runnerContract: String = "legacy-v1",
+    val buildConfigurationRevision: Long? = null,
+    val buildConfigurationSha256: String? = null,
+    val officialIdentitySha256: String? = null,
+    val officialApkSha256: String? = null,
+    val officialApkSizeBytes: Long? = null,
+    val officialPackageName: String? = null,
+    val officialVersionName: String? = null,
+    val officialVersionCode: Long? = null,
+    val selectedArtifactFileName: String? = null,
+    val runnerComparisonId: String? = null,
+    val resourceRetryOfComparisonRunId: String? = null,
+    @ColumnInfo(defaultValue = "0")
+    val resourceRetryCount: Int = 0,
 )
 
 @Entity(

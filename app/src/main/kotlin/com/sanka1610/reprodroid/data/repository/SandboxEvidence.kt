@@ -33,7 +33,7 @@ internal fun storedSandboxManifestValid(job: JobEntity, manifest: BuildEnvironme
     val selection = storedJobSandbox(job)
     when (manifest.schemaVersion) {
         1, 2 -> require(manifest.sandboxJson == null && (selection == null || selection.origin == SandboxOrigin.LEGACY_HOST))
-        3 -> {
+        3, 4 -> {
             val evidence = decodeSandboxEvidence(requireNotNull(manifest.sandboxJson))
             require(selection != null && evidence.mode == selection.mode && evidence.profileId == selection.profileId)
         }
@@ -59,12 +59,15 @@ fun sandboxAcknowledgementAllowed(job: JobEntity): Boolean = runCatching { store
 fun sandboxManifestText(json: String?): String = try {
     if (json == null) "Sandbox execution evidence: unavailable" else {
         val evidence = decodeSandboxEvidence(json)
-        if (evidence.mode == BuildSandboxMode.HOST) "Execution: HOST (Runner-observed)" else
+        if (evidence.mode == BuildSandboxMode.HOST) "Execution: HOST (Runner-observed)" else {
+            val limits = requireNotNull(evidence.limits)
+            val toolchains = if (evidence.profileId == GENERIC_DOCKER_PROFILE_ID) "JDK / SDK / Gradle" else "JDK / SDK"
             "Execution: DOCKER ${evidence.profileId}, ${evidence.platform}, engine ${evidence.engineVersion}\n" +
                 "Image: ${evidence.imageDigest}\n" +
-                "8 CPUs (0-7), 8 GiB RAM / no extra swap, 1024 PIDs, /tmp 1 GiB\n" +
-                "UID/GID 1000; read-only root / JDK / SDK; cap-drop ALL; no-new-privileges; default seccomp; no Docker socket\n" +
+                "${limits.cpuCount} CPUs (${limits.cpuset}), ${limits.memoryBytes / (1024L * 1024 * 1024)} GiB RAM / no extra swap, ${limits.pids} PIDs, /tmp ${limits.tmpfsBytes / (1024L * 1024 * 1024)} GiB\n" +
+                "UID/GID 1000; read-only root / $toolchains; cap-drop ALL; no-new-privileges; default seccomp; no Docker socket\n" +
                 "Bridge networking: host/LAN isolation is not established. No hard Job disk quota.\n" +
                 "Runner-observed evidence, not third-party attestation; raw APK comparison and trust are unchanged."
+        }
     }
 } catch (_: Exception) { "Sandbox execution evidence: invalid stored JSON" }

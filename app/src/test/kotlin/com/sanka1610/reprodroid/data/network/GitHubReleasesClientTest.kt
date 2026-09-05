@@ -9,6 +9,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.fail
 import org.junit.Test
@@ -121,7 +122,26 @@ class GitHubReleasesClientTest {
         )
 
         assertEquals(commitSha.lowercase(), resolved.resolvedCommitSha)
-        assertEquals(407554800, resolved.selectedAsset.asset.id)
+        assertEquals(407554800, requireNotNull(resolved.selectedAsset).asset.id)
+    }
+
+    @Test
+    fun `latest release preserves ambiguous APK candidates for explicit selection`() = runBlocking {
+        val commitSha = "c".repeat(40)
+        val engine = MockEngine { request ->
+            val response = when (request.url.encodedPath) {
+                "/repos/example/project/releases/latest" -> AMBIGUOUS_RELEASE_JSON
+                "/repos/example/project/git/ref/tags/v1" ->
+                    """{"ref":"refs/tags/v1","object":{"type":"commit","sha":"$commitSha","url":"unused"}}"""
+                else -> error("Unexpected request: ${request.url}")
+            }
+            respond(response, HttpStatusCode.OK, jsonHeaders)
+        }
+
+        val resolved = GitHubReleasesClient(engine).resolveLatestRelease("https://github.com/example/project")
+
+        assertNull(resolved.selectedAsset)
+        assertEquals(listOf(10L, 11L), resolved.candidates.map { it.asset.id })
     }
 
     @Test
@@ -178,6 +198,40 @@ class GitHubReleasesClientTest {
                 "digest":"sha256:907b0f1d64d4bdf2fc15df596129cdf9f140f5360f557d24ff2e987c9f586f15",
                 "browser_download_url":"https://github.com/MorpheApp/MicroG-RE/releases/download/6.1.4/microg-6.1.4.apk"
               }]
+            }
+        """
+        const val AMBIGUOUS_RELEASE_JSON = """
+            {
+              "id":10,
+              "tag_name":"v1",
+              "target_commitish":"main",
+              "name":"Version 1",
+              "html_url":"https://github.com/example/project/releases/tag/v1",
+              "draft":false,
+              "prerelease":false,
+              "immutable":false,
+              "created_at":"2026-09-01T00:00:00Z",
+              "published_at":"2026-09-01T00:00:00Z",
+              "assets":[
+                {
+                  "id":10,
+                  "name":"project-release.apk",
+                  "state":"uploaded",
+                  "content_type":"application/vnd.android.package-archive",
+                  "size":1024,
+                  "digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "browser_download_url":"https://github.com/example/project/releases/download/v1/project-release.apk"
+                },
+                {
+                  "id":11,
+                  "name":"project-alt.apk",
+                  "state":"uploaded",
+                  "content_type":"application/vnd.android.package-archive",
+                  "size":1024,
+                  "digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "browser_download_url":"https://github.com/example/project/releases/download/v1/project-alt.apk"
+                }
+              ]
             }
         """
     }

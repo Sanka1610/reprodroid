@@ -198,6 +198,14 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun selectReleaseAsset(
+        registeredAppId: String,
+        releaseSnapshotId: String,
+        providerAssetId: Long,
+    ) = runAppAction(registeredAppId) {
+        repository.selectReleaseAsset(registeredAppId, releaseSnapshotId, providerAssetId)
+    }
+
     fun updatePreferences(
         registeredAppId: String,
         update: AppSettingsUpdate,

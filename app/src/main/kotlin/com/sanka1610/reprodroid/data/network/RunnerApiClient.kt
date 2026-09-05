@@ -142,6 +142,65 @@ class RunnerApiClient(
     suspend fun retryJob(jobId: String): CreateJobResponse =
         client.post(endpoint("/v1/jobs/$jobId/retry")).successBody()
 
+    suspend fun createGenericBuild(request: GenericBuildCreateRequest, idempotencyKey: String): CreateJobResponse =
+        v2Mutation<GenericBuildCreateRequest, CreateJobResponse>(
+            "/v2/builds", request, idempotencyKey, V2_GENERIC_BUILD_CONTRACT,
+        )
+
+    suspend fun getGenericBuild(jobId: String): GenericBuildResponse {
+        requireCanonicalUuid(jobId, "jobId")
+        return client.prepareGet(endpoint("/v2/builds/$jobId")).execute { response ->
+            response.v2Body<GenericBuildResponse>().also { generic ->
+                checkV2(generic.job.jobId == jobId && generic.job.genericBuild == generic.genericBuild)
+                validateGenericBuild(generic.genericBuild)
+                generic.discovery?.let(::validateGenericDiscovery)
+                validateJobSandbox(generic.job.sandbox, generic.job.executionMode, generic.job.state)
+            }
+        }
+    }
+
+    suspend fun confirmGenericBuild(jobId: String, request: ConfirmJobRequest, idempotencyKey: String) {
+        requireCanonicalUuid(jobId, "jobId")
+        v2MutationNoResponse("/v2/builds/$jobId:confirm", request, idempotencyKey, V2_GENERIC_BUILD_CONTRACT)
+    }
+
+    suspend fun continueGenericSourceScan(jobId: String, request: ContinueSourceScanRequest, idempotencyKey: String) {
+        requireCanonicalUuid(jobId, "jobId")
+        v2MutationNoResponse("/v2/builds/$jobId:scan-continue", request, idempotencyKey, V2_GENERIC_BUILD_CONTRACT)
+    }
+
+    suspend fun cancelGenericBuild(jobId: String, idempotencyKey: String) {
+        requireCanonicalUuid(jobId, "jobId")
+        v2MutationNoResponse("/v2/builds/$jobId:cancel", EmptyV2Request(), idempotencyKey, V2_GENERIC_BUILD_CONTRACT)
+    }
+
+    suspend fun createGenericComparison(
+        request: CreateGenericComparisonRequest,
+        idempotencyKey: String,
+    ): GenericComparisonResponse = v2Mutation<CreateGenericComparisonRequest, GenericComparisonResponse>(
+        "/v2/comparisons", request, idempotencyKey, V2_APK_COMPARISON_CONTRACT,
+    ).also(::validateGenericComparison)
+
+    suspend fun getGenericComparison(comparisonId: String): GenericComparisonResponse {
+        requireCanonicalUuid(comparisonId, "comparisonId")
+        return client.prepareGet(endpoint("/v2/comparisons/$comparisonId")).execute { response ->
+            response.v2Body<GenericComparisonResponse>().also(::validateGenericComparison)
+        }
+    }
+
+    suspend fun retryGenericResource(
+        comparisonId: String,
+        idempotencyKey: String,
+    ): GenericResourceRetryResponse {
+        requireCanonicalUuid(comparisonId, "comparisonId")
+        return v2Mutation<EmptyV2Request, GenericResourceRetryResponse>(
+            "/v2/comparisons/$comparisonId:retry-resource",
+            EmptyV2Request(),
+            idempotencyKey,
+            V2_APK_COMPARISON_CONTRACT,
+        ).also(::validateGenericResourceRetry)
+    }
+
     suspend fun getV2Capabilities(): V2CapabilitiesResponse =
         client.prepareGet(endpoint("/v2/capabilities")).execute { response ->
             response.v2Body<V2CapabilitiesResponse>().also(::validateCapabilities)
@@ -315,6 +374,21 @@ class RunnerApiClient(
         }.v2Body()
     }
 
+    private suspend inline fun <reified Request> v2MutationNoResponse(
+        path: String,
+        request: Request,
+        idempotencyKey: String,
+        contract: String,
+    ) {
+        requireCanonicalUuid(idempotencyKey, "Idempotency-Key")
+        client.post(endpoint(path)) {
+            contentType(ContentType.Application.Json)
+            header(V2_CONTRACT_HEADER, contract)
+            header(V2_IDEMPOTENCY_HEADER, idempotencyKey)
+            setBody(request)
+        }.ensureSuccess()
+    }
+
     private suspend inline fun <reified Response> v2MutationWithoutBody(
         path: String,
         idempotencyKey: String,
@@ -428,6 +502,45 @@ class RunnerApiClient(
         response.capabilities.forEach {
             checkV2(CAPABILITY_ID.matches(it.id) && it.contractVersion in 1..Int.MAX_VALUE)
         }
+    }
+
+    private fun validateGenericBuild(snapshot: GenericBuildSnapshot) {
+        requireCanonicalUuid(snapshot.comparisonId, "comparisonId")
+        checkV2(snapshot.configurationRevision > 0 && SHA256.matches(snapshot.configurationSha256))
+        checkV2(snapshot.configurationCanonicalJson.toByteArray().size <= 64 * 1024)
+        checkV2(snapshot.expectedArtifactFileName.endsWith(".apk", ignoreCase = true) &&
+            '/' !in snapshot.expectedArtifactFileName && '\\' !in snapshot.expectedArtifactFileName)
+        snapshot.retryOfJobId?.let { requireCanonicalUuid(it, "retryOfJobId") }
+        checkV2(snapshot.memoryBytes in setOf(8_589_934_592, 12_884_901_888))
+    }
+
+    private fun validateGenericDiscovery(discovery: GenericDiscoveryEvidence) {
+        checkV2(discovery.schemaVersion == 1 && SHA256.matches(discovery.configurationSha256) && SHA256.matches(discovery.outputSha256))
+        requireCanonicalUuid(discovery.jobId, "jobId")
+        checkV2(discovery.outputBytes in 1..8L * 1024 * 1024 && discovery.selectedTasks.isNotEmpty())
+        checkV2(runCatching { Instant.parse(discovery.observedAt) }.isSuccess)
+    }
+
+    private fun validateGenericComparison(response: GenericComparisonResponse) {
+        checkV2(response.schemaVersion == 1 && SHA256.matches(response.configurationSha256))
+        requireCanonicalUuid(response.comparisonId, "comparisonId")
+        requireCanonicalUuid(response.buildAJobId, "buildAJobId")
+        requireCanonicalUuid(response.buildBJobId, "buildBJobId")
+        checkV2(SHA256.matches(response.officialIdentity.sha256) && response.officialIdentity.sizeBytes > 0)
+        val expected = response.officialVsA == RawComparisonResult.MATCH &&
+            response.officialVsB == RawComparisonResult.MATCH && response.buildAVsB == RawComparisonResult.MATCH &&
+            response.trustEligible && response.installEligible
+        checkV2(response.reproducible == expected && response.resourceRetryCount in 0..1)
+        checkV2(runCatching { Instant.parse(response.createdAt) }.isSuccess && runCatching { Instant.parse(response.updatedAt) }.isSuccess)
+    }
+
+    private fun validateGenericResourceRetry(response: GenericResourceRetryResponse) {
+        checkV2(response.schemaVersion == 1 && response.memoryBytes == 12_884_901_888L)
+        requireCanonicalUuid(response.comparisonId, "comparisonId")
+        requireCanonicalUuid(response.retryOfComparisonId, "retryOfComparisonId")
+        requireCanonicalUuid(response.buildAJobId, "buildAJobId")
+        requireCanonicalUuid(response.buildBJobId, "buildBJobId")
+        checkV2(response.comparisonId != response.retryOfComparisonId && response.buildAJobId != response.buildBJobId)
     }
 
     private fun validateOperation(operation: V2OperationResponse) {
@@ -569,6 +682,8 @@ class RunnerApiClient(
         const val V2_CONTRACT_HEADER = "X-ReproDroid-Contract"
         const val V2_STORAGE_CONTRACT = "storage-retention@1"
         const val V2_TOOLCHAIN_CONTRACT = "toolchain-install@1"
+        const val V2_GENERIC_BUILD_CONTRACT = "generic-build@1"
+        const val V2_APK_COMPARISON_CONTRACT = "apk-comparison@1"
         const val V2_IDEMPOTENCY_HEADER = "Idempotency-Key"
         val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         val SHA256 = Regex("[0-9a-f]{64}")

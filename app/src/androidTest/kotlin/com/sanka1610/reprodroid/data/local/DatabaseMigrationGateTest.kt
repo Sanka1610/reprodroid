@@ -4,6 +4,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -15,6 +16,11 @@ import java.io.File
 class DatabaseMigrationGateTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val databaseName = "migration-gate-test.sqlite3"
+
+    @Before
+    fun prepareCleanTestState() {
+        cleanTestState()
+    }
 
     @After
     fun cleanTestState() {

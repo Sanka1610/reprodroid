@@ -44,6 +44,14 @@ data class JobEntity(
     val sandboxCleanupStatus: String? = null,
     @ColumnInfo(defaultValue = "0")
     val sandboxResponseSeen: Boolean = false,
+    val genericComparisonId: String? = null,
+    val genericAttempt: String? = null,
+    val genericConfigurationRevision: Long? = null,
+    val genericConfigurationSha256: String? = null,
+    val genericExpectedArtifactFileName: String? = null,
+    val genericRetryOfJobId: String? = null,
+    val genericMemoryBytes: Long? = null,
+    val genericDiscoverySha256: String? = null,
 )
 
 @Entity(
@@ -177,6 +185,9 @@ data class BuildEnvironmentManifestEntity(
     val fixedLocale: String? = null,
     val retrievedAt: String,
     val sandboxJson: String? = null,
+    val genericConfigurationSha256: String? = null,
+    val genericAttempt: String? = null,
+    val genericDiscoverySha256: String? = null,
 )
 
 @Entity(

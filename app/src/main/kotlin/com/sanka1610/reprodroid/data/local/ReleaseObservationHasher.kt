@@ -1,6 +1,7 @@
 package com.sanka1610.reprodroid.data.local
 
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.put
 import org.erdtman.jcs.JsonCanonicalizer
@@ -28,6 +29,16 @@ internal data class ReleaseObservationInput(
     val providerSizeBytes: Long?,
     val providerDigestSha256: String?,
     val selectionReason: String?,
+    val manualCandidates: List<ReleaseObservationCandidate> = emptyList(),
+)
+
+internal data class ReleaseObservationCandidate(
+    val providerAssetId: Long,
+    val assetName: String,
+    val stableAssetUrl: String,
+    val contentType: String,
+    val providerSizeBytes: Long,
+    val providerDigestSha256: String?,
 )
 
 internal object ReleaseObservationHasher {
@@ -59,6 +70,25 @@ internal object ReleaseObservationHasher {
                     put("providerSizeBytes", requireNotNull(input.providerSizeBytes).toString())
                     input.providerDigestSha256?.let { put("providerDigestSha256", it) }
                     put("selectionReason", requireNotNull(input.selectionReason))
+                })
+            }
+            if (input.manualCandidates.isNotEmpty()) {
+                put("manualCandidates", buildJsonArray {
+                    input.manualCandidates
+                        .sortedWith(
+                            compareBy<ReleaseObservationCandidate> { it.providerAssetId }
+                                .thenBy { it.assetName },
+                        )
+                        .forEach { candidate ->
+                            add(buildJsonObject {
+                                put("providerAssetId", candidate.providerAssetId.toString())
+                                put("name", candidate.assetName)
+                                put("stableUrl", candidate.stableAssetUrl)
+                                put("contentType", candidate.contentType)
+                                put("providerSizeBytes", candidate.providerSizeBytes.toString())
+                                candidate.providerDigestSha256?.let { put("providerDigestSha256", it) }
+                            })
+                        }
                 })
             }
         }

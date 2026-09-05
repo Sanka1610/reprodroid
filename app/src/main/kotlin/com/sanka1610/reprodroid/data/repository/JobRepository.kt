@@ -28,6 +28,12 @@ import com.sanka1610.reprodroid.data.network.RunnerApiException
 import com.sanka1610.reprodroid.data.network.RunnerResponseIntegrityException
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
 import com.sanka1610.reprodroid.data.network.SourceScanStatus
+import com.sanka1610.reprodroid.data.network.GenericBuildAttempt
+import com.sanka1610.reprodroid.data.network.GenericBuildCreateRequest
+import com.sanka1610.reprodroid.data.network.GenericBuildSnapshot
+import com.sanka1610.reprodroid.data.network.CreateGenericComparisonRequest
+import com.sanka1610.reprodroid.data.network.GenericComparisonResponse
+import com.sanka1610.reprodroid.data.network.GenericResourceRetryResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -43,6 +49,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.UUID
 
 class JobRepository(
     applicationContext: Context,
@@ -111,6 +118,143 @@ class JobRepository(
             outcome = null,
         )
     }
+
+    suspend fun createGenericBuild(
+        repositoryUrl: String,
+        commitSha: String,
+        comparisonId: String,
+        attempt: GenericBuildAttempt,
+        configurationRevision: Long,
+        configurationSha256: String,
+        configurationCanonicalJson: String,
+        expectedArtifactFileName: String,
+    ): String {
+        val capabilities = runnerApi.getV2Capabilities().capabilities.associate { it.id to it.contractVersion }
+        check(capabilities["generic-build"] == 1 && capabilities["apk-comparison"] == 1) {
+            "Runner does not advertise the complete Phase 4.4 generic build and comparison contract."
+        }
+        val snapshot = GenericBuildSnapshot(
+            comparisonId = comparisonId,
+            attempt = attempt,
+            configurationRevision = configurationRevision,
+            configurationSha256 = configurationSha256,
+            configurationCanonicalJson = configurationCanonicalJson,
+            expectedArtifactFileName = expectedArtifactFileName,
+        )
+        val created = runnerApi.createGenericBuild(
+            GenericBuildCreateRequest(repositoryUrl, commitSha, snapshot, riskAcknowledged = true),
+            UUID.randomUUID().toString(),
+        )
+        val now = Instant.now().toString()
+        syncMutex.withLock {
+            jobDao.upsertJob(
+                JobEntity(
+                    jobId = created.jobId,
+                    executionMode = ExecutionMode.REAL_TRUSTED.name,
+                    repositoryUrl = repositoryUrl,
+                    revisionType = RevisionType.COMMIT.name,
+                    revisionValue = commitSha,
+                    simulationOutcome = null,
+                    state = created.state.name,
+                    progressPercent = 0,
+                    latestLogSequence = 0,
+                    errorCode = null,
+                    errorMessage = null,
+                    createdAt = now,
+                    updatedAt = now,
+                    genericComparisonId = comparisonId,
+                    genericAttempt = attempt.name,
+                    genericConfigurationRevision = configurationRevision,
+                    genericConfigurationSha256 = configurationSha256,
+                    genericExpectedArtifactFileName = expectedArtifactFileName,
+                    genericMemoryBytes = snapshot.memoryBytes,
+                ),
+            )
+            syncJobLocked(created.jobId)
+        }
+        return created.jobId
+    }
+
+    suspend fun recordGenericComparison(request: CreateGenericComparisonRequest): GenericComparisonResponse =
+        runnerApi.createGenericComparison(request, UUID.randomUUID().toString())
+
+    suspend fun retryGenericResource(comparisonId: String): GenericResourceRetryResponse =
+        syncMutex.withLock {
+            val originalA = requireNotNull(jobDao.getGenericJob(comparisonId, GenericBuildAttempt.A.name)) {
+                "The local Build A record for this comparison is missing."
+            }
+            val originalB = requireNotNull(jobDao.getGenericJob(comparisonId, GenericBuildAttempt.B.name)) {
+                "The local Build B record for this comparison is missing."
+            }
+            val response = runnerApi.retryGenericResource(comparisonId, UUID.randomUUID().toString())
+            val now = Instant.now().toString()
+            database.withTransaction {
+                jobDao.upsertJobs(
+                    listOf(
+                        originalA.resourceRetryCopy(
+                            jobId = response.buildAJobId,
+                            comparisonId = response.comparisonId,
+                            retryOfJobId = originalA.jobId,
+                            memoryBytes = response.memoryBytes,
+                            observedAt = now,
+                        ),
+                        originalB.resourceRetryCopy(
+                            jobId = response.buildBJobId,
+                            comparisonId = response.comparisonId,
+                            retryOfJobId = originalB.jobId,
+                            memoryBytes = response.memoryBytes,
+                            observedAt = now,
+                        ),
+                    ),
+                )
+            }
+            syncJobLocked(response.buildAJobId)
+            syncJobLocked(response.buildBJobId)
+            response
+        }
+
+    private fun JobEntity.resourceRetryCopy(
+        jobId: String,
+        comparisonId: String,
+        retryOfJobId: String,
+        memoryBytes: Long,
+        observedAt: String,
+    ): JobEntity = copy(
+        jobId = jobId,
+        resolvedCommitSha = null,
+        requiresConfirmation = false,
+        effectiveRecipeId = null,
+        effectiveVariantName = null,
+        effectiveBuildRoot = null,
+        effectiveJavaMajor = null,
+        effectiveBuildTasks = null,
+        effectiveDependencyPinning = "NONE",
+        effectiveSourceDateEpoch = null,
+        effectiveNoBuildCache = false,
+        effectiveFixedLocale = null,
+        state = JobState.CREATED.name,
+        progressPercent = 0,
+        latestLogSequence = 0,
+        errorCode = null,
+        errorMessage = null,
+        createdAt = observedAt,
+        updatedAt = observedAt,
+        downloadResult = null,
+        installResult = null,
+        sandboxMode = null,
+        sandboxOrigin = null,
+        sandboxProfileId = null,
+        sandboxCleanupStatus = null,
+        sandboxResponseSeen = false,
+        genericComparisonId = comparisonId,
+        genericAttempt = genericAttempt,
+        genericConfigurationRevision = genericConfigurationRevision,
+        genericConfigurationSha256 = genericConfigurationSha256,
+        genericExpectedArtifactFileName = genericExpectedArtifactFileName,
+        genericRetryOfJobId = retryOfJobId,
+        genericMemoryBytes = memoryBytes,
+        genericDiscoverySha256 = null,
+    )
 
     private suspend fun createJob(
         request: CreateJobRequest,
@@ -279,7 +423,7 @@ class JobRepository(
             )
             database.withTransaction {
                 val previous = jobDao.getBuildEnvironmentManifest(remote.jobId)
-                check(previous?.manifest?.schemaVersion != 3 || response.schemaVersion == 3) { "Sandbox Manifest schema downgrade rejected." }
+                check(previous?.manifest?.schemaVersion?.let { response.schemaVersion >= it } != false) { "Build Manifest schema downgrade rejected." }
                 jobDao.replaceBuildEnvironmentManifest(validated.manifest, validated.dependencies)
             }
             _buildManifestWarnings.value -= remote.jobId
@@ -305,22 +449,22 @@ class JobRepository(
 
     suspend fun cancelJob(jobId: String) {
         syncMutex.withLock {
-            runnerApi.cancelJob(jobId)
+            val existing = jobDao.getJob(jobId)
+            if (existing?.genericComparisonId != null) runnerApi.cancelGenericBuild(jobId, UUID.randomUUID().toString())
+            else runnerApi.cancelJob(jobId)
             syncJobLocked(jobId)
         }
     }
 
     suspend fun confirmRealBuild(jobId: String, resolvedCommitSha: String) {
-        rejectLegacyExecutionMutation()
         syncMutex.withLock {
-            verifiedRemoteJob(jobId, jobDao.getJob(jobId))
-            runnerApi.confirmJob(
-                jobId,
-                ConfirmJobRequest(
-                    resolvedCommitSha = resolvedCommitSha,
-                    riskAcknowledged = true,
-                ),
-            )
+            val existing = jobDao.getJob(jobId)
+            if (existing?.genericComparisonId == null) {
+                rejectLegacyExecutionMutation()
+            }
+            verifiedRemoteJob(jobId, existing)
+            val request = ConfirmJobRequest(resolvedCommitSha = resolvedCommitSha, riskAcknowledged = true)
+            runnerApi.confirmGenericBuild(jobId, request, UUID.randomUUID().toString())
             syncJobLocked(jobId)
         }
     }
@@ -332,13 +476,15 @@ class JobRepository(
             check(scan.scan.resultSha256 == scanResultSha256 && scan.scan.requiresReview && !scan.scan.reviewed) {
                 "The stored source scan is not awaiting review for this digest."
             }
-            runnerApi.continueSourceScan(
-                jobId,
-                ContinueSourceScanRequest(
+            val request = ContinueSourceScanRequest(
                     scanResultSha256 = scanResultSha256,
                     riskAcknowledged = true,
-                ),
-            )
+                )
+            if (jobDao.getJob(jobId)?.genericComparisonId != null) {
+                runnerApi.continueGenericSourceScan(jobId, request, UUID.randomUUID().toString())
+            } else {
+                runnerApi.continueSourceScan(jobId, request)
+            }
             syncJobLocked(jobId)
         }
     }
@@ -381,7 +527,8 @@ class JobRepository(
 
     private suspend fun verifiedRemoteJob(jobId: String, existing: JobEntity?): JobResponse {
         try {
-            return runnerApi.getJob(jobId).also { validateSandboxRefresh(existing, it) }
+            val remote = if (existing?.genericComparisonId != null) runnerApi.getGenericBuild(jobId).job else runnerApi.getJob(jobId)
+            return remote.also { validateSandboxRefresh(existing, it) }
         } catch (failure: CancellationException) { throw failure } catch (failure: RunnerApiException) { throw failure }
         catch (_: Exception) {
             _sandboxWarnings.value += jobId to "Sandbox response unavailable or invalid; the last valid state is retained. Refresh before acknowledging."
@@ -679,4 +826,12 @@ internal fun JobResponse.toJobEntity(existing: JobEntity?, logCursor: Long): Job
     sandboxProfileId = sandbox?.profileId,
     sandboxCleanupStatus = sandbox?.cleanupStatus?.name,
     sandboxResponseSeen = true,
+    genericComparisonId = genericBuild?.comparisonId ?: existing?.genericComparisonId,
+    genericAttempt = genericBuild?.attempt?.name ?: existing?.genericAttempt,
+    genericConfigurationRevision = genericBuild?.configurationRevision ?: existing?.genericConfigurationRevision,
+    genericConfigurationSha256 = genericBuild?.configurationSha256 ?: existing?.genericConfigurationSha256,
+    genericExpectedArtifactFileName = genericBuild?.expectedArtifactFileName ?: existing?.genericExpectedArtifactFileName,
+    genericRetryOfJobId = genericBuild?.retryOfJobId ?: existing?.genericRetryOfJobId,
+    genericMemoryBytes = genericBuild?.memoryBytes ?: existing?.genericMemoryBytes,
+    genericDiscoverySha256 = discovery?.outputSha256 ?: existing?.genericDiscoverySha256,
 )

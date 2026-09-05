@@ -21,6 +21,11 @@ interface JobDao {
     @Query("SELECT * FROM jobs WHERE jobId = :jobId")
     suspend fun getJob(jobId: String): JobEntity?
 
+    @Query(
+        "SELECT * FROM jobs WHERE genericComparisonId = :comparisonId AND genericAttempt = :attempt LIMIT 1",
+    )
+    suspend fun getGenericJob(comparisonId: String, attempt: String): JobEntity?
+
     @Query("SELECT * FROM artifacts WHERE artifactId = :artifactId AND jobId = :jobId")
     suspend fun getArtifact(jobId: String, artifactId: String): ArtifactEntity?
 
@@ -54,6 +59,9 @@ interface JobDao {
 
     @Upsert
     suspend fun upsertJob(job: JobEntity)
+
+    @Upsert
+    suspend fun upsertJobs(jobs: List<JobEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertLogs(logs: List<LogEntity>)

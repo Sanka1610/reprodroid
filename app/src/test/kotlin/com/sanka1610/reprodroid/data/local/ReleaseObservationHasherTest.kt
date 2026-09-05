@@ -28,6 +28,43 @@ class ReleaseObservationHasherTest {
         )
     }
 
+    @Test
+    fun `manual candidate set is order independent and part of the observation`() {
+        val first = ReleaseObservationCandidate(
+            providerAssetId = 10,
+            assetName = "app-a.apk",
+            stableAssetUrl = "https://github.com/example/app/releases/download/v1/app-a.apk",
+            contentType = "application/vnd.android.package-archive",
+            providerSizeBytes = 100,
+            providerDigestSha256 = "a".repeat(64),
+        )
+        val second = first.copy(
+            providerAssetId = 11,
+            assetName = "app-b.apk",
+            stableAssetUrl = "https://github.com/example/app/releases/download/v1/app-b.apk",
+            providerDigestSha256 = "b".repeat(64),
+        )
+        val input = fixture().copy(
+            providerAssetId = null,
+            assetName = null,
+            stableAssetUrl = null,
+            contentType = null,
+            providerSizeBytes = null,
+            providerDigestSha256 = null,
+            selectionReason = null,
+            manualCandidates = listOf(first, second),
+        )
+
+        assertEquals(
+            ReleaseObservationHasher.sha256(input),
+            ReleaseObservationHasher.sha256(input.copy(manualCandidates = listOf(second, first))),
+        )
+        assertNotEquals(
+            ReleaseObservationHasher.sha256(input),
+            ReleaseObservationHasher.sha256(input.copy(manualCandidates = listOf(first))),
+        )
+    }
+
     private fun fixture() = ReleaseObservationInput(
         provider = "GITHUB",
         instance = "github.com",

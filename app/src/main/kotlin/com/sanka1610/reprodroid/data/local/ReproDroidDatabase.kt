@@ -41,7 +41,7 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         AuditExportEntity::class,
         ToolchainInstallationReferenceEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -51,6 +51,41 @@ abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun toolchainDao(): ToolchainDao
 
     companion object {
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                listOf(
+                    "genericComparisonId TEXT",
+                    "genericAttempt TEXT",
+                    "genericConfigurationRevision INTEGER",
+                    "genericConfigurationSha256 TEXT",
+                    "genericExpectedArtifactFileName TEXT",
+                    "genericRetryOfJobId TEXT",
+                    "genericMemoryBytes INTEGER",
+                    "genericDiscoverySha256 TEXT",
+                ).forEach { db.execSQL("ALTER TABLE jobs ADD COLUMN $it") }
+                listOf(
+                    "genericConfigurationSha256 TEXT",
+                    "genericAttempt TEXT",
+                    "genericDiscoverySha256 TEXT",
+                ).forEach { db.execSQL("ALTER TABLE build_environment_manifests ADD COLUMN $it") }
+                listOf(
+                    "runnerContract TEXT NOT NULL DEFAULT 'legacy-v1'",
+                    "buildConfigurationRevision INTEGER",
+                    "buildConfigurationSha256 TEXT",
+                    "officialIdentitySha256 TEXT",
+                    "officialApkSha256 TEXT",
+                    "officialApkSizeBytes INTEGER",
+                    "officialPackageName TEXT",
+                    "officialVersionName TEXT",
+                    "officialVersionCode INTEGER",
+                    "selectedArtifactFileName TEXT",
+                    "runnerComparisonId TEXT",
+                    "resourceRetryOfComparisonRunId TEXT",
+                    "resourceRetryCount INTEGER NOT NULL DEFAULT 0",
+                ).forEach { db.execSQL("ALTER TABLE comparison_runs ADD COLUMN $it") }
+            }
+        }
+
         val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

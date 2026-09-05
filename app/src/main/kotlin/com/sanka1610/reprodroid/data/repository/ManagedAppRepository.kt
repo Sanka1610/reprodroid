@@ -24,6 +24,7 @@ import com.sanka1610.reprodroid.data.local.AdvancedComparisonEntryEntity
 import com.sanka1610.reprodroid.data.local.AdvancedComparisonSummaryEntity
 import com.sanka1610.reprodroid.data.local.ApkEntryEvidenceEntity
 import com.sanka1610.reprodroid.data.local.AppSettingsUpdate
+import com.sanka1610.reprodroid.data.local.AssetSelectionReason
 import com.sanka1610.reprodroid.data.local.ComparisonEntryEntity
 import com.sanka1610.reprodroid.data.local.ComparisonOutcome
 import com.sanka1610.reprodroid.data.local.ComparisonEligibility
@@ -45,6 +46,7 @@ import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
 import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import com.sanka1610.reprodroid.data.local.ResourceAvailabilityEntity
 import com.sanka1610.reprodroid.data.local.ReleaseObservationHasher
+import com.sanka1610.reprodroid.data.local.ReleaseObservationCandidate
 import com.sanka1610.reprodroid.data.local.ReleaseObservationInput
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.local.SemanticDifferenceEvidenceEntity
@@ -56,6 +58,7 @@ import com.sanka1610.reprodroid.data.provider.GitHubProviderException
 import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
 import com.sanka1610.reprodroid.data.provider.GitHubRepositoryDiscoveryClient
 import com.sanka1610.reprodroid.data.provider.GitHubReleasesClient
+import com.sanka1610.reprodroid.data.provider.ReleaseAssetCandidate
 import com.sanka1610.reprodroid.data.provider.RepositoryRegistrationPreview
 import com.sanka1610.reprodroid.data.provider.ResolvedGitHubRelease
 import com.sanka1610.reprodroid.data.provider.ReleaseAssetSelectionException
@@ -64,6 +67,10 @@ import com.sanka1610.reprodroid.data.storage.AndroidStorageManager
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupManager
 import com.sanka1610.reprodroid.data.storage.RunnerRetentionCoordinator
 import com.sanka1610.reprodroid.data.network.RevisionType
+import com.sanka1610.reprodroid.data.network.GenericBuildAttempt
+import com.sanka1610.reprodroid.data.network.CreateGenericComparisonRequest
+import com.sanka1610.reprodroid.data.network.OfficialApkIdentity
+import com.sanka1610.reprodroid.data.network.RawComparisonResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -77,6 +84,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.util.UUID
+import java.security.MessageDigest
 
 class ManagedAppRepository(
     private val context: Context,
@@ -442,12 +450,15 @@ class ManagedAppRepository(
                 "Local build installation requires explicit acknowledgement of signing and update risks."
             }
         }
+        val selectedAsset = requireNotNull(preview.selectedAsset) {
+            "This release has multiple eligible APKs. Register the repository and explicitly select one APK."
+        }
         val settings = currentSettings()
         val now = Instant.now().toString()
         val appId = UUID.randomUUID().toString()
         val observationHash = preview.observationSha256(preview.repository.canonicalUrl)
         val snapshotId = stableId("$appId/release-observation/$observationHash")
-        val assetId = stableId("$snapshotId/asset/${preview.selectedAsset.asset.id}")
+        val assetId = stableId("$snapshotId/asset/${selectedAsset.asset.id}")
         val app = RegisteredAppEntity(
             registeredAppId = appId,
             displayName = preview.repository.name,
@@ -469,7 +480,7 @@ class ManagedAppRepository(
             updatedAt = now,
         )
         val snapshot = preview.toSnapshot(appId, snapshotId, observationHash, now)
-        val asset = preview.toAsset(snapshotId, assetId)
+        val asset = preview.toAssets(snapshotId).single()
         database.withTransaction {
             dao.upsertRegisteredApp(app)
             dao.upsertReleaseSnapshot(snapshot)
@@ -506,20 +517,21 @@ class ManagedAppRepository(
     }
 
     suspend fun refresh(registeredAppId: String) {
-        val app = dao.getRegisteredApp(registeredAppId)
+        var app = dao.getRegisteredApp(registeredAppId)
             ?: throw IllegalArgumentException("Registered app was not found.")
-        val binding = dao.getRepositoryBinding(registeredAppId)
+        var binding = dao.getRepositoryBinding(registeredAppId)
         if (binding?.identityStatus == RepositoryIdentityStatus.VERIFIED.name) {
             refreshSourceDiscovery(registeredAppId)
-            return
         }
         if (binding?.identityStatus == RepositoryIdentityStatus.LEGACY_UNRESOLVED.name) {
             verifyLegacyRepositoryAndRefresh(registeredAppId)
-            return
         }
         if (binding?.identityStatus == RepositoryIdentityStatus.LEGACY_INVALID.name) {
             throw IllegalStateException("Legacy repository locator is invalid and requires explicit correction.")
         }
+        app = dao.getRegisteredApp(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        binding = dao.getRepositoryBinding(registeredAppId)
         val settings = currentSettings()
         dao.upsertRegisteredApp(
             app.copy(
@@ -547,9 +559,18 @@ class ManagedAppRepository(
             } catch (notModified: GitHubProviderException) {
                 if (notModified.code != "NOT_MODIFIED") throw notModified
                 val now = Instant.now().toString()
+                val awaitingSelection = dao.getRegisteredAppRecord(registeredAppId)
+                    ?.latestRelease
+                    ?.let { release ->
+                        release.snapshot.selectedProviderAssetId == null && release.assets.isNotEmpty()
+                    } == true
                 dao.upsertRegisteredApp(
                     app.copy(
-                        releaseDiscoveryStatus = ReleaseDiscoveryStatus.AVAILABLE.name,
+                        releaseDiscoveryStatus = if (awaitingSelection) {
+                            ReleaseDiscoveryStatus.AWAITING_ASSET_SELECTION.name
+                        } else {
+                            ReleaseDiscoveryStatus.AVAILABLE.name
+                        },
                         releaseDiscoveryErrorCode = null,
                         releaseDiscoveryErrorMessage = null,
                         lastReleaseCheckedAt = now,
@@ -565,21 +586,36 @@ class ManagedAppRepository(
             val existingSnapshot = dao.getReleaseSnapshotByObservationHash(registeredAppId, observationHash)
             val snapshotId = existingSnapshot?.releaseSnapshotId
                 ?: stableId("$registeredAppId/release-observation/$observationHash")
-            val existingAsset = existingSnapshot?.let {
-                dao.getReleaseAsset(snapshotId, latest.selectedAsset.asset.id)
+            val discoveredAssets = latest.toAssets(snapshotId)
+            val existingAssets = existingSnapshot?.let {
+                discoveredAssets.associate { asset ->
+                    asset.providerAssetId to dao.getReleaseAsset(snapshotId, asset.providerAssetId)
+                }
+            }.orEmpty()
+            val selectedProviderAssetId =
+                existingSnapshot?.selectedProviderAssetId ?: latest.selectedAsset?.asset?.id
+            val selectedAsset = selectedProviderAssetId?.let { providerAssetId ->
+                existingAssets[providerAssetId]
+                    ?: discoveredAssets.singleOrNull { it.providerAssetId == providerAssetId }
                     ?: error("The immutable release observation lost its selected asset.")
             }
-            val assetId = existingAsset?.releaseAssetId
-                ?: stableId("$snapshotId/asset/${latest.selectedAsset.asset.id}")
+            val downloadSelectedAsset = selectedAsset?.takeIf { existingAssets[it.providerAssetId] == null }
+            val releaseStatus = if (selectedProviderAssetId == null) {
+                ReleaseDiscoveryStatus.AWAITING_ASSET_SELECTION.name
+            } else {
+                ReleaseDiscoveryStatus.AVAILABLE.name
+            }
             database.withTransaction {
                 dao.upsertReleaseSnapshot(
                     existingSnapshot?.copy(lastObservedAt = now)
                         ?: latest.toSnapshot(registeredAppId, snapshotId, observationHash, now),
                 )
-                dao.upsertReleaseAsset(existingAsset ?: latest.toAsset(snapshotId, assetId))
+                discoveredAssets
+                    .filter { existingAssets[it.providerAssetId] == null }
+                    .forEach { asset -> dao.upsertReleaseAsset(asset) }
                 dao.upsertRegisteredApp(
                     app.copy(
-                        releaseDiscoveryStatus = ReleaseDiscoveryStatus.AVAILABLE.name,
+                        releaseDiscoveryStatus = releaseStatus,
                         releaseDiscoveryErrorCode = null,
                         releaseDiscoveryErrorMessage = null,
                         releaseMetadataEtag = latest.responseEtag,
@@ -588,7 +624,7 @@ class ManagedAppRepository(
                     ),
                 )
             }
-            if (existingAsset == null) downloadReference(assetId)
+            downloadSelectedAsset?.let { asset -> downloadReference(asset.releaseAssetId) }
             refreshInstalledStateForApp(registeredAppId)
         } catch (failure: Throwable) {
             val now = Instant.now().toString()
@@ -603,6 +639,58 @@ class ManagedAppRepository(
             )
             throw failure
         }
+    }
+
+    suspend fun selectReleaseAsset(
+        registeredAppId: String,
+        releaseSnapshotId: String,
+        providerAssetId: Long,
+    ) {
+        val record = dao.getRegisteredAppRecord(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        check(record.latestRelease?.snapshot?.releaseSnapshotId == releaseSnapshotId) {
+            "Only the latest release can receive an APK selection."
+        }
+        val asset = database.withTransaction {
+            val snapshot = dao.getReleaseSnapshot(releaseSnapshotId)
+                ?: throw IllegalArgumentException("Release snapshot was not found.")
+            check(snapshot.registeredAppId == registeredAppId) {
+                "Release snapshot does not belong to this registered app."
+            }
+            val previousSelection = snapshot.selectedProviderAssetId
+            check(previousSelection == null || previousSelection == providerAssetId) {
+                "A different APK was already selected for this immutable release observation."
+            }
+            val candidate = dao.getReleaseAsset(releaseSnapshotId, providerAssetId)
+                ?: throw IllegalArgumentException("APK candidate was not found for this release.")
+            check(
+                candidate.selectionReason == AssetSelectionReason.MANUAL_SELECTION_REQUIRED.name ||
+                    previousSelection == providerAssetId,
+            ) {
+                "This release asset was not offered for manual selection."
+            }
+            dao.upsertReleaseSnapshot(snapshot.copy(selectedProviderAssetId = providerAssetId))
+            val selected = candidate.copy(
+                selectionReason = AssetSelectionReason.MANUAL_RELEASE_ASSET.name,
+            )
+            dao.upsertReleaseAsset(selected)
+            val app = dao.getRegisteredApp(registeredAppId)
+                ?: throw IllegalArgumentException("Registered app was not found.")
+            val now = Instant.now().toString()
+            dao.upsertRegisteredApp(
+                app.copy(
+                    releaseDiscoveryStatus = ReleaseDiscoveryStatus.AVAILABLE.name,
+                    releaseDiscoveryErrorCode = null,
+                    releaseDiscoveryErrorMessage = null,
+                    updatedAt = now,
+                ),
+            )
+            selected
+        }
+        if (asset.downloadStatus != ReferenceDownloadStatus.VERIFIED.name) {
+            downloadReference(asset.releaseAssetId)
+        }
+        refreshInstalledStateForApp(registeredAppId)
     }
 
     suspend fun recoverInterruptedDownloads() {
@@ -884,18 +972,37 @@ class ManagedAppRepository(
         check(asset.comparisonEligibility != ComparisonEligibility.INCOMPARABLE.name) {
             asset.incomparableReason ?: "The selected APK is not eligible for comparison."
         }
-        val profile = requireComparisonProfile(
-            record.app.canonicalRepositoryUrl,
-            release.snapshot.tagName,
-            effectiveReleaseVariant(record.app, currentSettings()),
+        val sourceHead = dao.getAppSourceHead(registeredAppId)
+            ?: error("Select a complete build configuration before starting a generic comparison.")
+        val configurationRevision = sourceHead.selectedConfigurationRevision
+            ?: error("Select a complete build configuration before starting a generic comparison.")
+        val storedConfiguration = dao.getBuildConfiguration(registeredAppId, configurationRevision)
+            ?: error("The selected build configuration is missing.")
+        check(storedConfiguration.validationState == com.sanka1610.reprodroid.data.local.BuildConfigurationValidationState.CONFIGURED.name) {
+            "The selected build configuration is incomplete."
+        }
+        val configuration = BuildConfigurationValidator.decodeCanonical(
+            storedConfiguration.canonicalJson,
+            storedConfiguration.contentSha256,
         )
-        val jobId = jobRepository.createRealTrustedJob(
+        val expectedVariant = requireNotNull(configuration.variant)
+        val comparisonRunId = UUID.randomUUID().toString()
+        val jobId = jobRepository.createGenericBuild(
             repositoryUrl = record.app.canonicalRepositoryUrl,
-            revisionType = RevisionType.TAG,
-            revisionValue = release.snapshot.tagName,
+            commitSha = release.snapshot.resolvedCommitSha,
+            comparisonId = comparisonRunId,
+            attempt = GenericBuildAttempt.A,
+            configurationRevision = configurationRevision,
+            configurationSha256 = storedConfiguration.contentSha256,
+            configurationCanonicalJson = storedConfiguration.canonicalJson,
+            expectedArtifactFileName = asset.assetName,
         )
         val now = Instant.now().toString()
-        val comparisonRunId = UUID.randomUUID().toString()
+        val officialSha = requireNotNull(asset.computedRawSha256) { "The verified official APK SHA-256 is missing." }
+        val officialSize = requireNotNull(asset.downloadedSizeBytes) { "The verified official APK size is missing." }
+        val officialPackage = requireNotNull(asset.packageName) { "The official APK package identity is missing." }
+        val officialVersionName = requireNotNull(asset.versionName) { "The official APK version name is missing." }
+        val officialVersionCode = requireNotNull(asset.versionCode) { "The official APK version code is missing." }
         dao.upsertComparisonRun(
             ComparisonRunEntity(
                 comparisonRunId = comparisonRunId,
@@ -904,11 +1011,23 @@ class ManagedAppRepository(
                 referenceAssetId = asset.releaseAssetId,
                 runnerJobId = jobId,
                 expectedCommitSha = release.snapshot.resolvedCommitSha,
-                expectedRecipeId = profile.recipeId,
-                expectedVariantName = profile.variantName,
+                expectedRecipeId = "generic-${storedConfiguration.contentSha256.take(16)}-a",
+                expectedVariantName = expectedVariant,
                 protocolVersion = REPEATED_BUILD_PROTOCOL_VERSION,
                 createdAt = now,
                 updatedAt = now,
+                runnerContract = "generic-build@1+apk-comparison@1",
+                buildConfigurationRevision = configurationRevision,
+                buildConfigurationSha256 = storedConfiguration.contentSha256,
+                officialIdentitySha256 = officialIdentitySha256(
+                    officialSha, officialSize, officialPackage, officialVersionName, officialVersionCode,
+                ),
+                officialApkSha256 = officialSha,
+                officialApkSizeBytes = officialSize,
+                officialPackageName = officialPackage,
+                officialVersionName = officialVersionName,
+                officialVersionCode = officialVersionCode,
+                selectedArtifactFileName = asset.assetName,
             ),
         )
         refreshComparison(comparisonRunId)
@@ -1035,7 +1154,36 @@ class ManagedAppRepository(
                 job.effectiveVariantName,
                 job.effectiveDependencyPinning,
             )
-            JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED ->
+            JobState.FAILED -> {
+                if (
+                    run.runnerContract.startsWith("generic-build@1") &&
+                    job.errorCode == "SANDBOX_MEMORY_LIMIT_EXCEEDED"
+                ) {
+                    val awaitingRepeat = run.copy(
+                        runnerResolvedCommitSha = job.resolvedCommitSha,
+                        runnerRecipeId = job.effectiveRecipeId,
+                        runnerVariantName = job.effectiveVariantName,
+                        runnerDependencyPinning = job.effectiveDependencyPinning,
+                        status = ComparisonRunStatus.RESOLVING_REPEAT_RUNNER.name,
+                        outcome = ComparisonOutcome.INCOMPARABLE.name,
+                        incomparableReason = "RUNNER_JOB_FAILED",
+                        updatedAt = Instant.now().toString(),
+                        completedAt = null,
+                    )
+                    dao.upsertComparisonRun(awaitingRepeat)
+                    startRepeatComparison(awaitingRepeat)
+                } else {
+                    markIncomparable(
+                        run,
+                        "RUNNER_JOB_${job.state}",
+                        job.resolvedCommitSha,
+                        job.effectiveRecipeId,
+                        job.effectiveVariantName,
+                        dependencyPinning = job.effectiveDependencyPinning,
+                    )
+                }
+            }
+            JobState.CANCELLED, JobState.INTERRUPTED ->
                 markIncomparable(
                     run,
                     "RUNNER_JOB_${job.state}",
@@ -1107,15 +1255,25 @@ class ManagedAppRepository(
                 job.effectiveVariantName,
                 job.effectiveDependencyPinning,
             )
-            JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED ->
+            JobState.FAILED, JobState.CANCELLED, JobState.INTERRUPTED -> {
+                val runnerComparisonId = if (
+                    job.state == JobState.FAILED.name &&
+                    run.runnerContract.startsWith("generic-build@1") &&
+                    run.runnerComparisonId == null
+                ) {
+                    recordGenericFailureComparison(run, job.jobId)
+                } else {
+                    null
+                }
                 markRepeatIncomparable(
-                    run,
+                    run.copy(runnerComparisonId = runnerComparisonId ?: run.runnerComparisonId),
                     "RUNNER_JOB_${job.state}_REPEAT",
                     job.resolvedCommitSha,
                     job.effectiveRecipeId,
                     job.effectiveVariantName,
                     dependencyPinning = job.effectiveDependencyPinning,
                 )
+            }
             else -> dao.upsertComparisonRun(
                 run.copy(
                     repeatRunnerResolvedCommitSha = job.resolvedCommitSha,
@@ -1259,11 +1417,26 @@ class ManagedAppRepository(
             ?: return markRepeatIncomparable(run, "REPEAT_RELEASE_SNAPSHOT_MISSING")
         val app = dao.getRegisteredApp(run.registeredAppId)
             ?: return markRepeatIncomparable(run, "REPEAT_REGISTERED_APP_MISSING")
+        val configurationRevision = run.buildConfigurationRevision
+            ?: return markRepeatIncomparable(run, "REPEAT_CONFIGURATION_REVISION_MISSING")
+        val configurationHash = run.buildConfigurationSha256
+            ?: return markRepeatIncomparable(run, "REPEAT_CONFIGURATION_HASH_MISSING")
+        val configuration = dao.getBuildConfiguration(run.registeredAppId, configurationRevision)
+            ?: return markRepeatIncomparable(run, "REPEAT_CONFIGURATION_MISSING")
+        if (configuration.contentSha256 != configurationHash) {
+            return markRepeatIncomparable(run, "REPEAT_CONFIGURATION_CHANGED")
+        }
         val repeatJobId = try {
-            jobRepository.createRealTrustedJob(
+            jobRepository.createGenericBuild(
                 repositoryUrl = app.canonicalRepositoryUrl,
-                revisionType = RevisionType.TAG,
-                revisionValue = snapshot.tagName,
+                commitSha = snapshot.resolvedCommitSha,
+                comparisonId = run.comparisonRunId,
+                attempt = GenericBuildAttempt.B,
+                configurationRevision = configurationRevision,
+                configurationSha256 = configurationHash,
+                configurationCanonicalJson = configuration.canonicalJson,
+                expectedArtifactFileName = run.selectedArtifactFileName
+                    ?: return markRepeatIncomparable(run, "REPEAT_ARTIFACT_SELECTION_MISSING"),
             )
         } catch (failure: Throwable) {
             if (failure is CancellationException) throw failure
@@ -1291,10 +1464,14 @@ class ManagedAppRepository(
             ?: return markRepeatIncomparable(run, "REPEAT_REFERENCE_ASSET_MISSING", resolvedCommitSha, recipeId, variantName)
         val repeatJobId = run.repeatRunnerJobId
             ?: return markRepeatIncomparable(run, "REPEAT_RUNNER_JOB_MISSING", resolvedCommitSha, recipeId, variantName)
-        val primaryArtifactId = run.localArtifactId
-            ?: return markRepeatIncomparable(run, "PRIMARY_LOCAL_ARTIFACT_MISSING", resolvedCommitSha, recipeId, variantName)
-        val primary = jobRepository.getArtifacts(run.runnerJobId).singleOrNull { it.artifactId == primaryArtifactId }
-            ?: return markRepeatIncomparable(run, "PRIMARY_LOCAL_ARTIFACT_MISSING", resolvedCommitSha, recipeId, variantName)
+        val primary = if (run.outcome == ComparisonOutcome.INCOMPARABLE.name) {
+            null
+        } else {
+            val primaryArtifactId = run.localArtifactId
+                ?: return markRepeatIncomparable(run, "PRIMARY_LOCAL_ARTIFACT_MISSING", resolvedCommitSha, recipeId, variantName)
+            jobRepository.getArtifacts(run.runnerJobId).singleOrNull { it.artifactId == primaryArtifactId }
+                ?: return markRepeatIncomparable(run, "PRIMARY_LOCAL_ARTIFACT_MISSING", resolvedCommitSha, recipeId, variantName)
+        }
         var repeat = jobRepository.getArtifacts(repeatJobId).singleOrNull()
             ?: return markRepeatIncomparable(run, "REPEAT_LOCAL_ARTIFACT_COUNT_INVALID", resolvedCommitSha, recipeId, variantName)
         if (repeat.downloadStatus != ArtifactDownloadStatus.VERIFIED.name) {
@@ -1311,6 +1488,17 @@ class ManagedAppRepository(
                 recipeId,
                 variantName,
                 repeat.artifactId,
+            )
+            return
+        }
+        if (primary == null) {
+            completeRepeatAfterPrimaryFailure(
+                run = run,
+                resolvedCommitSha = resolvedCommitSha,
+                recipeId = recipeId,
+                variantName = variantName,
+                reference = reference,
+                repeat = repeat,
             )
             return
         }
@@ -1394,6 +1582,34 @@ class ManagedAppRepository(
         }
         val officialOutcome = comparisonOutcome(officialRepeat.isMatch)
         val repeatabilityOutcome = comparisonOutcome(localRepeatability.isMatch)
+        val runnerComparisonId = if (run.runnerContract.startsWith("generic-build@1")) {
+            val configurationHash = requireNotNull(run.buildConfigurationSha256)
+            val officialIdentity = OfficialApkIdentity(
+                sha256 = requireNotNull(run.officialApkSha256),
+                sizeBytes = requireNotNull(run.officialApkSizeBytes),
+                packageName = requireNotNull(run.officialPackageName),
+                versionName = requireNotNull(run.officialVersionName),
+                versionCode = requireNotNull(run.officialVersionCode),
+            )
+            val trustedPair = !reference.signingCertificateSha256.isNullOrBlank() &&
+                reference.signingCertificateSha256 == primary.signingCertificateSha256 &&
+                reference.signingCertificateSha256 == repeat.signingCertificateSha256
+            val installEligible = trustedPair && reference.existingInstallStatus != com.sanka1610.reprodroid.data.local.ExistingInstallStatus.SIGNER_MISMATCH.name
+            jobRepository.recordGenericComparison(
+                CreateGenericComparisonRequest(
+                    comparisonId = run.comparisonRunId,
+                    configurationSha256 = configurationHash,
+                    officialIdentity = officialIdentity,
+                    buildAJobId = run.runnerJobId,
+                    buildBJobId = repeatJobId,
+                    officialVsA = run.outcome.toRawComparisonResult(),
+                    officialVsB = officialOutcome.toRawComparisonResult(),
+                    buildAVsB = repeatabilityOutcome.toRawComparisonResult(),
+                    trustEligible = trustedPair,
+                    installEligible = installEligible,
+                ),
+            ).comparisonId
+        } else null
         val now = Instant.now().toString()
         database.withTransaction {
             dao.deleteAdvancedComparisonEntries(run.comparisonRunId)
@@ -1419,9 +1635,142 @@ class ManagedAppRepository(
                     status = ComparisonRunStatus.COMPLETED.name,
                     updatedAt = now,
                     completedAt = now,
+                    runnerComparisonId = runnerComparisonId,
                 ),
             )
         }
+    }
+
+    private suspend fun completeRepeatAfterPrimaryFailure(
+        run: ComparisonRunEntity,
+        resolvedCommitSha: String?,
+        recipeId: String?,
+        variantName: String?,
+        reference: ReleaseAssetEntity,
+        repeat: ArtifactEntity,
+    ) {
+        val referenceInput = referenceComparisonInput(reference)
+            ?: return markRepeatIncomparable(
+                run,
+                "REPEAT_VERIFIED_REFERENCE_CONTENT_MISSING",
+                resolvedCommitSha,
+                recipeId,
+                variantName,
+                repeat.artifactId,
+            )
+        val repeatInput = localComparisonInput(repeat)
+            ?: return markRepeatIncomparable(
+                run,
+                "REPEAT_VERIFIED_APK_CONTENT_MISSING",
+                resolvedCommitSha,
+                recipeId,
+                variantName,
+                repeat.artifactId,
+            )
+        val officialRepeat = try {
+            withContext(Dispatchers.IO) {
+                comparator.compare(
+                    referenceApk = referenceInput.file,
+                    referenceRoot = referenceDirectory,
+                    expectedReference = referenceInput.expected,
+                    localApk = repeatInput.file,
+                    localRoot = File(context.filesDir, "apks"),
+                    expectedLocal = repeatInput.expected,
+                )
+            }
+        } catch (failure: ApkComparisonException) {
+            return markRepeatIncomparable(
+                run,
+                "OFFICIAL_REPEAT_${failure.code}",
+                resolvedCommitSha,
+                recipeId,
+                variantName,
+                repeat.artifactId,
+            )
+        }
+        val officialRepeatEvidence = withContext(Dispatchers.IO) {
+            advancedComparator.compare(
+                leftApk = referenceInput.file,
+                leftRoot = referenceDirectory,
+                expectedLeft = referenceInput.expected,
+                rightApk = repeatInput.file,
+                rightRoot = File(context.filesDir, "apks"),
+                expectedRight = repeatInput.expected,
+            )
+        }
+        val officialOutcome = comparisonOutcome(officialRepeat.isMatch)
+        val runnerComparisonId = if (run.runnerContract.startsWith("generic-build@1")) {
+            val officialIdentity = OfficialApkIdentity(
+                sha256 = requireNotNull(run.officialApkSha256),
+                sizeBytes = requireNotNull(run.officialApkSizeBytes),
+                packageName = requireNotNull(run.officialPackageName),
+                versionName = requireNotNull(run.officialVersionName),
+                versionCode = requireNotNull(run.officialVersionCode),
+            )
+            jobRepository.recordGenericComparison(
+                CreateGenericComparisonRequest(
+                    comparisonId = run.comparisonRunId,
+                    configurationSha256 = requireNotNull(run.buildConfigurationSha256),
+                    officialIdentity = officialIdentity,
+                    buildAJobId = run.runnerJobId,
+                    buildBJobId = requireNotNull(run.repeatRunnerJobId),
+                    officialVsA = RawComparisonResult.INCOMPARABLE,
+                    officialVsB = officialOutcome.toRawComparisonResult(),
+                    buildAVsB = RawComparisonResult.INCOMPARABLE,
+                    trustEligible = false,
+                    installEligible = false,
+                ),
+            ).comparisonId
+        } else {
+            null
+        }
+        val now = Instant.now().toString()
+        database.withTransaction {
+            persistAdvancedEvidence(run, AdvancedComparisonAxis.OFFICIAL_REPEAT, officialRepeatEvidence)
+            dao.upsertComparisonRun(
+                run.copy(
+                    repeatLocalArtifactId = repeat.artifactId,
+                    repeatRunnerResolvedCommitSha = resolvedCommitSha,
+                    repeatRunnerRecipeId = recipeId,
+                    repeatRunnerVariantName = variantName,
+                    repeatOfficialOutcome = officialOutcome.name,
+                    repeatabilityOutcome = ComparisonOutcome.INCOMPARABLE.name,
+                    repeatIncomparableReason = "PRIMARY_BUILD_FAILED",
+                    status = ComparisonRunStatus.COMPLETED.name,
+                    updatedAt = now,
+                    completedAt = now,
+                    runnerComparisonId = runnerComparisonId,
+                ),
+            )
+        }
+    }
+
+    private suspend fun recordGenericFailureComparison(
+        run: ComparisonRunEntity,
+        repeatJobId: String,
+    ): String? {
+        if (!run.runnerContract.startsWith("generic-build@1") || run.runnerComparisonId != null) return null
+        val officialIdentity = OfficialApkIdentity(
+            sha256 = requireNotNull(run.officialApkSha256),
+            sizeBytes = requireNotNull(run.officialApkSizeBytes),
+            packageName = requireNotNull(run.officialPackageName),
+            versionName = requireNotNull(run.officialVersionName),
+            versionCode = requireNotNull(run.officialVersionCode),
+        )
+        return jobRepository.recordGenericComparison(
+            CreateGenericComparisonRequest(
+                comparisonId = run.comparisonRunId,
+                configurationSha256 = requireNotNull(run.buildConfigurationSha256),
+                officialIdentity = officialIdentity,
+                buildAJobId = run.runnerJobId,
+                buildBJobId = repeatJobId,
+                officialVsA = run.outcome.toRawComparisonResult(),
+                officialVsB = RawComparisonResult.INCOMPARABLE,
+                buildAVsB = RawComparisonResult.INCOMPARABLE,
+                trustEligible = false,
+                installEligible = false,
+            ),
+        ).comparisonId
     }
 
     private fun comparisonIdentityMismatch(reference: ReleaseAssetEntity, local: ArtifactEntity): String? = when {
@@ -1467,6 +1816,27 @@ class ManagedAppRepository(
 
     private fun comparisonOutcome(isMatch: Boolean): ComparisonOutcome =
         if (isMatch) ComparisonOutcome.MATCH else ComparisonOutcome.DIFFERENT
+
+    private fun ComparisonOutcome.toRawComparisonResult(): RawComparisonResult = when (this) {
+        ComparisonOutcome.MATCH -> RawComparisonResult.MATCH
+        ComparisonOutcome.DIFFERENT -> RawComparisonResult.DIFFERENT
+        ComparisonOutcome.INCOMPARABLE, ComparisonOutcome.NOT_EVALUATED -> RawComparisonResult.INCOMPARABLE
+    }
+
+    private fun String.toRawComparisonResult(): RawComparisonResult =
+        runCatching { ComparisonOutcome.valueOf(this).toRawComparisonResult() }.getOrDefault(RawComparisonResult.INCOMPARABLE)
+
+    private fun officialIdentitySha256(
+        apkSha256: String,
+        sizeBytes: Long,
+        packageName: String,
+        versionName: String,
+        versionCode: Long,
+    ): String {
+        val value = listOf(apkSha256, sizeBytes.toString(), packageName, versionName, versionCode.toString()).joinToString("\u0000")
+        return MessageDigest.getInstance("SHA-256").digest(value.toByteArray(StandardCharsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    }
 
     private suspend fun persistAdvancedEvidence(
         run: ComparisonRunEntity,
@@ -1548,10 +1918,35 @@ class ManagedAppRepository(
             JobState.QUEUED.name,
             JobState.CLONING.name,
             JobState.VERIFYING_WRAPPER.name,
+            JobState.DISCOVERING_CONFIGURATION.name,
             JobState.BUILDING.name,
             JobState.DISCOVERING_ARTIFACTS.name,
             JobState.SUCCEEDED.name,
         )
+        if (run.runnerContract.startsWith("generic-build@1")) {
+            val revision = run.buildConfigurationRevision ?: return "BUILD_CONFIGURATION_REVISION_MISSING"
+            val expectedHash = run.buildConfigurationSha256 ?: return "BUILD_CONFIGURATION_HASH_MISSING"
+            val stored = dao.getBuildConfiguration(run.registeredAppId, revision) ?: return "BUILD_CONFIGURATION_MISSING"
+            if (stored.contentSha256 != expectedHash) return "BUILD_CONFIGURATION_CHANGED"
+            val configuration = runCatching { BuildConfigurationValidator.decodeCanonical(stored.canonicalJson, stored.contentSha256) }
+                .getOrElse { return "BUILD_CONFIGURATION_INVALID" }
+            val attempt = job.genericAttempt?.lowercase() ?: return "GENERIC_ATTEMPT_MISSING"
+            val expectedRecipe = "generic-${expectedHash.take(16)}-$attempt"
+            return when {
+                jobRepositoryUrl != appRepositoryUrl -> "RUNNER_REPOSITORY_MISMATCH"
+                job.revisionType != RevisionType.COMMIT.name -> "RUNNER_REVISION_TYPE_MISMATCH"
+                job.revisionValue != run.expectedCommitSha -> "RUNNER_COMMIT_REQUEST_MISMATCH"
+                job.genericComparisonId != run.comparisonRunId -> "RUNNER_COMPARISON_MISMATCH"
+                job.genericConfigurationRevision != revision || job.genericConfigurationSha256 != expectedHash -> "RUNNER_CONFIGURATION_MISMATCH"
+                job.resolvedCommitSha != null && job.resolvedCommitSha != run.expectedCommitSha -> "SOURCE_COMMIT_MISMATCH"
+                effectiveBuildMustBeKnown && job.effectiveRecipeId != expectedRecipe -> "BUILD_RECIPE_MISMATCH"
+                effectiveBuildMustBeKnown && job.effectiveVariantName != configuration.variant -> "BUILD_VARIANT_MISMATCH"
+                effectiveBuildMustBeKnown && job.effectiveJavaMajor != configuration.javaMajor -> "BUILD_JAVA_MISMATCH"
+                effectiveBuildMustBeKnown && job.effectiveBuildRoot != configuration.buildRoot -> "BUILD_ROOT_MISMATCH"
+                effectiveBuildMustBeKnown && job.effectiveBuildTasks != configuration.tasks.joinToString("\n") -> "BUILD_TASK_MISMATCH"
+                else -> null
+            }
+        }
         return when {
             jobRepositoryUrl != appRepositoryUrl -> "RUNNER_REPOSITORY_MISMATCH"
             job.revisionType != RevisionType.TAG.name -> "RUNNER_REVISION_TYPE_MISMATCH"
@@ -1679,6 +2074,9 @@ class ManagedAppRepository(
             snapshot.tagName,
             effectiveReleaseVariant(app, settings),
         )
+        val genericComparisonEligible = dao.getRepositoryBinding(app.registeredAppId)
+            ?.identityStatus == RepositoryIdentityStatus.VERIFIED.name
+        val comparisonEligible = comparisonProfile != null || genericComparisonEligible
         if (asset.providerSizeBytes > configuredLimit) {
             throw ReferenceAssetDownloadException(
                 "CONFIGURED_APK_SIZE_LIMIT",
@@ -1728,15 +2126,15 @@ class ManagedAppRepository(
                     installedVersionCode = inspection.installedVersionCode,
                     updateStatus = evaluateUpdateStatus(inspection.versionCode, inspection.installedVersionCode).name,
                     updateEvaluatedAt = Instant.now().toString(),
-                    comparisonEligibility = if (comparisonProfile == null) {
-                        ComparisonEligibility.INCOMPARABLE.name
-                    } else {
+                    comparisonEligibility = if (comparisonEligible) {
                         ComparisonEligibility.READY_FOR_COMPARISON.name
-                    },
-                    incomparableReason = if (comparisonProfile == null) {
-                        COMPARISON_PROFILE_NOT_SUPPORTED_REASON
                     } else {
+                        ComparisonEligibility.INCOMPARABLE.name
+                    },
+                    incomparableReason = if (comparisonEligible) {
                         null
+                    } else {
+                        COMPARISON_PROFILE_NOT_SUPPORTED_REASON
                     },
                     downloadedAt = Instant.now().toString(),
                 ),
@@ -1795,7 +2193,7 @@ class ManagedAppRepository(
             fetchedAt = now,
             observationSha256 = observationSha256,
             lastObservedAt = now,
-            selectedProviderAssetId = selectedAsset.asset.id,
+            selectedProviderAssetId = selectedAsset?.asset?.id,
         )
 
     private fun ResolvedGitHubRelease.observationSha256(providerRepositoryId: String): String =
@@ -1815,27 +2213,52 @@ class ManagedAppRepository(
                 isImmutable = release.immutable,
                 releaseCreatedAt = release.createdAt,
                 publishedAt = requireNotNull(release.publishedAt),
-                providerAssetId = selectedAsset.asset.id,
-                assetName = selectedAsset.asset.name,
-                stableAssetUrl = selectedAsset.asset.browserDownloadUrl,
-                contentType = selectedAsset.asset.contentType,
-                providerSizeBytes = selectedAsset.asset.size,
-                providerDigestSha256 = selectedAsset.providerSha256,
-                selectionReason = selectedAsset.reason,
+                providerAssetId = selectedAsset?.asset?.id,
+                assetName = selectedAsset?.asset?.name,
+                stableAssetUrl = selectedAsset?.asset?.browserDownloadUrl,
+                contentType = selectedAsset?.asset?.contentType,
+                providerSizeBytes = selectedAsset?.asset?.size,
+                providerDigestSha256 = selectedAsset?.providerSha256,
+                selectionReason = selectedAsset?.reason,
+                manualCandidates = if (selectedAsset == null) {
+                    candidates.map { candidate ->
+                        ReleaseObservationCandidate(
+                            providerAssetId = candidate.asset.id,
+                            assetName = candidate.asset.name,
+                            stableAssetUrl = candidate.asset.browserDownloadUrl,
+                            contentType = candidate.asset.contentType,
+                            providerSizeBytes = candidate.asset.size,
+                            providerDigestSha256 = candidate.providerSha256,
+                        )
+                    }
+                } else {
+                    emptyList()
+                },
             ),
         )
 
-    private fun ResolvedGitHubRelease.toAsset(snapshotId: String, assetId: String) = ReleaseAssetEntity(
-        releaseAssetId = assetId,
-        releaseSnapshotId = snapshotId,
-        providerAssetId = selectedAsset.asset.id,
-        assetName = selectedAsset.asset.name,
-        stableAssetUrl = selectedAsset.asset.browserDownloadUrl,
-        selectionReason = selectedAsset.reason,
-        contentType = selectedAsset.asset.contentType,
-        providerSizeBytes = selectedAsset.asset.size,
-        providerDigestSha256 = selectedAsset.providerSha256,
-    )
+    private fun ResolvedGitHubRelease.toAssets(snapshotId: String): List<ReleaseAssetEntity> {
+        val automaticSelection = selectedAsset
+        val assets = automaticSelection?.let { selected ->
+            listOf(ReleaseAssetCandidate(selected.asset, selected.providerSha256))
+        } ?: candidates
+        return assets.map { candidate ->
+            ReleaseAssetEntity(
+                releaseAssetId = stableId("$snapshotId/asset/${candidate.asset.id}"),
+                releaseSnapshotId = snapshotId,
+                providerAssetId = candidate.asset.id,
+                assetName = candidate.asset.name,
+                stableAssetUrl = candidate.asset.browserDownloadUrl,
+                selectionReason = automaticSelection
+                    ?.takeIf { it.asset.id == candidate.asset.id }
+                    ?.reason
+                    ?: AssetSelectionReason.MANUAL_SELECTION_REQUIRED.name,
+                contentType = candidate.asset.contentType,
+                providerSizeBytes = candidate.asset.size,
+                providerDigestSha256 = candidate.providerSha256,
+            )
+        }
+    }
 
     private fun RepositoryRegistrationPreview.toDiscovery(
         appId: String,

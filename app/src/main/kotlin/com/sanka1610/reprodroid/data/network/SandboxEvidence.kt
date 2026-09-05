@@ -25,6 +25,7 @@ data class SandboxIsolation(
     val uid: Int, val gid: Int, val readOnlyRoot: Boolean, val capDropAll: Boolean,
     val noNewPrivileges: Boolean, val seccomp: String, val sdkReadOnly: Boolean,
     val jdkReadOnly: Boolean, val dockerSocketMounted: Boolean, val jobDiskQuotaEnforced: Boolean,
+    val gradleReadOnly: Boolean = false,
 )
 
 @Serializable
@@ -36,6 +37,7 @@ data class SandboxEvidence(
 )
 
 internal const val DOCKER_PROFILE_ID = "docker-microg-v1"
+internal const val GENERIC_DOCKER_PROFILE_ID = "docker-generic-v1"
 internal const val DOCKER_IMAGE_DIGEST = "sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316"
 internal val SANDBOX_JSON = Json { ignoreUnknownKeys = false; explicitNulls = false; encodeDefaults = true }
 
@@ -45,11 +47,11 @@ internal fun validateJobSandbox(sandbox: JobSandbox?, executionMode: ExecutionMo
     when (sandbox.mode) {
         BuildSandboxMode.HOST -> require(sandbox.profileId == null && sandbox.cleanupStatus == null)
         BuildSandboxMode.DOCKER -> {
-            require(sandbox.origin == SandboxOrigin.NEW_JOB && sandbox.profileId == DOCKER_PROFILE_ID && sandbox.cleanupStatus != null)
+            require(sandbox.origin == SandboxOrigin.NEW_JOB && sandbox.profileId in setOf(DOCKER_PROFILE_ID, GENERIC_DOCKER_PROFILE_ID) && sandbox.cleanupStatus != null)
             when (state) {
                 JobState.CREATED, JobState.RESOLVING_SOURCE, JobState.AWAITING_CONFIRMATION, JobState.QUEUED,
                 JobState.CLONING, JobState.SCANNING_SOURCE, JobState.AWAITING_SCAN_REVIEW -> require(sandbox.cleanupStatus == SandboxCleanupStatus.NOT_CREATED)
-                JobState.BUILDING -> require(sandbox.cleanupStatus != SandboxCleanupStatus.NOT_CREATED)
+                JobState.VERIFYING_WRAPPER, JobState.DISCOVERING_CONFIGURATION, JobState.BUILDING -> Unit
                 JobState.DISCOVERING_ARTIFACTS, JobState.SUCCEEDED -> require(sandbox.cleanupStatus == SandboxCleanupStatus.COMPLETE)
                 else -> Unit
             }
@@ -59,12 +61,16 @@ internal fun validateJobSandbox(sandbox: JobSandbox?, executionMode: ExecutionMo
 
 internal fun validateSandboxEvidence(evidence: SandboxEvidence) {
     if (evidence.mode == BuildSandboxMode.HOST) { require(evidence == SandboxEvidence(BuildSandboxMode.HOST)); return }
-    require(evidence.profileId == DOCKER_PROFILE_ID && evidence.imageDigest == DOCKER_IMAGE_DIGEST)
+    require(evidence.profileId in setOf(DOCKER_PROFILE_ID, GENERIC_DOCKER_PROFILE_ID) && evidence.imageDigest == DOCKER_IMAGE_DIGEST)
     require(evidence.platform == "linux/amd64" && evidence.networkMode == "BRIDGE")
     val version = requireNotNull(evidence.engineVersion)
     require(version.isNotBlank() && version.toByteArray(Charsets.UTF_8).size <= 128 && version.all { it.code in 0x21..0x7e && it != '/' && it != '\\' })
-    require(evidence.limits == SandboxLimits(8, "0-7", 8_589_934_592, 8_589_934_592, 1024, 1_073_741_824))
-    require(evidence.isolation == SandboxIsolation(1000, 1000, true, true, true, "DEFAULT", true, true, false, false))
+    val generic = evidence.profileId == GENERIC_DOCKER_PROFILE_ID
+    val memory = requireNotNull(evidence.limits).memoryBytes
+    if (generic) require(memory in setOf(8_589_934_592, 12_884_901_888))
+    require(evidence.limits == if (generic) SandboxLimits(4, "0-3", memory, memory, 1024, 1_073_741_824)
+        else SandboxLimits(8, "0-7", 8_589_934_592, 8_589_934_592, 1024, 1_073_741_824))
+    require(evidence.isolation == SandboxIsolation(1000, 1000, true, true, true, "DEFAULT", true, true, false, false, generic))
 }
 
 internal fun sandboxEvidenceJson(evidence: SandboxEvidence): String {

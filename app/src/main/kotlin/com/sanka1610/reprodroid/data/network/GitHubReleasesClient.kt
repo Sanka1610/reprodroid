@@ -50,12 +50,19 @@ class GitHubReleasesClient(engine: HttpClientEngine? = null) {
                 "GitHub returned a latest release that is not a published stable release.",
             )
         }
+        val candidates = ReleaseAssetSelector.candidates(release.assets)
+        val selectedAsset = try {
+            ReleaseAssetSelector.selectValidatedCandidates(candidates, preferredAbi, preferredVariant)
+        } catch (failure: ReleaseAssetSelectionException) {
+            if (failure.code == "AMBIGUOUS_APK_ASSETS") null else throw failure
+        }
         return ResolvedGitHubRelease(
             repository = repository,
             release = release,
             resolvedCommitSha = resolveTagCommit(repository, release.tagName),
             responseEtag = response.headers[HttpHeaders.ETag],
-            selectedAsset = ReleaseAssetSelector.select(release.assets, preferredAbi, preferredVariant),
+            candidates = candidates,
+            selectedAsset = selectedAsset,
         )
     }
 

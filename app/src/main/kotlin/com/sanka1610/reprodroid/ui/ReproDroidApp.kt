@@ -39,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -78,6 +79,7 @@ import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.PreferredAbi
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
 import com.sanka1610.reprodroid.data.local.ReleaseDiscoveryStatus
+import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
 import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import com.sanka1610.reprodroid.data.local.ThemeMode
@@ -269,6 +271,13 @@ fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewM
                                     onBack = { selectedAppId = null },
                                     onSettings = { settingsAppId = app.app.registeredAppId },
                                     onRefresh = { managedViewModel.refresh(app.app.registeredAppId) },
+                                    onSelectReleaseAsset = { releaseSnapshotId, providerAssetId ->
+                                        managedViewModel.selectReleaseAsset(
+                                            app.app.registeredAppId,
+                                            releaseSnapshotId,
+                                            providerAssetId,
+                                        )
+                                    },
                                     onInstall = { confirmed ->
                                         managedViewModel.install(app.app.registeredAppId, confirmed)
                                     },
@@ -625,6 +634,7 @@ private fun AppDetailScreen(
     onBack: () -> Unit,
     onSettings: () -> Unit,
     onRefresh: () -> Unit,
+    onSelectReleaseAsset: (String, Long) -> Unit,
     onInstall: (Boolean) -> Unit,
     onStartComparison: () -> Unit,
     onRefreshComparison: (String) -> Unit,
@@ -640,6 +650,10 @@ private fun AppDetailScreen(
     BackHandler(onBack = onBack)
     val latest = record.latestRelease
     val asset = latest?.selectedAsset
+    var selectedReleaseAssetId by rememberSaveable(
+        record.app.registeredAppId,
+        latest?.snapshot?.releaseSnapshotId,
+    ) { mutableStateOf<Long?>(null) }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var installRiskConfirmed by rememberSaveable(record.app.registeredAppId) { mutableStateOf(false) }
@@ -736,6 +750,65 @@ private fun AppDetailScreen(
                         DetailValue("Resolved commit", release.snapshot.resolvedCommitSha, true)
                         DetailValue("target_commitish (record only)", release.snapshot.targetCommitishRaw)
                         DetailValue("Published", release.snapshot.publishedAt)
+                    }
+                }
+            }
+            if (
+                latest != null &&
+                latest.snapshot.selectedProviderAssetId == null &&
+                latest.assets.isNotEmpty()
+            ) {
+                item {
+                    DetailCard("Select official APK") {
+                        Text(
+                            "This release has multiple eligible APK assets. Select one explicitly; no APK is downloaded before selection.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "Package and signer are not shown here because they are not established until download and APK inspection.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        latest.assets
+                            .sortedWith(compareBy<ReleaseAssetEntity> { it.assetName.lowercase() }.thenBy { it.providerAssetId })
+                            .forEach { candidate ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(enabled = !active) {
+                                            selectedReleaseAssetId = candidate.providerAssetId
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(
+                                        selected = selectedReleaseAssetId == candidate.providerAssetId,
+                                        onClick = {
+                                            selectedReleaseAssetId = candidate.providerAssetId
+                                        },
+                                        enabled = !active,
+                                    )
+                                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                                        DetailValue("File", candidate.assetName)
+                                        DetailValue("Provider size", formatBytes(candidate.providerSizeBytes))
+                                        DetailValue("Content type", candidate.contentType)
+                                        DetailValue("Filename hints", releaseCandidateHints(candidate.assetName))
+                                        DetailValue(
+                                            "Provider SHA-256",
+                                            candidate.providerDigestSha256 ?: "Not supplied",
+                                            monospace = true,
+                                        )
+                                    }
+                                }
+                            }
+                        Button(
+                            enabled = !active && selectedReleaseAssetId != null,
+                            onClick = {
+                                selectedReleaseAssetId?.let { providerAssetId ->
+                                    onSelectReleaseAsset(latest.snapshot.releaseSnapshotId, providerAssetId)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Select and download official APK") }
                     }
                 }
             }
@@ -1487,6 +1560,24 @@ private fun PreferredAbi.displayName(): String = when (this) {
     PreferredAbi.UNIVERSAL -> "universal"
 }
 
+private fun releaseCandidateHints(assetName: String): String {
+    val filename = assetName.lowercase()
+    val abi = when {
+        "arm64-v8a" in filename || "arm64_v8a" in filename -> "arm64-v8a"
+        "armeabi-v7a" in filename || "armeabi_v7a" in filename || "arm-v7a" in filename -> "armeabi-v7a"
+        "x86_64" in filename || "x86-64" in filename -> "x86_64"
+        "universal" in filename -> "universal"
+        else -> "not inferred"
+    }
+    val variant = when {
+        "debug" in filename -> "debug"
+        "preview" in filename -> "preview"
+        "release" in filename -> "release"
+        else -> "not inferred"
+    }
+    return "ABI: $abi; variant: $variant (filename only)"
+}
+
 @Composable
 private fun SettingsScreen(
     settings: GlobalSettingsEntity,
@@ -1601,7 +1692,7 @@ private fun SettingsScreen(
                 Text("Open Runner jobs and Phase 1 tools")
             }
         }
-        item { SettingInfo("ReproDroid", "0.1.0-alpha01 · Phase 4.3") }
+        item { SettingInfo("ReproDroid", "0.1.0-alpha01 · Phase 4.4") }
     }
 }
 

@@ -50,7 +50,13 @@ data class ResolvedGitHubRelease(
     val release: GitHubRelease,
     val resolvedCommitSha: String,
     val responseEtag: String?,
-    val selectedAsset: SelectedReleaseAsset,
+    val candidates: List<ReleaseAssetCandidate>,
+    val selectedAsset: SelectedReleaseAsset?,
+)
+
+data class ReleaseAssetCandidate(
+    val asset: GitHubReleaseAsset,
+    val providerSha256: String?,
 )
 
 data class SelectedReleaseAsset(

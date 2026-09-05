@@ -40,6 +40,7 @@ enum class PreferredAbi {
 enum class ReleaseDiscoveryStatus {
     NOT_CHECKED,
     CHECKING,
+    AWAITING_ASSET_SELECTION,
     AVAILABLE,
     FAILED,
 }
@@ -90,6 +91,8 @@ enum class AssetSelectionReason {
     SINGLE_APK,
     PREFERRED_ABI_FILENAME,
     PREFERRED_ABI_AND_VARIANT_FILENAME,
+    MANUAL_SELECTION_REQUIRED,
+    MANUAL_RELEASE_ASSET,
 }
 
 @Entity(
@@ -271,12 +274,9 @@ data class ReleaseSnapshotWithAssets(
     val assets: List<ReleaseAssetEntity>,
 ) {
     val selectedAsset: ReleaseAssetEntity?
-        get() = assets.firstOrNull { it.providerAssetId == snapshot.selectedProviderAssetId }
-            ?: assets.maxWithOrNull(
-                compareBy<ReleaseAssetEntity> { it.downloadedAt != null }
-                    .thenBy { it.downloadedAt.orEmpty() }
-                    .thenBy { it.releaseAssetId },
-            )
+        get() = snapshot.selectedProviderAssetId?.let { selectedProviderAssetId ->
+            assets.singleOrNull { it.providerAssetId == selectedProviderAssetId }
+        }
 }
 
 data class RegisteredAppRecord(

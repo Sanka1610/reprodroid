@@ -10,11 +10,7 @@ class ReleaseAssetSelectionException(val code: String, override val message: Str
 object ReleaseAssetSelector {
     const val MAX_ASSET_SIZE_BYTES: Long = 512L * 1024L * 1024L
 
-    fun select(
-        assets: List<GitHubReleaseAsset>,
-        preferredAbi: PreferredAbi = PreferredAbi.ARM64_V8A,
-        preferredVariant: ReleaseVariantPreference = ReleaseVariantPreference.RELEASE,
-    ): SelectedReleaseAsset {
+    fun candidates(assets: List<GitHubReleaseAsset>): List<ReleaseAssetCandidate> {
         val uploadedApks = assets.filter { it.state == "uploaded" && it.name.lowercase().endsWith(".apk") }
         if (uploadedApks.isEmpty()) {
             throw ReleaseAssetSelectionException("NO_APK_ASSET", "The latest release has no supported APK asset.")
@@ -26,12 +22,28 @@ object ReleaseAssetSelector {
                 "APK asset metadata violates the MIME, size, or stable URL policy: ${invalidCandidate.name}",
             )
         }
-        val candidates = uploadedApks
+        return uploadedApks.map { asset ->
+            ReleaseAssetCandidate(asset = asset, providerSha256 = parseProviderSha256(asset.digest))
+        }
+    }
+
+    fun select(
+        assets: List<GitHubReleaseAsset>,
+        preferredAbi: PreferredAbi = PreferredAbi.ARM64_V8A,
+        preferredVariant: ReleaseVariantPreference = ReleaseVariantPreference.RELEASE,
+    ): SelectedReleaseAsset = selectValidatedCandidates(candidates(assets), preferredAbi, preferredVariant)
+
+    fun selectValidatedCandidates(
+        candidates: List<ReleaseAssetCandidate>,
+        preferredAbi: PreferredAbi = PreferredAbi.ARM64_V8A,
+        preferredVariant: ReleaseVariantPreference = ReleaseVariantPreference.RELEASE,
+    ): SelectedReleaseAsset {
+        require(candidates.isNotEmpty()) { "Validated APK candidates must not be empty." }
         val selected = when (candidates.size) {
             1 -> candidates.single() to AssetSelectionReason.SINGLE_APK.name
             else -> {
-                val abiCandidates = candidates.filter { preferredAbi.filenameToken().containsMatchIn(it.name) }
-                val variantCandidates = abiCandidates.filter { preferredVariant.matchesFilename(it.name) }
+                val abiCandidates = candidates.filter { preferredAbi.filenameToken().containsMatchIn(it.asset.name) }
+                val variantCandidates = abiCandidates.filter { preferredVariant.matchesFilename(it.asset.name) }
                 if (variantCandidates.size != 1) {
                     throw ReleaseAssetSelectionException(
                         "AMBIGUOUS_APK_ASSETS",
@@ -40,7 +52,7 @@ object ReleaseAssetSelector {
                 }
                 val reason = if (
                     abiCandidates.size == 1 &&
-                    !EXPLICIT_VARIANT_TOKEN.containsMatchIn(abiCandidates.single().name)
+                    !EXPLICIT_VARIANT_TOKEN.containsMatchIn(abiCandidates.single().asset.name)
                 ) {
                     AssetSelectionReason.PREFERRED_ABI_FILENAME.name
                 } else {
@@ -50,9 +62,9 @@ object ReleaseAssetSelector {
             }
         }
         return SelectedReleaseAsset(
-            asset = selected.first,
+            asset = selected.first.asset,
             reason = selected.second,
-            providerSha256 = parseProviderSha256(selected.first.digest),
+            providerSha256 = selected.first.providerSha256,
         )
     }
 

@@ -67,11 +67,11 @@ internal fun validateBuildEnvironmentManifest(
             check((remoteJob.effectiveBuild?.determinism ?: unconfiguredDeterminism) == unconfiguredDeterminism)
             null
         }
-        2, 3 -> requireNotNull(response.determinism)
+        2, 3, 4 -> requireNotNull(response.determinism)
         else -> error("Unsupported public Manifest schema.")
     }
     validateJobSandbox(remoteJob.sandbox, remoteJob.executionMode, remoteJob.state)
-    if (response.schemaVersion == 3) {
+    if (response.schemaVersion in setOf(3, 4)) {
         val selection = requireNotNull(remoteJob.sandbox)
         val evidence = requireNotNull(response.sandbox).also(::validateSandboxEvidence)
         check(selection.mode == evidence.mode && selection.profileId == evidence.profileId)
@@ -79,6 +79,17 @@ internal fun validateBuildEnvironmentManifest(
         check(response.sandbox == null)
         check(remoteJob.sandbox == null ||
             (remoteJob.sandbox.mode == BuildSandboxMode.HOST && remoteJob.sandbox.origin == SandboxOrigin.LEGACY_HOST))
+    }
+    if (response.schemaVersion == 4) {
+        check(response.genericBuild == remoteJob.genericBuild)
+        if (remoteJob.genericBuild != null) {
+            check(response.discoverySha256 == remoteJob.discovery?.outputSha256)
+            check(response.discoverySha256?.matches(LOWERCASE_SHA256) == true)
+        } else {
+            check(response.discoverySha256 == null)
+        }
+    } else {
+        check(response.genericBuild == null && response.discoverySha256 == null)
     }
     determinism?.let { effective ->
         check(effective.sourceDateEpoch?.let { it >= 0 } != false)
@@ -120,6 +131,9 @@ internal fun validateBuildEnvironmentManifest(
             fixedLocale = determinism?.fixedLocale?.value,
             retrievedAt = retrievedAt,
             sandboxJson = response.sandbox?.let(::sandboxEvidenceJson),
+            genericConfigurationSha256 = response.genericBuild?.configurationSha256,
+            genericAttempt = response.genericBuild?.attempt?.name,
+            genericDiscoverySha256 = response.discoverySha256,
         ),
         dependencies = dependencies,
     )
@@ -201,7 +215,7 @@ private fun isUnsafePublicCharacter(character: Char): Boolean =
         Character.getType(character) == Character.FORMAT.toInt() ||
         Character.getType(character) == Character.SURROGATE.toInt()
 
-private val SUPPORTED_PUBLIC_MANIFEST_SCHEMA_VERSIONS = setOf(1, 2, 3)
+private val SUPPORTED_PUBLIC_MANIFEST_SCHEMA_VERSIONS = setOf(1, 2, 3, 4)
 private const val MAX_PUBLIC_DEPENDENCIES = 20_000
 private const val MAX_DEPENDENCY_FILE_NAME_BYTES = 255
 private const val MAX_PUBLIC_TEXT_BYTES = 255

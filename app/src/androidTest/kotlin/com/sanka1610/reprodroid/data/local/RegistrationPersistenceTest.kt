@@ -5,7 +5,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.AssetSelectionReason
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
+import com.sanka1610.reprodroid.data.local.ReleaseDiscoveryStatus
 import com.sanka1610.reprodroid.data.local.RegisteredAppEntity
 import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
 import com.sanka1610.reprodroid.data.local.ReleaseObservationHasher
@@ -39,6 +41,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -160,6 +163,76 @@ class RegistrationPersistenceTest {
                 }
                 assertEquals(0, runnerRequests)
                 assertEquals(0, rowCount(database, "jobs"))
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun ambiguousReleaseRequiresExplicitAssetSelectionBeforeDownload() = runBlocking {
+        val commitSha = "c".repeat(40)
+        val providerEngine = MockEngine { request ->
+            val response = when (request.url.encodedPath) {
+                "/repos/example/project/releases/latest" -> AMBIGUOUS_RELEASE_JSON
+                "/repos/example/project/git/ref/tags/v1" ->
+                    """{"ref":"refs/tags/v1","object":{"type":"commit","sha":"$commitSha","url":"unused"}}"""
+                else -> error("Unexpected request: ${request.url}")
+            }
+            respond(response, HttpStatusCode.OK, JSON_HEADERS)
+        }
+        val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repository = ManagedAppRepository(
+                context = context,
+                database = database,
+                jobRepository = JobRepository(context, database, RunnerApiClient("")),
+                provider = GitHubReleasesClient(providerEngine),
+            )
+            repository.ensureSettings()
+            val appId = "ambiguous-app"
+            val now = "2026-09-05T00:00:00Z"
+            database.managedAppDao().upsertRegisteredApp(
+                RegisteredAppEntity(
+                    registeredAppId = appId,
+                    displayName = "project",
+                    repositoryUrl = "https://github.com/example/project",
+                    canonicalRepositoryUrl = "https://github.com/example/project",
+                    provider = "PUBLIC_GITHUB_RELEASES",
+                    managementMode = ManagementMode.VERIFICATION.name,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+
+            repository.refresh(appId)
+
+            val afterRefresh = requireNotNull(database.managedAppDao().getRegisteredAppRecord(appId))
+            val snapshot = requireNotNull(afterRefresh.latestRelease)
+            assertEquals(ReleaseDiscoveryStatus.AWAITING_ASSET_SELECTION.name, afterRefresh.app.releaseDiscoveryStatus)
+            assertEquals(2, snapshot.assets.size)
+            assertNull(snapshot.selectedAsset)
+            assertTrue(snapshot.assets.all {
+                it.selectionReason == AssetSelectionReason.MANUAL_SELECTION_REQUIRED.name &&
+                    it.downloadStatus == ReferenceDownloadStatus.NOT_DOWNLOADED.name
+            })
+
+            val selected = snapshot.assets.single { it.providerAssetId == 201L }
+            database.managedAppDao().upsertReleaseAsset(
+                selected.copy(downloadStatus = ReferenceDownloadStatus.VERIFIED.name),
+            )
+            repository.selectReleaseAsset(appId, snapshot.snapshot.releaseSnapshotId, 201L)
+
+            val afterSelection = requireNotNull(database.managedAppDao().getRegisteredAppRecord(appId))
+            val selectedRelease = requireNotNull(afterSelection.latestRelease)
+            assertEquals(ReleaseDiscoveryStatus.AVAILABLE.name, afterSelection.app.releaseDiscoveryStatus)
+            assertEquals(201L, selectedRelease.snapshot.selectedProviderAssetId)
+            assertEquals(
+                AssetSelectionReason.MANUAL_RELEASE_ASSET.name,
+                requireNotNull(selectedRelease.selectedAsset).selectionReason,
+            )
+            assertEquals(2, selectedRelease.assets.size)
         } finally {
             database.close()
         }
@@ -606,6 +679,40 @@ class RegistrationPersistenceTest {
                 "digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "browser_download_url":"https://github.com/example/project/releases/download/1.0/project.apk"
               }]
+            }
+        """
+        const val AMBIGUOUS_RELEASE_JSON = """
+            {
+              "id":101,
+              "tag_name":"v1",
+              "target_commitish":"main",
+              "name":"Version 1",
+              "html_url":"https://github.com/example/project/releases/tag/v1",
+              "draft":false,
+              "prerelease":false,
+              "immutable":false,
+              "created_at":"2026-09-05T00:00:00Z",
+              "published_at":"2026-09-05T00:00:00Z",
+              "assets":[
+                {
+                  "id":200,
+                  "name":"project-release.apk",
+                  "state":"uploaded",
+                  "content_type":"application/vnd.android.package-archive",
+                  "size":1024,
+                  "digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "browser_download_url":"https://github.com/example/project/releases/download/v1/project-release.apk"
+                },
+                {
+                  "id":201,
+                  "name":"project-alt.apk",
+                  "state":"uploaded",
+                  "content_type":"application/vnd.android.package-archive",
+                  "size":1024,
+                  "digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "browser_download_url":"https://github.com/example/project/releases/download/v1/project-alt.apk"
+                }
+              ]
             }
         """
     }

@@ -32,6 +32,7 @@ enum class JobState {
     SCANNING_SOURCE,
     AWAITING_SCAN_REVIEW,
     VERIFYING_WRAPPER,
+    DISCOVERING_CONFIGURATION,
     BUILDING,
     DISCOVERING_ARTIFACTS,
     SUCCEEDED,
@@ -63,6 +64,47 @@ data class CreateJobRequest(
     val repositoryUrl: String,
     val revision: RequestedRevision,
     val simulationOutcome: SimulationOutcome? = null,
+    val genericBuild: GenericBuildSnapshot? = null,
+)
+
+@Serializable
+enum class GenericBuildAttempt { A, B }
+
+@Serializable
+data class GenericBuildSnapshot(
+    val comparisonId: String,
+    val attempt: GenericBuildAttempt,
+    val configurationRevision: Long,
+    val configurationSha256: String,
+    val configurationCanonicalJson: String,
+    val expectedArtifactFileName: String,
+    val retryOfJobId: String? = null,
+    val memoryBytes: Long = 8_589_934_592,
+)
+
+@Serializable
+data class GenericBuildCreateRequest(
+    val repositoryUrl: String,
+    val commitSha: String,
+    val genericBuild: GenericBuildSnapshot,
+    val riskAcknowledged: Boolean,
+)
+
+@Serializable
+class EmptyV2Request
+
+@Serializable
+data class GenericDiscoveryEvidence(
+    val schemaVersion: Int,
+    val jobId: String,
+    val attempt: GenericBuildAttempt,
+    val configurationSha256: String,
+    val outputSha256: String,
+    val outputBytes: Long,
+    val selectedModule: String,
+    val selectedVariant: String,
+    val selectedTasks: List<String>,
+    val observedAt: String,
 )
 
 @Serializable
@@ -221,6 +263,8 @@ data class BuildEnvironmentManifestResponse(
     val apkHash: String,
     val determinism: DeterminismOptions? = null,
     val sandbox: SandboxEvidence? = null,
+    val genericBuild: GenericBuildSnapshot? = null,
+    val discoverySha256: String? = null,
 )
 
 @Serializable
@@ -241,6 +285,70 @@ data class JobResponse(
     val createdAt: String,
     val updatedAt: String,
     val sandbox: JobSandbox? = null,
+    val genericBuild: GenericBuildSnapshot? = null,
+    val discovery: GenericDiscoveryEvidence? = null,
+)
+
+@Serializable
+data class GenericBuildResponse(
+    val job: JobResponse,
+    val genericBuild: GenericBuildSnapshot,
+    val discovery: GenericDiscoveryEvidence? = null,
+)
+
+@Serializable enum class RawComparisonResult { MATCH, DIFFERENT, INCOMPARABLE }
+
+@Serializable
+data class OfficialApkIdentity(
+    val sha256: String,
+    val sizeBytes: Long,
+    val packageName: String,
+    val versionName: String,
+    val versionCode: Long,
+)
+
+@Serializable
+data class CreateGenericComparisonRequest(
+    val comparisonId: String,
+    val configurationSha256: String,
+    val officialIdentity: OfficialApkIdentity,
+    val buildAJobId: String,
+    val buildBJobId: String,
+    val officialVsA: RawComparisonResult,
+    val officialVsB: RawComparisonResult,
+    val buildAVsB: RawComparisonResult,
+    val trustEligible: Boolean,
+    val installEligible: Boolean,
+)
+
+@Serializable
+data class GenericComparisonResponse(
+    val schemaVersion: Int,
+    val comparisonId: String,
+    val configurationSha256: String,
+    val officialIdentity: OfficialApkIdentity,
+    val buildAJobId: String,
+    val buildBJobId: String,
+    val officialVsA: RawComparisonResult,
+    val officialVsB: RawComparisonResult,
+    val buildAVsB: RawComparisonResult,
+    val trustEligible: Boolean,
+    val installEligible: Boolean,
+    val reproducible: Boolean,
+    val retryOfComparisonId: String? = null,
+    val resourceRetryCount: Int,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+@Serializable
+data class GenericResourceRetryResponse(
+    val schemaVersion: Int = 1,
+    val comparisonId: String,
+    val retryOfComparisonId: String,
+    val buildAJobId: String,
+    val buildBJobId: String,
+    val memoryBytes: Long,
 )
 
 @Serializable
