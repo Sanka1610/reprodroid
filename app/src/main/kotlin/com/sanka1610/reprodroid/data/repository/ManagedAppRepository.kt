@@ -16,8 +16,11 @@ import com.sanka1610.reprodroid.data.artifact.ReleaseApkInstaller
 import com.sanka1610.reprodroid.data.artifact.ReferenceAssetDownloadException
 import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
 import com.sanka1610.reprodroid.data.local.AppBuildConfigurationEntity
+import com.sanka1610.reprodroid.data.local.AppGroupEntity
+import com.sanka1610.reprodroid.data.local.AppMetadataUpdate
 import com.sanka1610.reprodroid.data.local.AppRepositoryBindingEntity
 import com.sanka1610.reprodroid.data.local.AppSourceHeadEntity
+import com.sanka1610.reprodroid.data.local.AppTrackingState
 import com.sanka1610.reprodroid.data.local.ArtifactEntity
 import com.sanka1610.reprodroid.data.local.AdvancedComparisonAxis
 import com.sanka1610.reprodroid.data.local.AdvancedComparisonEntryEntity
@@ -83,8 +86,39 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import java.security.MessageDigest
+
+data class AppDeletionPreview(
+    val previewId: String,
+    val registeredAppId: String,
+    val expectedUpdatedAt: String,
+    val displayName: String,
+    val releaseCount: Int,
+    val comparisonCount: Int,
+    val installAttemptCount: Int,
+    val sourceDiscoveryCount: Int,
+    val buildConfigurationCount: Int,
+    val referenceAssetIds: List<String>,
+    val localBytes: Long,
+    val protectionReasons: List<String>,
+    val createdAt: String,
+    val expiresAt: String,
+)
+
+data class AppDeletionResult(
+    val registeredAppId: String,
+    val deletedFiles: Int,
+    val releasedBytes: Long,
+    val failedFileNames: List<String>,
+)
+
+data class ExistingPrimaryRegistration(
+    val registeredAppId: String,
+    val displayName: String,
+    val trackingState: String,
+)
 
 class ManagedAppRepository(
     private val context: Context,
@@ -107,6 +141,10 @@ class ManagedAppRepository(
     private val iconDirectory = File(context.filesDir, "reference-icons")
 
     fun observeApps(): Flow<List<RegisteredAppRecord>> = dao.observeRegisteredApps()
+
+    fun observeInactiveApps(): Flow<List<RegisteredAppRecord>> = dao.observeInactiveRegisteredApps()
+
+    fun observeGroups(): Flow<List<AppGroupEntity>> = dao.observeAppGroups()
 
     fun observeSettings(): Flow<GlobalSettingsEntity> = dao.observeGlobalSettings().map { settings ->
         settings ?: defaultSettings()
@@ -139,6 +177,365 @@ class ManagedAppRepository(
 
     suspend fun previewRepository(repositoryUrl: String): RepositoryRegistrationPreview =
         repositoryDiscoveryClient.preview(repositoryUrl)
+
+    suspend fun findPrimaryRegistration(providerRepositoryId: String): ExistingPrimaryRegistration? {
+        val binding = dao.getRepositoryBinding(
+            provider = PROVIDER_GITHUB,
+            instance = GITHUB_INSTANCE,
+            providerRepositoryId = providerRepositoryId,
+            registrationSlot = PRIMARY_REGISTRATION_SLOT,
+        ) ?: return null
+        val app = dao.getRegisteredApp(binding.registeredAppId) ?: return null
+        return ExistingPrimaryRegistration(
+            registeredAppId = app.registeredAppId,
+            displayName = app.resolvedDisplayName,
+            trackingState = app.trackingState,
+        )
+    }
+
+    suspend fun createGroup(displayName: String): AppGroupEntity {
+        val normalizedName = validatedGroupName(displayName)
+        val now = Instant.now().toString()
+        return database.withTransaction {
+            check(dao.getAppGroupByName(normalizedName) == null) {
+                "An app group with this name already exists."
+            }
+            val currentMaximum = dao.getMaximumAppGroupSortOrder() ?: -GROUP_SORT_SPACING
+            check(currentMaximum <= Long.MAX_VALUE - GROUP_SORT_SPACING) {
+                "App group ordering overflow."
+            }
+            AppGroupEntity(
+                groupId = UUID.randomUUID().toString(),
+                displayName = normalizedName,
+                sortOrder = currentMaximum + GROUP_SORT_SPACING,
+                createdAt = now,
+                updatedAt = now,
+            ).also { dao.upsertAppGroup(it) }
+        }
+    }
+
+    suspend fun renameGroup(groupId: String, displayName: String): AppGroupEntity {
+        val normalizedId = canonicalUuid(groupId, "App group ID")
+        val normalizedName = validatedGroupName(displayName)
+        return database.withTransaction {
+            val group = dao.getAppGroup(normalizedId)
+                ?: throw IllegalArgumentException("App group was not found.")
+            val collision = dao.getAppGroupByName(normalizedName)
+            check(collision == null || collision.groupId == group.groupId) {
+                "An app group with this name already exists."
+            }
+            group.copy(displayName = normalizedName, updatedAt = Instant.now().toString())
+                .also { dao.upsertAppGroup(it) }
+        }
+    }
+
+    suspend fun reorderGroups(orderedGroupIds: List<String>) {
+        require(orderedGroupIds.size <= MAX_GROUPS) { "Too many app groups were supplied." }
+        val normalizedIds = orderedGroupIds.map { canonicalUuid(it, "App group ID") }
+        require(normalizedIds.distinct().size == normalizedIds.size) { "App group IDs must be unique." }
+        database.withTransaction {
+            val groups = dao.getAppGroups()
+            check(groups.map(AppGroupEntity::groupId).toSet() == normalizedIds.toSet()) {
+                "The app group list changed; reload before reordering."
+            }
+            val byId = groups.associateBy(AppGroupEntity::groupId)
+            val now = Instant.now().toString()
+            normalizedIds.forEachIndexed { index, groupId ->
+                dao.upsertAppGroup(
+                    requireNotNull(byId[groupId]).copy(
+                        sortOrder = Long.MIN_VALUE + index,
+                        updatedAt = now,
+                    ),
+                )
+            }
+            normalizedIds.forEachIndexed { index, groupId ->
+                dao.upsertAppGroup(
+                    requireNotNull(byId[groupId]).copy(
+                        sortOrder = index * GROUP_SORT_SPACING,
+                        updatedAt = now,
+                    ),
+                )
+            }
+        }
+    }
+
+    suspend fun deleteGroup(groupId: String) {
+        val normalizedId = canonicalUuid(groupId, "App group ID")
+        database.withTransaction {
+            check(dao.getAppGroup(normalizedId) != null) { "App group was not found." }
+            val now = Instant.now().toString()
+            dao.clearGroupAssignments(normalizedId, now)
+            dao.deleteAppGroup(normalizedId)
+        }
+    }
+
+    suspend fun updateMetadata(registeredAppId: String, update: AppMetadataUpdate) {
+        val displayNameOverride = normalizedOptionalText(
+            update.displayNameOverride,
+            MAX_DISPLAY_NAME_LENGTH,
+            "Display name",
+        )
+        val authorDisplayOverride = normalizedOptionalText(
+            update.authorDisplayOverride,
+            MAX_AUTHOR_LENGTH,
+            "Author display name",
+        )
+        val note = update.note.trimEnd()
+        require(note.length <= MAX_NOTE_LENGTH) { "The note is too long." }
+        require(note.toByteArray(StandardCharsets.UTF_8).size <= MAX_NOTE_UTF8_BYTES) {
+            "The note is too large."
+        }
+        database.withTransaction {
+            val app = dao.getRegisteredApp(registeredAppId)
+                ?: throw IllegalArgumentException("Registered app was not found.")
+            check(app.trackingState == AppTrackingState.ACTIVE.name) {
+                "Resume tracking before editing app metadata."
+            }
+            check(app.updatedAt == update.expectedUpdatedAt) {
+                "The app changed; reload before saving metadata."
+            }
+            update.groupId?.let { groupId ->
+                check(dao.getAppGroup(canonicalUuid(groupId, "App group ID")) != null) {
+                    "The selected app group no longer exists."
+                }
+            }
+            dao.upsertRegisteredApp(
+                app.copy(
+                    displayNameOverride = displayNameOverride,
+                    authorDisplayOverride = authorDisplayOverride,
+                    note = note,
+                    groupId = update.groupId?.let { canonicalUuid(it, "App group ID") },
+                    updatedAt = Instant.now().toString(),
+                ),
+            )
+        }
+    }
+
+    suspend fun updateTrackingSource(
+        registeredAppId: String,
+        expectedUpdatedAt: String,
+        preview: RepositoryRegistrationPreview,
+    ) {
+        validateRegistrationPreview(preview)
+        val app = dao.getRegisteredApp(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        check(app.trackingState == AppTrackingState.ACTIVE.name) {
+            "Resume tracking before changing the tracked source."
+        }
+        check(app.updatedAt == expectedUpdatedAt) { "The app changed; reload before changing its source." }
+        val binding = dao.getRepositoryBinding(registeredAppId)
+            ?: throw IllegalStateException("Repository identity is not available.")
+        check(binding.provider == PROVIDER_GITHUB && binding.instance == GITHUB_INSTANCE) {
+            "The current repository provider cannot be edited by the GitHub source editor."
+        }
+        check(binding.providerRepositoryId == preview.identity.providerRepositoryId) {
+            "The new URL identifies a different repository. Register it as a separate app."
+        }
+        val now = Instant.now().toString()
+        val discoveryId = UUID.randomUUID().toString()
+        val discovery = preview.toDiscovery(registeredAppId, discoveryId, now)
+        database.withTransaction {
+            val currentApp = dao.getRegisteredApp(registeredAppId)
+                ?: throw IllegalArgumentException("Registered app was not found.")
+            val currentBinding = dao.getRepositoryBinding(registeredAppId)
+                ?: throw IllegalStateException("Repository identity is not available.")
+            check(currentApp.updatedAt == expectedUpdatedAt) {
+                "The app changed; reload before changing its source."
+            }
+            check(currentBinding.providerRepositoryId == preview.identity.providerRepositoryId) {
+                "Repository identity changed while the source edit was being confirmed."
+            }
+            dao.upsertSourceDiscovery(discovery)
+            dao.upsertGradleCandidates(preview.toCandidates(discoveryId))
+            val currentHead = dao.getAppSourceHead(registeredAppId)
+            dao.upsertAppSourceHead(
+                AppSourceHeadEntity(
+                    registeredAppId = registeredAppId,
+                    latestDiscoveryId = discoveryId,
+                    selectedConfigurationRevision = currentHead?.selectedConfigurationRevision,
+                    updatedAt = now,
+                ),
+            )
+            dao.upsertRepositoryBinding(currentBinding.copy(verifiedAt = now))
+            dao.upsertRegisteredApp(
+                currentApp.copy(
+                    displayName = preview.identity.displayName,
+                    repositoryUrl = preview.normalizedInputUrl,
+                    canonicalRepositoryUrl = preview.normalizedInputUrl,
+                    updatedAt = now,
+                ),
+            )
+        }
+    }
+
+    suspend fun stopTracking(registeredAppId: String) {
+        database.withTransaction {
+            val app = dao.getRegisteredApp(registeredAppId)
+                ?: throw IllegalArgumentException("Registered app was not found.")
+            check(app.trackingState == AppTrackingState.ACTIVE.name) { "App tracking is already inactive." }
+            val now = Instant.now().toString()
+            dao.upsertRegisteredApp(
+                app.copy(
+                    trackingState = AppTrackingState.INACTIVE.name,
+                    trackingStoppedAt = now,
+                    updatedAt = now,
+                ),
+            )
+        }
+    }
+
+    suspend fun stopTrackingAfterConfirmedUninstall(registeredAppId: String) {
+        val record = dao.getRegisteredAppRecord(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        val packageName = record.latestRelease?.selectedAsset?.packageName
+            ?: record.releases.asSequence()
+                .flatMap { it.assets.asSequence() }
+                .mapNotNull { it.packageName }
+                .firstOrNull()
+            ?: throw IllegalStateException("The app package is not known, so uninstall cannot be confirmed.")
+        check(installedPackageVersion(packageName) == null) {
+            "Android still reports the package as installed. Tracking was not changed."
+        }
+        stopTracking(registeredAppId)
+    }
+
+    suspend fun resumeTracking(registeredAppId: String) {
+        database.withTransaction {
+            val app = dao.getRegisteredApp(registeredAppId)
+                ?: throw IllegalArgumentException("Registered app was not found.")
+            check(app.trackingState == AppTrackingState.INACTIVE.name) { "App tracking is already active." }
+            val now = Instant.now().toString()
+            dao.upsertRegisteredApp(
+                app.copy(
+                    trackingState = AppTrackingState.ACTIVE.name,
+                    trackingStoppedAt = null,
+                    updatedAt = now,
+                ),
+            )
+        }
+    }
+
+    suspend fun previewCompleteDeletion(registeredAppId: String): AppDeletionPreview {
+        val record = dao.getRegisteredAppRecord(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        check(record.app.trackingState == AppTrackingState.INACTIVE.name) {
+            "Stop tracking this app before deleting its local history."
+        }
+        val assetIds = record.releases
+            .flatMap { it.assets }
+            .map { canonicalUuid(it.releaseAssetId, "Release asset ID") }
+            .distinct()
+            .sorted()
+        val storageDao = database.storageDao()
+        val activeInstallAssetIds = storageDao.getActiveReleaseInstallAssetIds().toSet()
+        val reservations = storageDao.getActiveReservations()
+        val activeExports = storageDao.getActiveAuditExports()
+        val unsafeLocalPath = withContext(Dispatchers.IO) {
+            assetIds.any { assetId ->
+                listOf(finalFile(assetId), iconFile(assetId), partFile(assetId), partIconFile(assetId))
+                    .any { Files.isSymbolicLink(it.toPath()) }
+            }
+        }
+        val protectionReasons = buildList {
+            if (assetIds.any(activeInstallAssetIds::contains)) add("INSTALL_IN_PROGRESS")
+            if (record.comparisons.any { it.status != ComparisonRunStatus.COMPLETED.name }) {
+                add("COMPARISON_IN_PROGRESS")
+            }
+            if (
+                reservations.any {
+                    it.resourceKind in setOf("REFERENCE_APK", "REFERENCE_ICON") && it.resourceId in assetIds
+                }
+            ) {
+                add("ACTIVE_STORAGE_RESERVATION")
+            }
+            if (activeExports.isNotEmpty()) add("AUDIT_EXPORT_IN_PROGRESS")
+            if (unsafeLocalPath) add("UNSAFE_LOCAL_PATH")
+        }
+        val localBytes = withContext(Dispatchers.IO) {
+            assetIds.sumOf { assetId ->
+                listOf(finalFile(assetId), iconFile(assetId), partFile(assetId), partIconFile(assetId))
+                    .sumOf { file -> runCatching { confinedRegularFileSize(file) }.getOrDefault(0L) }
+            }
+        }
+        val now = Instant.now()
+        return AppDeletionPreview(
+            previewId = UUID.randomUUID().toString(),
+            registeredAppId = record.app.registeredAppId,
+            expectedUpdatedAt = record.app.updatedAt,
+            displayName = record.app.resolvedDisplayName,
+            releaseCount = record.releases.size,
+            comparisonCount = record.comparisons.size,
+            installAttemptCount = record.releaseInstallAttempts.size,
+            sourceDiscoveryCount = record.sourceDiscoveries.size,
+            buildConfigurationCount = record.buildConfigurations.size,
+            referenceAssetIds = assetIds,
+            localBytes = localBytes,
+            protectionReasons = protectionReasons.distinct(),
+            createdAt = now.toString(),
+            expiresAt = now.plus(DELETION_PREVIEW_MINUTES, ChronoUnit.MINUTES).toString(),
+        )
+    }
+
+    suspend fun executeCompleteDeletion(preview: AppDeletionPreview): AppDeletionResult {
+        canonicalUuid(preview.previewId, "Deletion preview ID")
+        check(Instant.now().isBefore(Instant.parse(preview.expiresAt))) {
+            "The deletion preview expired. Create a new preview."
+        }
+        val current = previewCompleteDeletion(preview.registeredAppId)
+        check(current.expectedUpdatedAt == preview.expectedUpdatedAt) {
+            "The app changed after the deletion preview. Create a new preview."
+        }
+        check(current.referenceAssetIds == preview.referenceAssetIds) {
+            "The app resources changed after the deletion preview. Create a new preview."
+        }
+        check(current.protectionReasons.isEmpty()) {
+            "Protected resources prevent complete deletion: ${current.protectionReasons.joinToString()}."
+        }
+        val ownedFiles = withContext(Dispatchers.IO) {
+            current.referenceAssetIds.flatMap { assetId ->
+                listOf(finalFile(assetId), iconFile(assetId), partFile(assetId), partIconFile(assetId))
+            }.map { file -> file to confinedRegularFileSize(file) }
+        }
+        database.withTransaction {
+            val record = dao.getRegisteredAppRecord(preview.registeredAppId)
+                ?: throw IllegalArgumentException("Registered app was not found.")
+            check(record.app.trackingState == AppTrackingState.INACTIVE.name) {
+                "App tracking was resumed during deletion."
+            }
+            check(record.app.updatedAt == preview.expectedUpdatedAt) {
+                "The app changed during deletion."
+            }
+            current.referenceAssetIds.forEach { assetId ->
+                database.storageDao().deleteAvailability("REFERENCE_APK", assetId)
+                database.storageDao().deleteAvailability("REFERENCE_ICON", assetId)
+            }
+            dao.deleteRegisteredApp(preview.registeredAppId)
+        }
+        var deletedFiles = 0
+        var releasedBytes = 0L
+        val failedFileNames = withContext(NonCancellable + Dispatchers.IO) {
+            buildList {
+                ownedFiles.forEach { (file, size) ->
+                    val deleted = runCatching {
+                        requireConfinedOwnedFile(file)
+                        Files.deleteIfExists(file.toPath())
+                    }.getOrDefault(false)
+                    if (deleted) {
+                        deletedFiles += 1
+                        releasedBytes += size
+                    } else if (Files.exists(file.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                        add(file.name)
+                    }
+                }
+            }
+        }
+        return AppDeletionResult(
+            registeredAppId = preview.registeredAppId,
+            deletedFiles = deletedFiles,
+            releasedBytes = releasedBytes,
+            failedFileNames = failedFileNames,
+        )
+    }
 
     suspend fun registerRepository(
         preview: RepositoryRegistrationPreview,
@@ -408,7 +805,11 @@ class ManagedAppRepository(
         val validated = BuildConfigurationValidator.validate(input)
         val now = Instant.now().toString()
         return database.withTransaction {
-            check(dao.getRegisteredApp(registeredAppId) != null) { "Registered app was not found." }
+            val app = dao.getRegisteredApp(registeredAppId)
+                ?: throw IllegalArgumentException("Registered app was not found.")
+            check(app.trackingState == AppTrackingState.ACTIVE.name) {
+                "Resume tracking before changing the build configuration."
+            }
             val head = dao.getAppSourceHead(registeredAppId)
                 ?: AppSourceHeadEntity(registeredAppId, null, null, now)
             check(head.selectedConfigurationRevision == expectedRevision) {
@@ -519,6 +920,9 @@ class ManagedAppRepository(
     suspend fun refresh(registeredAppId: String) {
         var app = dao.getRegisteredApp(registeredAppId)
             ?: throw IllegalArgumentException("Registered app was not found.")
+        check(app.trackingState == AppTrackingState.ACTIVE.name) {
+            "Resume tracking before checking for new releases."
+        }
         var binding = dao.getRepositoryBinding(registeredAppId)
         if (binding?.identityStatus == RepositoryIdentityStatus.VERIFIED.name) {
             refreshSourceDiscovery(registeredAppId)
@@ -648,6 +1052,9 @@ class ManagedAppRepository(
     ) {
         val record = dao.getRegisteredAppRecord(registeredAppId)
             ?: throw IllegalArgumentException("Registered app was not found.")
+        check(record.app.trackingState == AppTrackingState.ACTIVE.name) {
+            "Resume tracking before selecting a release asset."
+        }
         check(record.latestRelease?.snapshot?.releaseSnapshotId == releaseSnapshotId) {
             "Only the latest release can receive an APK selection."
         }
@@ -726,6 +1133,9 @@ class ManagedAppRepository(
     ) {
         val app = dao.getRegisteredApp(registeredAppId)
             ?: throw IllegalArgumentException("Registered app was not found.")
+        check(app.trackingState == AppTrackingState.ACTIVE.name) {
+            "Resume tracking before changing app settings."
+        }
         validateModeAndInstallationSource(update.managementMode, update.installationSource)
         if (update.installationSource == InstallationSource.LOCAL_BUILD) {
             require(update.localBuildRiskConfirmed) {
@@ -863,6 +1273,11 @@ class ManagedAppRepository(
     }
 
     suspend fun installManagedApp(registeredAppId: String, riskConfirmed: Boolean): String {
+        val trackedApp = dao.getRegisteredApp(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        check(trackedApp.trackingState == AppTrackingState.ACTIVE.name) {
+            "Resume tracking before installing an app."
+        }
         refreshInstalledStateForApp(registeredAppId)
         val record = dao.getRegisteredAppRecord(registeredAppId)
             ?: throw IllegalArgumentException("Registered app was not found.")
@@ -957,6 +1372,9 @@ class ManagedAppRepository(
     suspend fun startComparison(registeredAppId: String): String {
         val record = dao.getRegisteredAppRecord(registeredAppId)
             ?: throw IllegalArgumentException("Registered app was not found.")
+        check(record.app.trackingState == AppTrackingState.ACTIVE.name) {
+            "Resume tracking before starting a comparison."
+        }
         check(record.app.managementMode == ManagementMode.VERIFICATION.name) {
             "Only apps in verification mode can start a reproducibility comparison."
         }
@@ -2309,6 +2727,29 @@ class ManagedAppRepository(
     private fun partFile(assetId: String) = File(referenceDirectory, "$assetId.part.apk")
     private fun finalFile(assetId: String) = File(referenceDirectory, "$assetId.apk")
     private fun iconFile(assetId: String) = File(iconDirectory, "$assetId.png")
+    private fun partIconFile(assetId: String) = File(iconDirectory, "$assetId.part.png")
+
+    private fun confinedRegularFileSize(file: File): Long {
+        requireConfinedOwnedFile(file)
+        return if (
+            Files.isRegularFile(file.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+            !Files.isSymbolicLink(file.toPath())
+        ) {
+            Files.size(file.toPath())
+        } else {
+            0L
+        }
+    }
+
+    private fun requireConfinedOwnedFile(file: File) {
+        val normalized = file.toPath().toAbsolutePath().normalize()
+        val referenceRoot = referenceDirectory.toPath().toAbsolutePath().normalize()
+        val iconRoot = iconDirectory.toPath().toAbsolutePath().normalize()
+        require(normalized.parent == referenceRoot || normalized.parent == iconRoot) {
+            "App-private deletion path escaped its owned directory."
+        }
+        require(!Files.isSymbolicLink(normalized)) { "Symbolic links are not deleted as app resources." }
+    }
 
     private fun saveIcon(assetId: String, png: ByteArray) {
         if ((!iconDirectory.exists() && !iconDirectory.mkdirs()) || !iconDirectory.isDirectory) {
@@ -2342,6 +2783,11 @@ class ManagedAppRepository(
                 .mapNotNull { it.packageName }
                 .firstOrNull()
             ?: return null
+        return installedPackageVersion(packageName)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun installedPackageVersion(packageName: String): Long? {
         return try {
             val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 context.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
@@ -2416,6 +2862,31 @@ class ManagedAppRepository(
         }
     }
 
+    private fun validatedGroupName(value: String): String {
+        val normalized = value.trim().replace(Regex("\\s+"), " ")
+        require(normalized.isNotEmpty()) { "App group name is required." }
+        require(normalized.length <= MAX_GROUP_NAME_LENGTH) { "App group name is too long." }
+        require(normalized.toByteArray(StandardCharsets.UTF_8).size <= MAX_GROUP_NAME_UTF8_BYTES) {
+            "App group name is too large."
+        }
+        require(normalized.none { it.isISOControl() }) { "App group name contains control characters." }
+        return normalized
+    }
+
+    private fun normalizedOptionalText(value: String?, maximumLength: Int, label: String): String? {
+        val normalized = value?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        require(normalized.length <= maximumLength) { "$label is too long." }
+        require(normalized.none { it.isISOControl() }) { "$label contains control characters." }
+        return normalized
+    }
+
+    private fun canonicalUuid(value: String, label: String): String {
+        val normalized = runCatching { UUID.fromString(value).toString() }
+            .getOrElse { throw IllegalArgumentException("$label is invalid.") }
+        require(normalized == value) { "$label must be a canonical UUID." }
+        return normalized
+    }
+
     private companion object {
         const val PROVIDER_GITHUB_RELEASES = "PUBLIC_GITHUB_RELEASES"
         const val PROVIDER_GITHUB = "GITHUB"
@@ -2430,6 +2901,15 @@ class ManagedAppRepository(
         const val INSTALL_CALLBACK_GRACE_SECONDS = 30L
         const val MIN_ANDROID_STORAGE_BUDGET = 1L * 1024L * 1024L * 1024L
         const val MAX_ANDROID_STORAGE_BUDGET = 64L * 1024L * 1024L * 1024L
+        const val MAX_GROUPS = 100
+        const val GROUP_SORT_SPACING = 1_024L
+        const val MAX_GROUP_NAME_LENGTH = 80
+        const val MAX_GROUP_NAME_UTF8_BYTES = 240
+        const val MAX_DISPLAY_NAME_LENGTH = 120
+        const val MAX_AUTHOR_LENGTH = 160
+        const val MAX_NOTE_LENGTH = 10_000
+        const val MAX_NOTE_UTF8_BYTES = 30_000
+        const val DELETION_PREVIEW_MINUTES = 15L
         val SUPPORTED_APK_LIMITS = setOf(
             64L * 1024L * 1024L,
             128L * 1024L * 1024L,

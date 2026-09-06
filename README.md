@@ -1,6 +1,8 @@
 # ReproDroid
 
-**Phase 4 現在地（2026-09-05）:** Room18へgeneric build／comparison client、configuration snapshot、raw 3軸履歴、限定resource retry表示、release単位の複数APK明示選択を実装しました。複数候補は先頭やsizeで自動選択せず、候補metadataだけを表示し、利用者が選んだ1 APKだけを取得・検査します。Runner-owned truthを複製せず、API capability／runner ID／schemaを厳格検証します。JVM testは123件、Android 16 instrumentationは64件（明示opt-in skip 9）、いずれもfailure 0です。全9 artifactの空store導入とRunner再起動後inventory復元は確認しました。generic Android + Docker Build A/B製品E2Eは利用者指示により実施しておらず、Reproducible判定の証拠ではありません。v1 execution mutationへのfallbackはありません。
+**UI-R現在地（2026-09-06）:** Phase 4.4と4.5の間の特殊工程として、Room19、typed route、Apps／Add／Settingsとapp内Information／Edit／Settings／Remove、単一所属group、追跡解除／再開、Settingsからの完全local deletion、System／Light／Dark＋Dynamic Color、英語base／日本語resource、将来Phaseのdisabled接続点を実装しました。Phase 4.5〜4.8のbackend機能は先行実装していません。debug／release JVM testは各127件、lint、debug／release assembleがPASSです。接続端末を確認できず、Room migration、TalkBack、font scale、uninstall／deletion、Android 16製品経路は`NOT_RUN`です。詳細は[UI-R実装記録](../reprodroid-project/reports/2026/09/2026-09-06-ui-r-implementation.md)を参照してください。
+
+**Phase 4.4 baseline（2026-09-05）:** Room18へgeneric build／comparison client、configuration snapshot、raw 3軸履歴、限定resource retry表示、release単位の複数APK明示選択を実装しました。複数候補は先頭やsizeで自動選択せず、候補metadataだけを表示し、利用者が選んだ1 APKだけを取得・検査します。Runner-owned truthを複製せず、API capability／runner ID／schemaを厳格検証します。JVM testは123件、Android 16 instrumentationは64件（明示opt-in skip 9）、いずれもfailure 0です。全9 artifactの空store導入とRunner再起動後inventory復元は確認しました。generic Android + Docker Build A/B製品E2Eは利用者指示により実施しておらず、Reproducible判定の証拠ではありません。v1 execution mutationへのfallbackはありません。
 
 OSS AndroidアプリをPC側Runnerでソースからビルドし、生成APKの情報を確認してAndroid標準インストーラへ渡すクライアントです。最終的には公式APKとローカルビルドAPKを比較し、利用者自身が再現性を判断できる状態を目指します。
 

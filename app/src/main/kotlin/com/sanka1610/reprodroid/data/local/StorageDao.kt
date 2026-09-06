@@ -27,6 +27,9 @@ interface StorageDao {
     @Upsert
     suspend fun upsertAvailability(availability: ResourceAvailabilityEntity)
 
+    @Query("DELETE FROM resource_availability WHERE resourceKind = :resourceKind AND resourceId = :resourceId")
+    suspend fun deleteAvailability(resourceKind: String, resourceId: String)
+
     @Query("SELECT * FROM storage_reservations WHERE state = 'ACTIVE' ORDER BY createdAt, reservationId")
     suspend fun getActiveReservations(): List<StorageReservationEntity>
 

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Keep the R Loop inside the adaptive icon safe zone. The supplied raw
+     foreground intentionally remains unchanged as the design master. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_launcher_foreground"
+    android:inset="18dp" />

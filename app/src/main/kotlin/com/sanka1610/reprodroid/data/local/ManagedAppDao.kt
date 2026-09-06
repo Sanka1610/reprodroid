@@ -15,8 +15,33 @@ interface ManagedAppDao {
     suspend fun getGlobalSettings(): GlobalSettingsEntity?
 
     @Transaction
-    @Query("SELECT * FROM registered_apps ORDER BY displayName COLLATE NOCASE, createdAt")
+    @Query(
+        "SELECT * FROM registered_apps WHERE trackingState = 'ACTIVE' " +
+            "ORDER BY COALESCE(displayNameOverride, displayName) COLLATE NOCASE, createdAt",
+    )
     fun observeRegisteredApps(): Flow<List<RegisteredAppRecord>>
+
+    @Transaction
+    @Query(
+        "SELECT * FROM registered_apps WHERE trackingState = 'INACTIVE' " +
+            "ORDER BY trackingStoppedAt DESC, COALESCE(displayNameOverride, displayName) COLLATE NOCASE",
+    )
+    fun observeInactiveRegisteredApps(): Flow<List<RegisteredAppRecord>>
+
+    @Query("SELECT * FROM app_groups ORDER BY sortOrder, displayName COLLATE NOCASE, groupId")
+    fun observeAppGroups(): Flow<List<AppGroupEntity>>
+
+    @Query("SELECT * FROM app_groups ORDER BY sortOrder, displayName COLLATE NOCASE, groupId")
+    suspend fun getAppGroups(): List<AppGroupEntity>
+
+    @Query("SELECT * FROM app_groups WHERE groupId = :groupId")
+    suspend fun getAppGroup(groupId: String): AppGroupEntity?
+
+    @Query("SELECT * FROM app_groups WHERE displayName = :displayName COLLATE NOCASE LIMIT 1")
+    suspend fun getAppGroupByName(displayName: String): AppGroupEntity?
+
+    @Query("SELECT MAX(sortOrder) FROM app_groups")
+    suspend fun getMaximumAppGroupSortOrder(): Long?
 
     @Query("SELECT * FROM registered_apps")
     suspend fun getRegisteredApps(): List<RegisteredAppEntity>
@@ -152,6 +177,15 @@ interface ManagedAppDao {
 
     @Upsert
     suspend fun upsertRegisteredApp(app: RegisteredAppEntity)
+
+    @Upsert
+    suspend fun upsertAppGroup(group: AppGroupEntity)
+
+    @Query("UPDATE registered_apps SET groupId = NULL, updatedAt = :updatedAt WHERE groupId = :groupId")
+    suspend fun clearGroupAssignments(groupId: String, updatedAt: String)
+
+    @Query("DELETE FROM app_groups WHERE groupId = :groupId")
+    suspend fun deleteAppGroup(groupId: String)
 
     @Upsert
     suspend fun upsertRepositoryBinding(binding: AppRepositoryBindingEntity)

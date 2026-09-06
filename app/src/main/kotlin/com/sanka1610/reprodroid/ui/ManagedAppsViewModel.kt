@@ -6,11 +6,16 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.sanka1610.reprodroid.ReproDroidApplication
 import com.sanka1610.reprodroid.data.local.AppSettingsUpdate
+import com.sanka1610.reprodroid.data.local.AppGroupEntity
+import com.sanka1610.reprodroid.data.local.AppMetadataUpdate
 import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
 import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.provider.RepositoryRegistrationPreview
 import com.sanka1610.reprodroid.data.repository.BuildConfigurationInput
+import com.sanka1610.reprodroid.data.repository.AppDeletionPreview
+import com.sanka1610.reprodroid.data.repository.AppDeletionResult
+import com.sanka1610.reprodroid.data.repository.ExistingPrimaryRegistration
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupPreview
 import com.sanka1610.reprodroid.data.storage.AndroidStorageSummary
 import com.sanka1610.reprodroid.data.storage.StagedAuditExport
@@ -28,6 +33,15 @@ data class RepositoryPreviewState(
     val requestedUrl: String? = null,
     val generation: Long = 0,
     val isLoading: Boolean = false,
+    val existingPrimaryRegistration: ExistingPrimaryRegistration? = null,
+)
+
+data class SourceEditPreviewState(
+    val registeredAppId: String? = null,
+    val expectedUpdatedAt: String? = null,
+    val requestedUrl: String? = null,
+    val repository: RepositoryRegistrationPreview? = null,
+    val isLoading: Boolean = false,
 )
 
 class ManagedAppsViewModel(application: Application) : AndroidViewModel(application) {
@@ -41,6 +55,18 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     private val toolchainCoordinator = reprodroidApplication.toolchainCoordinator
 
     val apps = repository.observeApps().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    val inactiveApps = repository.observeInactiveApps().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    val groups = repository.observeGroups().stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = emptyList(),
@@ -93,6 +119,15 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     private var registrationJob: Job? = null
     private val previewGeneration = PreviewGenerationGate()
 
+    private val _sourceEditPreview = MutableStateFlow(SourceEditPreviewState())
+    val sourceEditPreview = _sourceEditPreview.asStateFlow()
+    private var sourceEditJob: Job? = null
+
+    private val _deletionPreview = MutableStateFlow<AppDeletionPreview?>(null)
+    val deletionPreview = _deletionPreview.asStateFlow()
+    private val _deletionResult = MutableStateFlow<AppDeletionResult?>(null)
+    val deletionResult = _deletionResult.asStateFlow()
+
     private val _message = MutableStateFlow<String?>(null)
     val message = _message.asStateFlow()
 
@@ -126,11 +161,13 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
             )
             try {
                 val resolved = repository.previewRepository(request.requestedUrl)
+                val existing = repository.findPrimaryRegistration(resolved.identity.providerRepositoryId)
                 if (previewGeneration.isCurrent(request) && _preview.value.requestedUrl == request.requestedUrl) {
                     _preview.value = RepositoryPreviewState(
                         repository = resolved,
                         requestedUrl = request.requestedUrl,
                         generation = request.generation,
+                        existingPrimaryRegistration = existing,
                     )
                 }
             } catch (cancellation: CancellationException) {
@@ -227,6 +264,112 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun updateMetadata(
+        registeredAppId: String,
+        update: AppMetadataUpdate,
+        onSaved: () -> Unit,
+    ) = runAppAction(registeredAppId) {
+        repository.updateMetadata(registeredAppId, update)
+        onSaved()
+    }
+
+    fun createGroup(displayName: String) = runGroupAction {
+        repository.createGroup(displayName)
+    }
+
+    fun renameGroup(groupId: String, displayName: String) = runGroupAction {
+        repository.renameGroup(groupId, displayName)
+    }
+
+    fun reorderGroups(orderedGroupIds: List<String>) = runGroupAction {
+        repository.reorderGroups(orderedGroupIds)
+    }
+
+    fun deleteGroup(groupId: String) = runGroupAction {
+        repository.deleteGroup(groupId)
+    }
+
+    fun previewSourceEdit(registeredAppId: String, expectedUpdatedAt: String, repositoryUrl: String) {
+        sourceEditJob?.cancel()
+        val requestedUrl = repositoryUrl.trim()
+        sourceEditJob = viewModelScope.launch {
+            _sourceEditPreview.value = SourceEditPreviewState(
+                registeredAppId = registeredAppId,
+                expectedUpdatedAt = expectedUpdatedAt,
+                requestedUrl = requestedUrl,
+                isLoading = true,
+            )
+            try {
+                val preview = repository.previewRepository(requestedUrl)
+                val current = _sourceEditPreview.value
+                if (
+                    current.registeredAppId == registeredAppId &&
+                    current.expectedUpdatedAt == expectedUpdatedAt &&
+                    current.requestedUrl == requestedUrl
+                ) {
+                    _sourceEditPreview.value = current.copy(repository = preview, isLoading = false)
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                _sourceEditPreview.value = SourceEditPreviewState()
+                _message.value = failure.userMessage()
+            }
+        }
+    }
+
+    fun applySourceEdit(registeredAppId: String, onSaved: () -> Unit) {
+        val state = _sourceEditPreview.value
+        if (state.registeredAppId != registeredAppId) return
+        val expectedUpdatedAt = state.expectedUpdatedAt ?: return
+        val preview = state.repository ?: return
+        runAppAction(registeredAppId) {
+            repository.updateTrackingSource(registeredAppId, expectedUpdatedAt, preview)
+            clearSourceEditPreview()
+            onSaved()
+        }
+    }
+
+    fun clearSourceEditPreview() {
+        sourceEditJob?.cancel()
+        _sourceEditPreview.value = SourceEditPreviewState()
+    }
+
+    fun stopTracking(registeredAppId: String, onStopped: () -> Unit) = runAppAction(registeredAppId) {
+        repository.stopTracking(registeredAppId)
+        onStopped()
+    }
+
+    fun stopTrackingAfterConfirmedUninstall(registeredAppId: String, onStopped: () -> Unit) =
+        runAppAction(registeredAppId) {
+            repository.stopTrackingAfterConfirmedUninstall(registeredAppId)
+            onStopped()
+        }
+
+    fun resumeTracking(registeredAppId: String, onResumed: () -> Unit = {}) = runAppAction(registeredAppId) {
+        repository.resumeTracking(registeredAppId)
+        onResumed()
+    }
+
+    fun previewCompleteDeletion(registeredAppId: String) = runAppAction(registeredAppId) {
+        _deletionResult.value = null
+        _deletionPreview.value = repository.previewCompleteDeletion(registeredAppId)
+    }
+
+    fun executeCompleteDeletion(onDeleted: () -> Unit = {}) {
+        val preview = _deletionPreview.value ?: return
+        runAppAction(preview.registeredAppId) {
+            _deletionResult.value = repository.executeCompleteDeletion(preview)
+            _deletionPreview.value = null
+            onDeleted()
+        }
+    }
+
+    fun clearDeletionState() {
+        _deletionPreview.value = null
+        _deletionResult.value = null
+    }
+
     fun saveBuildConfiguration(
         registeredAppId: String,
         expectedRevision: Long?,
@@ -275,6 +418,16 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         cleanupManager.reconcileInterruptedRuns()
         retentionCoordinator.syncCurrentComparisonHolds()
         _androidStorageSummary.value = storageManager.summary()
+    }
+
+    fun refreshAndroidStorage() = runStorageAction {
+        storageManager.reconcileAvailability()
+        cleanupManager.reconcileInterruptedRuns()
+        _androidStorageSummary.value = storageManager.summary()
+    }
+
+    fun refreshRunnerStorage() = runStorageAction {
+        retentionCoordinator.syncCurrentComparisonHolds()
     }
 
     fun previewAndroidCleanup() = runStorageAction {
@@ -373,6 +526,18 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun runToolchainAction(action: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                action()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                _message.value = failure.userMessage()
+            }
+        }
+    }
+
+    private fun runGroupAction(action: suspend () -> Unit) {
         viewModelScope.launch {
             try {
                 action()
