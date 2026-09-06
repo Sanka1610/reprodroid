@@ -24,6 +24,11 @@ enum class ThemeMode {
     DARK,
 }
 
+enum class AppTrackingState {
+    ACTIVE,
+    INACTIVE,
+}
+
 enum class ReleaseVariantPreference {
     RELEASE,
     PREVIEW,
@@ -87,6 +92,26 @@ data class AppSettingsUpdate(
     val localBuildRiskConfirmed: Boolean,
 )
 
+data class AppMetadataUpdate(
+    val displayNameOverride: String?,
+    val authorDisplayOverride: String?,
+    val note: String,
+    val groupId: String?,
+    val expectedUpdatedAt: String,
+)
+
+@Entity(
+    tableName = "app_groups",
+    indices = [Index(value = ["sortOrder"], unique = true)],
+)
+data class AppGroupEntity(
+    @PrimaryKey val groupId: String,
+    val displayName: String,
+    val sortOrder: Long,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
 enum class AssetSelectionReason {
     SINGLE_APK,
     PREFERRED_ABI_FILENAME,
@@ -97,7 +122,11 @@ enum class AssetSelectionReason {
 
 @Entity(
     tableName = "registered_apps",
-    indices = [Index(value = ["canonicalRepositoryUrl"])],
+    indices = [
+        Index(value = ["canonicalRepositoryUrl"]),
+        Index(value = ["groupId"]),
+        Index(value = ["trackingState"]),
+    ],
 )
 data class RegisteredAppEntity(
     @PrimaryKey val registeredAppId: String,
@@ -125,14 +154,27 @@ data class RegisteredAppEntity(
     val releaseDiscoveryErrorMessage: String? = null,
     val releaseMetadataEtag: String? = null,
     val lastReleaseCheckedAt: String? = null,
+    val displayNameOverride: String? = null,
+    val authorDisplayOverride: String? = null,
+    @ColumnInfo(defaultValue = "''")
+    val note: String = "",
+    val groupId: String? = null,
+    @ColumnInfo(defaultValue = "'ACTIVE'")
+    val trackingState: String = AppTrackingState.ACTIVE.name,
+    val trackingStoppedAt: String? = null,
     val createdAt: String,
     val updatedAt: String,
-)
+) {
+    val resolvedDisplayName: String
+        get() = displayNameOverride ?: displayName
+}
 
 @Entity(tableName = "global_settings")
 data class GlobalSettingsEntity(
     @PrimaryKey val singletonId: Int = SINGLETON_ID,
     val themeMode: String = ThemeMode.DARK.name,
+    @ColumnInfo(defaultValue = "1")
+    val dynamicColorEnabled: Boolean = true,
     val defaultManagementMode: String = ManagementMode.VERIFICATION.name,
     val defaultInstallationSource: String = InstallationSource.OFFICIAL_RELEASE.name,
     val defaultReleaseVariantPreference: String = ReleaseVariantPreference.RELEASE.name,
@@ -281,6 +323,8 @@ data class ReleaseSnapshotWithAssets(
 
 data class RegisteredAppRecord(
     @Embedded val app: RegisteredAppEntity,
+    @Relation(parentColumn = "groupId", entityColumn = "groupId")
+    val group: AppGroupEntity? = null,
     @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")
     val repositoryBinding: AppRepositoryBindingEntity? = null,
     @Relation(parentColumn = "registeredAppId", entityColumn = "registeredAppId")

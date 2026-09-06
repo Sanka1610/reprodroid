@@ -61,6 +61,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,6 +73,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.net.toUri
+import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.AppSettingsUpdate
 import com.sanka1610.reprodroid.data.local.ComparisonEligibility
@@ -131,7 +135,7 @@ private val LightColors: ColorScheme = lightColorScheme(
 )
 
 @Composable
-fun ReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewModel) {
+internal fun LegacyReproDroidApp(managedViewModel: ManagedAppsViewModel, jobViewModel: JobViewModel) {
     val apps by managedViewModel.apps.collectAsStateWithLifecycle()
     val globalSettings by managedViewModel.settings.collectAsStateWithLifecycle()
     val preview by managedViewModel.preview.collectAsStateWithLifecycle()
@@ -471,7 +475,7 @@ private fun AppsScreen(
 }
 
 @Composable
-private fun AddAppScreen(
+internal fun AddAppScreen(
     preview: RepositoryPreviewState,
     globalSettings: GlobalSettingsEntity,
     onPreview: (String) -> Unit,
@@ -627,7 +631,7 @@ private fun AddAppScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppDetailScreen(
+internal fun AppDetailScreen(
     record: RegisteredAppRecord,
     globalSettings: GlobalSettingsEntity,
     active: Boolean,
@@ -648,6 +652,9 @@ private fun AppDetailScreen(
     availability: List<ResourceAvailabilityEntity>,
 ) {
     BackHandler(onBack = onBack)
+    val backContentDescription = stringResource(R.string.action_back)
+    val refreshContentDescription = stringResource(R.string.action_refresh)
+    val settingsContentDescription = stringResource(R.string.nav_settings)
     val latest = record.latestRelease
     val asset = latest?.selectedAsset
     var selectedReleaseAssetId by rememberSaveable(
@@ -689,15 +696,25 @@ private fun AppDetailScreen(
         asset?.existingInstallStatus == "SIGNER_MISMATCH"
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text(record.app.displayName) },
+            title = { Text(record.app.resolvedDisplayName) },
             navigationIcon = {
-                IconButton(onClick = onBack) { NavigationGlyph("‹") }
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.semantics { contentDescription = backContentDescription },
+                ) { NavigationGlyph("‹") }
             },
             actions = {
-                IconButton(enabled = !active, onClick = onRefresh) {
+                IconButton(
+                    enabled = !active,
+                    onClick = onRefresh,
+                    modifier = Modifier.semantics { contentDescription = refreshContentDescription },
+                ) {
                     NavigationGlyph("↻")
                 }
-                IconButton(onClick = onSettings) { NavigationGlyph("⚙") }
+                IconButton(
+                    onClick = onSettings,
+                    modifier = Modifier.semantics { contentDescription = settingsContentDescription },
+                ) { NavigationGlyph("⚙") }
             },
         )
         if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -718,38 +735,38 @@ private fun AppDetailScreen(
                 }
             }
             item {
-                DetailCard("Repository") {
-                    DetailValue("Provider", record.app.provider)
-                    DetailValue("URL", record.app.canonicalRepositoryUrl)
-                    DetailValue("Repository ID", record.repositoryBinding?.providerRepositoryId ?: "Legacy unresolved", true)
-                    DetailValue("Identity", record.repositoryBinding?.identityStatus ?: "Unavailable")
+                DetailCard(stringResource(R.string.technical_repository)) {
+                    DetailValue(stringResource(R.string.label_provider), record.app.provider)
+                    DetailValue(stringResource(R.string.label_source_url), record.app.canonicalRepositoryUrl)
+                    DetailValue(stringResource(R.string.technical_repository_id), record.repositoryBinding?.providerRepositoryId ?: stringResource(R.string.value_unknown), true)
+                    DetailValue(stringResource(R.string.technical_identity), record.repositoryBinding?.identityStatus ?: stringResource(R.string.value_not_available))
                     record.latestSourceDiscovery?.let { discovery ->
-                        DetailValue("Source discovery", discovery.state)
-                        discovery.reason?.let { DetailValue("Discovery reason", it) }
-                        DetailValue("Source commit", discovery.resolvedCommitSha ?: "Not resolved", true)
-                        DetailValue("Gradle candidates", discovery.candidateCount.toString())
+                        DetailValue(stringResource(R.string.technical_source_discovery), discovery.state)
+                        discovery.reason?.let { DetailValue(stringResource(R.string.technical_discovery_reason), it) }
+                        DetailValue(stringResource(R.string.technical_source_commit), discovery.resolvedCommitSha ?: stringResource(R.string.value_not_available), true)
+                        DetailValue(stringResource(R.string.add_gradle_candidates), discovery.candidateCount.toString())
                     }
                     record.selectedBuildConfiguration?.let { configuration ->
                         DetailValue(
                             "Build settings",
                             "revision ${configuration.revision} · ${configuration.validationState}",
                         )
-                        DetailValue("Settings SHA-256", configuration.contentSha256, true)
+                        DetailValue(stringResource(R.string.technical_settings_sha256), configuration.contentSha256, true)
                     }
-                    DetailValue("Release last checked", record.app.lastReleaseCheckedAt ?: "Never")
-                    DetailValue("Release variant", effectiveVariant(record, globalSettings).displayName())
-                    DetailValue("ABI", effectiveAbi(record, globalSettings).displayName())
-                    DetailValue("APK limit", "${effectiveLimit(record, globalSettings) / MIB} MiB")
+                    DetailValue(stringResource(R.string.technical_release_last_checked), record.app.lastReleaseCheckedAt ?: stringResource(R.string.value_never))
+                    DetailValue(stringResource(R.string.technical_release_variant), effectiveVariant(record, globalSettings).displayName())
+                    DetailValue(stringResource(R.string.settings_abi), effectiveAbi(record, globalSettings).displayName())
+                    DetailValue(stringResource(R.string.technical_apk_limit), "${effectiveLimit(record, globalSettings) / MIB} MiB")
                 }
             }
             latest?.let { release ->
                 item {
-                    DetailCard("Latest release") {
-                        DetailValue("Release", release.snapshot.releaseName)
-                        DetailValue("Tag", release.snapshot.tagName)
-                        DetailValue("Resolved commit", release.snapshot.resolvedCommitSha, true)
-                        DetailValue("target_commitish (record only)", release.snapshot.targetCommitishRaw)
-                        DetailValue("Published", release.snapshot.publishedAt)
+                    DetailCard(stringResource(R.string.technical_latest_release)) {
+                        DetailValue(stringResource(R.string.technical_release), release.snapshot.releaseName)
+                        DetailValue(stringResource(R.string.technical_tag), release.snapshot.tagName)
+                        DetailValue(stringResource(R.string.technical_resolved_commit), release.snapshot.resolvedCommitSha, true)
+                        DetailValue(stringResource(R.string.technical_target_commitish), release.snapshot.targetCommitishRaw)
+                        DetailValue(stringResource(R.string.technical_published), release.snapshot.publishedAt)
                     }
                 }
             }
@@ -759,13 +776,13 @@ private fun AppDetailScreen(
                 latest.assets.isNotEmpty()
             ) {
                 item {
-                    DetailCard("Select official APK") {
+                    DetailCard(stringResource(R.string.technical_select_apk)) {
                         Text(
-                            "This release has multiple eligible APK assets. Select one explicitly; no APK is downloaded before selection.",
+                            stringResource(R.string.technical_select_apk_body),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Package and signer are not shown here because they are not established until download and APK inspection.",
+                            stringResource(R.string.technical_select_apk_unknown_body),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         latest.assets
@@ -788,10 +805,10 @@ private fun AppDetailScreen(
                                         enabled = !active,
                                     )
                                     Column(modifier = Modifier.padding(start = 8.dp)) {
-                                        DetailValue("File", candidate.assetName)
-                                        DetailValue("Provider size", formatBytes(candidate.providerSizeBytes))
-                                        DetailValue("Content type", candidate.contentType)
-                                        DetailValue("Filename hints", releaseCandidateHints(candidate.assetName))
+                                        DetailValue(stringResource(R.string.technical_file), candidate.assetName)
+                                        DetailValue(stringResource(R.string.technical_provider_size), formatBytes(candidate.providerSizeBytes))
+                                        DetailValue(stringResource(R.string.technical_content_type), candidate.contentType)
+                                        DetailValue(stringResource(R.string.technical_filename_hints), releaseCandidateHints(candidate.assetName))
                                         DetailValue(
                                             "Provider SHA-256",
                                             candidate.providerDigestSha256 ?: "Not supplied",
@@ -808,37 +825,37 @@ private fun AppDetailScreen(
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Select and download official APK") }
+                        ) { Text(stringResource(R.string.technical_select_download)) }
                     }
                 }
             }
             asset?.let { current ->
                 item {
-                    DetailCard("Official APK") {
-                        DetailValue("Asset", current.assetName)
-                        DetailValue("Selection", current.selectionReason)
-                        DetailValue("Provider SHA-256", current.providerDigestSha256 ?: "Not supplied", true)
-                        DetailValue("Computed SHA-256", current.computedRawSha256 ?: "Not downloaded", true)
-                        DetailValue("Package", current.packageName ?: "Not inspected")
-                        DetailValue("Version", current.versionName ?: "—")
+                    DetailCard(stringResource(R.string.technical_official_apk)) {
+                        DetailValue(stringResource(R.string.technical_asset), current.assetName)
+                        DetailValue(stringResource(R.string.technical_selection), current.selectionReason)
+                        DetailValue(stringResource(R.string.technical_provider_sha256), current.providerDigestSha256 ?: stringResource(R.string.value_not_available), true)
+                        DetailValue(stringResource(R.string.technical_computed_sha256), current.computedRawSha256 ?: stringResource(R.string.value_not_available), true)
+                        DetailValue(stringResource(R.string.label_package), current.packageName ?: stringResource(R.string.value_unknown))
+                        DetailValue(stringResource(R.string.technical_version), current.versionName ?: stringResource(R.string.value_not_available))
                         DetailValue(
                             "Installed",
                             current.installedVersionName?.let { "$it (${current.installedVersionCode})" }
                                 ?: "Not installed",
                         )
-                        DetailValue("Update", updateLabel(current.updateStatus))
-                        DetailValue("Signer relation", signerLabel(current.existingInstallStatus))
-                        DetailValue("Signer", current.currentSignerSha256 ?: "Not inspected", true)
-                        DetailValue("Comparison", current.comparisonEligibility)
-                        current.incomparableReason?.let { DetailValue("Reason", it) }
+                        DetailValue(stringResource(R.string.label_update), updateLabel(current.updateStatus))
+                        DetailValue(stringResource(R.string.technical_signer_relation), signerLabel(current.existingInstallStatus))
+                        DetailValue(stringResource(R.string.technical_signer), current.currentSignerSha256 ?: stringResource(R.string.value_unknown), true)
+                        DetailValue(stringResource(R.string.technical_comparison), current.comparisonEligibility)
+                        current.incomparableReason?.let { DetailValue(stringResource(R.string.storage_reason), it) }
                         current.downloadErrorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                 }
             }
             item {
-                DetailCard("History") {
+                DetailCard(stringResource(R.string.technical_history)) {
                     Text(
-                        "Release observations are immutable. Deleting retained bytes does not remove comparison, signer, or install history.",
+                        stringResource(R.string.technical_history_body),
                         style = MaterialTheme.typography.bodySmall,
                     )
                     record.releases
@@ -857,15 +874,15 @@ private fun AppDetailScreen(
                                 }?.state
                             } ?: "UNKNOWN"
                             HorizontalDivider()
-                            DetailValue("Release", "${observation.snapshot.tagName} · ${observation.snapshot.publishedAt}")
-                            DetailValue("Observation", observation.snapshot.observationSha256, monospace = true)
-                            DetailValue("Last observed", observation.snapshot.lastObservedAt)
-                            DetailValue("APK availability", availabilityState)
+                            DetailValue(stringResource(R.string.technical_release), "${observation.snapshot.tagName} · ${observation.snapshot.publishedAt}")
+                            DetailValue(stringResource(R.string.technical_observation), observation.snapshot.observationSha256, monospace = true)
+                            DetailValue(stringResource(R.string.technical_last_observed), observation.snapshot.lastObservedAt)
+                            DetailValue(stringResource(R.string.technical_apk_availability), availabilityState)
                         }
                     record.comparisons.sortedByDescending { it.createdAt }.forEach { comparison ->
                         HorizontalDivider()
-                        DetailValue("Comparison", "${comparison.createdAt} · ${comparison.status}")
-                        DetailValue("Raw outcomes", buildString {
+                        DetailValue(stringResource(R.string.technical_comparison), "${comparison.createdAt} · ${comparison.status}")
+                        DetailValue(stringResource(R.string.technical_raw_outcomes), buildString {
                             append(comparison.outcome)
                             if (comparison.protocolVersion >= 2) {
                                 append(" / ${comparison.repeatOfficialOutcome} / ${comparison.repeatabilityOutcome}")
@@ -874,25 +891,22 @@ private fun AppDetailScreen(
                     }
                     record.releaseInstallAttempts.sortedByDescending { it.createdAt }.forEach { attempt ->
                         HorizontalDivider()
-                        DetailValue("Install attempt", "${attempt.createdAt} · ${attempt.status}")
+                        DetailValue(stringResource(R.string.technical_install_attempt), "${attempt.createdAt} · ${attempt.status}")
                     }
                 }
             }
             if (record.app.managementMode == ManagementMode.VERIFICATION.name) {
                 val comparison = record.currentComparison
                 item {
-                    DetailCard("Reproducibility comparison") {
-                        DetailValue("Trust", trustLabel(record))
+                    DetailCard(stringResource(R.string.technical_comparison)) {
+                        DetailValue(stringResource(R.string.technical_trust), trustLabel(record))
                         Text(
-                            "Phase 2D exact reproducibility requires two independent builds of the same commit and recipe. " +
-                                "The official APK must match both builds, and both local builds must match each other, " +
-                                "within the DEX/native-library byte scope. Full APK inventory and DEX/Manifest/resource " +
-                                "semantic results are explanatory evidence; they never promote a raw difference to Reproducible.",
+                            stringResource(R.string.technical_comparison_body),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         if (comparison == null) {
                             Text(
-                                "Build the fixed release profile from the independently resolved release tag, then compare DEX and native libraries.",
+                                stringResource(R.string.technical_build_compare_body),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Button(
@@ -902,22 +916,22 @@ private fun AppDetailScreen(
                                     asset.comparisonEligibility != ComparisonEligibility.INCOMPARABLE.name,
                                 onClick = onStartComparison,
                                 modifier = Modifier.fillMaxWidth(),
-                            ) { Text("Build and compare") }
+                            ) { Text(stringResource(R.string.technical_build_compare)) }
                         } else {
-                            DetailValue("Status", comparison.status)
-                            DetailValue("Official vs Build A", comparison.outcome)
+                            DetailValue(stringResource(R.string.technical_status), comparison.status)
+                            DetailValue(stringResource(R.string.label_official_primary), comparison.outcome)
                             if (comparison.protocolVersion >= 2) {
-                                DetailValue("Official vs Build B", comparison.repeatOfficialOutcome)
-                                DetailValue("Build A vs Build B", comparison.repeatabilityOutcome)
+                                DetailValue(stringResource(R.string.label_official_repeat), comparison.repeatOfficialOutcome)
+                                DetailValue(stringResource(R.string.label_local_repeatability), comparison.repeatabilityOutcome)
                             }
-                            DetailValue("Expected recipe", comparison.expectedRecipeId)
+                            DetailValue(stringResource(R.string.technical_expected_recipe), comparison.expectedRecipeId)
                             DetailValue(
-                                "Build A dependency pinning",
+                                stringResource(R.string.technical_dependency_pinning, "A"),
                                 dependencyPinningLabel(comparison.runnerDependencyPinning),
                             )
                             if (comparison.protocolVersion >= 2 && comparison.repeatRunnerJobId != null) {
                                 DetailValue(
-                                    "Build B dependency pinning",
+                                    stringResource(R.string.technical_dependency_pinning, "B"),
                                     dependencyPinningLabel(comparison.repeatRunnerDependencyPinning),
                                 )
                                 if (comparison.runnerDependencyPinning != comparison.repeatRunnerDependencyPinning) {
@@ -934,14 +948,14 @@ private fun AppDetailScreen(
                                 comparison.repeatRunnerDependencyPinning == "LOCKFILE_OFFLINE"
                             ) {
                                 Text(
-                                    "Gradle offline resolution is not network isolation.",
+                                    stringResource(R.string.technical_offline_warning),
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }
-                            DetailValue("Expected commit", comparison.expectedCommitSha, true)
-                            comparison.runnerResolvedCommitSha?.let { DetailValue("Runner commit", it, true) }
+                            DetailValue(stringResource(R.string.technical_expected_commit), comparison.expectedCommitSha, true)
+                            comparison.runnerResolvedCommitSha?.let { DetailValue(stringResource(R.string.technical_runner_commit), it, true) }
                             comparison.repeatRunnerResolvedCommitSha?.let {
-                                DetailValue("Repeat Runner commit", it, true)
+                                DetailValue(stringResource(R.string.technical_repeat_runner_commit), it, true)
                             }
                             if (comparison.protocolVersion >= 2) {
                                 val buildARecord = runnerJobs[comparison.runnerJobId]
@@ -956,24 +970,24 @@ private fun AppDetailScreen(
                                     buildAManifest,
                                     buildBManifest,
                                 )
-                                Text("Build environment evidence", style = MaterialTheme.typography.titleSmall)
-                                DetailValue("Build A sandbox", sandboxSelectionText(buildAJob))
-                                DetailValue("Build B sandbox", sandboxSelectionText(buildBJob))
-                                DetailValue("Build A execution", sandboxManifestText(buildAManifest?.manifest?.sandboxJson))
-                                DetailValue("Build B execution", sandboxManifestText(buildBManifest?.manifest?.sandboxJson))
-                                sandboxWarnings[comparison.runnerJobId]?.let { DetailValue("Build A sandbox warning", it) }
-                                comparison.repeatRunnerJobId?.let(sandboxWarnings::get)?.let { DetailValue("Build B sandbox warning", it) }
+                                Text(stringResource(R.string.technical_environment_evidence), style = MaterialTheme.typography.titleSmall)
+                                DetailValue(stringResource(R.string.technical_build_sandbox, "A"), sandboxSelectionText(buildAJob))
+                                DetailValue(stringResource(R.string.technical_build_sandbox, "B"), sandboxSelectionText(buildBJob))
+                                DetailValue(stringResource(R.string.technical_build_execution, "A"), sandboxManifestText(buildAManifest?.manifest?.sandboxJson))
+                                DetailValue(stringResource(R.string.technical_build_execution, "B"), sandboxManifestText(buildBManifest?.manifest?.sandboxJson))
+                                sandboxWarnings[comparison.runnerJobId]?.let { DetailValue(stringResource(R.string.technical_build_sandbox_warning, "A"), it) }
+                                comparison.repeatRunnerJobId?.let(sandboxWarnings::get)?.let { DetailValue(stringResource(R.string.technical_build_sandbox_warning, "B"), it) }
                                 Text(
-                                    "This evidence explains build conditions only. It does not change raw APK outcomes, trust, or installation policy.",
+                                    stringResource(R.string.technical_environment_evidence_body),
                                     style = MaterialTheme.typography.bodySmall,
                                 )
-                                SourceScanEvidence("Build A source scan", buildARecord?.sourceScan)
-                                SourceScanEvidence("Build B source scan", buildBRecord?.sourceScan)
+                                SourceScanEvidence(stringResource(R.string.technical_build_source_scan, "A"), buildARecord?.sourceScan)
+                                SourceScanEvidence(stringResource(R.string.technical_build_source_scan, "B"), buildBRecord?.sourceScan)
                                 sourceScanWarnings[comparison.runnerJobId]?.let { warning ->
-                                    DetailValue("Build A source scan warning", "${warning.code}: ${warning.message}")
+                                    DetailValue(stringResource(R.string.technical_build_source_scan_warning, "A"), "${warning.code}: ${warning.message}")
                                 }
                                 comparison.repeatRunnerJobId?.let(sourceScanWarnings::get)?.let { warning ->
-                                    DetailValue("Build B source scan warning", "${warning.code}: ${warning.message}")
+                                    DetailValue(stringResource(R.string.technical_build_source_scan_warning, "B"), "${warning.code}: ${warning.message}")
                                 }
                                 buildAManifest?.let { evidence ->
                                     DetailValue(
@@ -1004,10 +1018,10 @@ private fun AppDetailScreen(
                                     )
                                 }
                                 buildManifestWarnings[comparison.runnerJobId]?.let { warning ->
-                                    DetailValue("Build A Manifest warning", "${warning.code}: ${warning.message}")
+                                    DetailValue(stringResource(R.string.technical_build_manifest_warning, "A"), "${warning.code}: ${warning.message}")
                                 }
                                 comparison.repeatRunnerJobId?.let(buildManifestWarnings::get)?.let { warning ->
-                                    DetailValue("Build B Manifest warning", "${warning.code}: ${warning.message}")
+                                    DetailValue(stringResource(R.string.technical_build_manifest_warning, "B"), "${warning.code}: ${warning.message}")
                                 }
                                 if (environmentComparison.comparable) {
                                     DetailValue(
@@ -1031,7 +1045,7 @@ private fun AppDetailScreen(
                                             )
                                         }
                                 } else {
-                                    DetailValue("Dependency comparison", environmentComparison.reason ?: "Not available")
+                                    DetailValue(stringResource(R.string.technical_dependency_comparison), environmentComparison.reason ?: stringResource(R.string.value_not_available))
                                 }
                                 if (
                                     buildAJob?.effectiveRecipeId != buildBJob?.effectiveRecipeId ||
@@ -1049,8 +1063,8 @@ private fun AppDetailScreen(
                                     )
                                 }
                             }
-                            comparison.incomparableReason?.let { DetailValue("Reason", it) }
-                            comparison.repeatIncomparableReason?.let { DetailValue("Repeat reason", it) }
+                            comparison.incomparableReason?.let { DetailValue(stringResource(R.string.storage_reason), it) }
+                            comparison.repeatIncomparableReason?.let { DetailValue(stringResource(R.string.technical_repeat_reason), it) }
                             record.currentAdvancedComparisonSummaries.forEach { summary ->
                                 Text(
                                     when (summary.axis) {
@@ -1061,16 +1075,16 @@ private fun AppDetailScreen(
                                     },
                                     style = MaterialTheme.typography.titleSmall,
                                 )
-                                DetailValue("APK entries", "${summary.inventoryOutcome} (${summary.entryCount})")
+                                DetailValue(stringResource(R.string.technical_apk_entries), "${summary.inventoryOutcome} (${summary.entryCount})")
                                 DetailValue(
                                     "Entry changes",
                                     "same ${summary.sameCount}, changed ${summary.changedCount}, " +
                                         "added ${summary.addedCount}, missing ${summary.missingCount}",
                                 )
-                                DetailValue("DEX structure", summary.dexStructuralOutcome)
-                                DetailValue("Manifest meaning", summary.manifestSemanticOutcome)
-                                DetailValue("Resource table meaning", summary.resourceTableSemanticOutcome)
-                                DetailValue("Semantic differences", summary.semanticDifferenceCount.toString())
+                                DetailValue(stringResource(R.string.technical_dex_structure), summary.dexStructuralOutcome)
+                                DetailValue(stringResource(R.string.technical_manifest_meaning), summary.manifestSemanticOutcome)
+                                DetailValue(stringResource(R.string.technical_resource_table_meaning), summary.resourceTableSemanticOutcome)
+                                DetailValue(stringResource(R.string.technical_semantic_differences), summary.semanticDifferenceCount.toString())
                                 record.currentSemanticDifferenceEvidence
                                     .asSequence()
                                     .filter { it.axis == summary.axis }
@@ -1081,7 +1095,7 @@ private fun AppDetailScreen(
                                             "${difference.result}: ${difference.stableKey}",
                                         )
                                     }
-                                summary.reason?.let { DetailValue("Advanced reason", it) }
+                                summary.reason?.let { DetailValue(stringResource(R.string.technical_advanced_reason), it) }
                             }
                             when (comparison.status) {
                                 ComparisonRunStatus.AWAITING_CONFIRMATION.name,
@@ -1093,15 +1107,11 @@ private fun AppDetailScreen(
                                         sandboxWarnings[confirmationJobId] == null
                                     Text(
                                         if (confirmationJob?.sandboxMode == "DOCKER") {
-                                            "This independent Job runs arbitrary Gradle code in docker-microg-v1. " +
-                                                "Bridge networking does not establish host/LAN isolation, and no hard Job disk quota is enforced. " +
-                                                "Runner-observed evidence is not a safety verdict or third-party attestation."
+                                        stringResource(R.string.technical_repeat_docker_warning)
                                         } else if (comparison.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name) {
-                                            "Build A completed. The repeat Job independently resolved the same commit and fixed " +
-                                                "profile. Continuing runs Gradle build scripts again as arbitrary code on the Runner host."
+                                            stringResource(R.string.technical_repeat_build_warning)
                                         } else {
-                                            "The commit and fixed release profile match. Continuing runs Gradle build scripts " +
-                                                "as arbitrary code on the Runner host."
+                                            stringResource(R.string.technical_primary_build_warning)
                                         },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error,
@@ -1113,9 +1123,9 @@ private fun AppDetailScreen(
                                     ) {
                                         Text(
                                             if (comparison.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name) {
-                                                "Confirm repeat build and RCE risk"
+                                                stringResource(R.string.technical_confirm_repeat)
                                             } else {
-                                                "Confirm commit and RCE risk"
+                                                stringResource(R.string.technical_confirm_primary)
                                             },
                                         )
                                     }
@@ -1134,9 +1144,9 @@ private fun AppDetailScreen(
                                     val sandboxReviewAllowed = reviewJob != null && sandboxAcknowledgementAllowed(reviewJob) && sandboxWarnings[reviewJobId] == null
                                     Text(
                                         if (repeatReview) {
-                                            "Build B source scan reported configured indicators. Review its independent evidence before continuing."
+                                            stringResource(R.string.technical_review_repeat_scan)
                                         } else {
-                                            "Build A source scan reported configured indicators. Review its evidence before continuing."
+                                            stringResource(R.string.technical_review_primary_scan)
                                         },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error,
@@ -1146,7 +1156,7 @@ private fun AppDetailScreen(
                                             checked = sourceScanRiskConfirmed,
                                             onCheckedChange = { sourceScanRiskConfirmed = it },
                                         )
-                                        Text("I reviewed the findings for the displayed result digest.")
+                                        Text(stringResource(R.string.technical_reviewed_findings))
                                     }
                                     Button(
                                         enabled = !active && sandboxReviewAllowed && sourceScanRiskConfirmed &&
@@ -1158,9 +1168,9 @@ private fun AppDetailScreen(
                                     ) {
                                         Text(
                                             if (repeatReview) {
-                                                "Acknowledge Build B findings and continue"
+                                                stringResource(R.string.technical_ack_repeat)
                                             } else {
-                                                "Acknowledge Build A findings and continue"
+                                                stringResource(R.string.technical_ack_primary)
                                             },
                                         )
                                     }
@@ -1169,24 +1179,23 @@ private fun AppDetailScreen(
                                     enabled = !active,
                                     onClick = onStartComparison,
                                     modifier = Modifier.fillMaxWidth(),
-                                ) { Text("Run another comparison") }
+                                ) { Text(stringResource(R.string.technical_run_again)) }
                                 else -> Button(
                                     enabled = !active,
                                     onClick = { onRefreshComparison(comparison.comparisonRunId) },
                                     modifier = Modifier.fillMaxWidth(),
-                                ) { Text("Refresh comparison") }
+                                ) { Text(stringResource(R.string.technical_refresh_comparison)) }
                             }
                         }
                     }
                 }
             }
             item {
-                DetailCard("Installation") {
-                    DetailValue("Source", installationSourceLabel(record.app.installationSource))
+                DetailCard(stringResource(R.string.technical_installation)) {
+                    DetailValue(stringResource(R.string.technical_source), installationSourceLabel(record.app.installationSource))
                     if (record.app.installationSource == InstallationSource.LOCAL_BUILD.name) {
                         Text(
-                            "Only an already-signed local artifact from the current comparison can be installed. " +
-                                "Phase 2C does not generate or manage a ReproDroid signing key.",
+                            stringResource(R.string.technical_local_install_body),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -1197,8 +1206,7 @@ private fun AppDetailScreen(
                                 onCheckedChange = { installRiskConfirmed = it },
                             )
                             Text(
-                                "I understand that signer compatibility or reproducibility is not confirmed; Android " +
-                                    "PackageInstaller makes the final signing-lineage decision.",
+                                stringResource(R.string.technical_install_risk),
                                 modifier = Modifier.padding(top = 10.dp),
                             )
                         }
@@ -1214,7 +1222,7 @@ private fun AppDetailScreen(
                                 )
                             },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Allow installs from ReproDroid") }
+                        ) { Text(stringResource(R.string.technical_allow_installs)) }
                     }
                     Button(
                         enabled = !active && canInstall &&
@@ -1223,11 +1231,19 @@ private fun AppDetailScreen(
                         onClick = { onInstall(installRiskConfirmed) },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (asset?.updateStatus == UpdateStatus.UPDATE_AVAILABLE.name) "Update" else "Install")
+                        Text(
+                            stringResource(
+                                if (asset?.updateStatus == UpdateStatus.UPDATE_AVAILABLE.name) {
+                                    R.string.technical_update
+                                } else {
+                                    R.string.technical_install
+                                },
+                            ),
+                        )
                     }
                     record.latestReleaseInstallAttempt?.let { attempt ->
-                        DetailValue("Latest install attempt", attempt.status)
-                        attempt.statusMessage?.let { DetailValue("Installer message", it) }
+                        DetailValue(stringResource(R.string.technical_latest_install_attempt), attempt.status)
+                        attempt.statusMessage?.let { DetailValue(stringResource(R.string.technical_installer_message), it) }
                     }
                 }
             }
@@ -1238,7 +1254,7 @@ private fun AppDetailScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppPreferencesScreen(
+internal fun AppPreferencesScreen(
     record: RegisteredAppRecord,
     globalSettings: GlobalSettingsEntity,
     saving: Boolean,
@@ -1247,6 +1263,7 @@ private fun AppPreferencesScreen(
     onSaveBuildConfiguration: (Long?, BuildConfigurationInput) -> Unit,
 ) {
     BackHandler(onBack = onBack)
+    val appSettingsBackDescription = stringResource(R.string.action_back)
     var mode by rememberSaveable(record.app.registeredAppId) {
         mutableStateOf(enumValue(record.app.managementMode, ManagementMode.VERIFICATION))
     }
@@ -1311,9 +1328,12 @@ private fun AppPreferencesScreen(
     }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("${record.app.displayName} settings") },
+            title = { Text(stringResource(R.string.app_settings_for, record.app.resolvedDisplayName)) },
             navigationIcon = {
-                IconButton(onClick = onBack) { NavigationGlyph("‹") }
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.semantics { contentDescription = appSettingsBackDescription },
+                ) { NavigationGlyph("‹") }
             },
         )
         LazyColumn(
@@ -1322,20 +1342,28 @@ private fun AppPreferencesScreen(
         ) {
             item {
                 SectionTitle(
-                    "Registration settings",
-                    "These values do not follow later global changes.",
+                    stringResource(R.string.app_settings_registration),
+                    stringResource(R.string.app_settings_registration_body),
                 )
             }
             item {
                 DropdownSetting(
-                    "Management mode",
+                    stringResource(R.string.settings_management_mode),
                     mode,
                     ManagementMode.entries
                         .filter {
                             !sourceLocked || source != InstallationSource.LOCAL_BUILD ||
                                 it == ManagementMode.VERIFICATION
                         }
-                        .associateWith(::modeLabel),
+                        .associateWith {
+                            stringResource(
+                                if (it == ManagementMode.VERIFICATION) {
+                                    R.string.mode_verification
+                                } else {
+                                    R.string.mode_acquisition
+                                },
+                            )
+                        },
                     onSelect = {
                         mode = it
                         if (it == ManagementMode.ACQUISITION && !sourceLocked) {
@@ -1346,20 +1374,32 @@ private fun AppPreferencesScreen(
             }
             item {
                 DropdownSetting(
-                    "Installation source",
+                    stringResource(R.string.settings_installation_source),
                     source,
                     InstallationSource.entries
                         .filter { mode == ManagementMode.VERIFICATION || it == InstallationSource.OFFICIAL_RELEASE }
-                        .associateWith(::installationSourceLabel),
+                        .associateWith {
+                            stringResource(
+                                if (it == InstallationSource.OFFICIAL_RELEASE) {
+                                    R.string.installation_official
+                                } else {
+                                    R.string.installation_local
+                                },
+                            )
+                        },
                     onSelect = {
                         source = it
                         if (it == InstallationSource.LOCAL_BUILD) localRiskConfirmed = false
                     },
                     enabled = !sourceLocked,
                     supportingText = if (sourceLocked) {
-                        "Locked while ${record.latestRelease?.selectedAsset?.packageName ?: "the target package"} is installed."
+                        stringResource(
+                            R.string.app_settings_source_locked,
+                            record.latestRelease?.selectedAsset?.packageName
+                                ?: stringResource(R.string.app_settings_target_package),
+                        )
                     } else {
-                        "Local build is allowed only in Verification mode and while the package is not installed."
+                        stringResource(R.string.app_settings_source_help)
                     },
                 )
             }
@@ -1367,46 +1407,71 @@ private fun AppPreferencesScreen(
                 item {
                     Row(verticalAlignment = Alignment.Top) {
                         Checkbox(checked = localRiskConfirmed, onCheckedChange = { localRiskConfirmed = it })
-                        Text("I accept the local signing and future-update risks.", Modifier.padding(top = 10.dp))
+                        Text(stringResource(R.string.app_settings_local_risk), Modifier.padding(top = 10.dp))
                     }
                 }
             }
             item { HorizontalDivider() }
-            item { SectionTitle("Inherited defaults", "Use global default follows future changes.") }
+            item {
+                SectionTitle(
+                    stringResource(R.string.app_settings_future),
+                    stringResource(R.string.app_settings_future_body),
+                )
+            }
+            item { PlannedAppSetting(stringResource(R.string.app_settings_scheduled_checks), "4.5") }
+            item { PlannedAppSetting(stringResource(R.string.app_settings_release_channel), "4.5") }
+            item { PlannedAppSetting(stringResource(R.string.app_settings_automatic_actions), "4.5") }
+            item { PlannedAppSetting(stringResource(R.string.app_settings_notifications), "4.5") }
+            item { HorizontalDivider() }
+            item {
+                SectionTitle(
+                    stringResource(R.string.app_settings_inherited),
+                    stringResource(R.string.app_settings_inherited_body),
+                )
+            }
             item {
                 DropdownSetting(
-                    "Release variant",
+                    stringResource(R.string.settings_release_variant),
                     variantChoice,
                     linkedMapOf(
                         "GLOBAL" to
-                            "Use global default (${globalSettings.defaultReleaseVariantPreference.displayEnum()})",
+                            stringResource(
+                                R.string.app_settings_use_global,
+                                globalSettings.defaultReleaseVariantPreference.displayEnum(),
+                            ),
                     ) + ReleaseVariantPreference.entries.associate { it.name to it.displayName() },
                     onSelect = { variantChoice = it },
                 )
             }
             item {
                 DropdownSetting(
-                    "Preferred ABI",
+                    stringResource(R.string.settings_abi),
                     abiChoice,
                     linkedMapOf(
-                        "GLOBAL" to "Use global default (${globalSettings.defaultPreferredAbi.displayEnum()})",
+                        "GLOBAL" to stringResource(
+                            R.string.app_settings_use_global,
+                            globalSettings.defaultPreferredAbi.displayEnum(),
+                        ),
                     ) + PreferredAbi.entries.associate { it.name to it.displayName() },
                     onSelect = { abiChoice = it },
                 )
             }
             item {
                 DropdownSetting(
-                    "APK download limit",
+                    stringResource(R.string.app_settings_apk_limit),
                     limitChoice,
                     linkedMapOf(
-                        -1L to "Use global default (${globalSettings.defaultMaxApkSizeBytes / MIB} MiB)",
+                        -1L to stringResource(
+                            R.string.app_settings_use_global,
+                            "${globalSettings.defaultMaxApkSizeBytes / MIB} MiB",
+                        ),
                     ) + APK_LIMITS.associateWith { "${it / MIB} MiB" },
                     onSelect = { limitChoice = it },
                 )
             }
             item {
                 Text(
-                    "Changing variant or ABI clears the release metadata cache. Refresh before trusting a new selection.",
+                    stringResource(R.string.app_settings_selection_change),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -1440,34 +1505,40 @@ private fun AppPreferencesScreen(
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (saving) "Saving…" else "Save app settings") }
+                ) {
+                    Text(
+                        stringResource(
+                            if (saving) R.string.app_settings_saving else R.string.app_settings_save,
+                        ),
+                    )
+                }
             }
             item { HorizontalDivider() }
             item {
                 SectionTitle(
-                    "Build configuration",
-                    "Saved locally as an immutable, hashed draft. This does not start Gradle or a Runner job.",
+                    stringResource(R.string.app_settings_build_configuration),
+                    stringResource(R.string.app_settings_build_configuration_body),
                 )
             }
-            item { BuildSettingField("Build root", buildRoot, { buildRoot = it }, ". or relative path") }
-            item { BuildSettingField("Module path", modulePath, { modulePath = it }, ":app") }
-            item { BuildSettingField("Variant", buildVariant, { buildVariant = it }, "release") }
+            item { BuildSettingField(stringResource(R.string.build_root), buildRoot, { buildRoot = it }, ". or relative path") }
+            item { BuildSettingField(stringResource(R.string.build_module_path), modulePath, { modulePath = it }, ":app") }
+            item { BuildSettingField(stringResource(R.string.build_variant), buildVariant, { buildVariant = it }, "release") }
             item {
                 OutlinedTextField(
                     value = buildTasks,
                     onValueChange = { buildTasks = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Tasks (one per line)") },
+                    label = { Text(stringResource(R.string.build_tasks)) },
                     supportingText = { Text(":app:assembleRelease") },
                     minLines = 2,
                 )
             }
-            item { BuildSettingField("Java major", javaMajor, { javaMajor = it }, "21") }
-            item { BuildSettingField("Gradle version", gradleVersion, { gradleVersion = it }, "9.1.0") }
+            item { BuildSettingField(stringResource(R.string.build_java_major), javaMajor, { javaMajor = it }, "21") }
+            item { BuildSettingField(stringResource(R.string.build_gradle_version), gradleVersion, { gradleVersion = it }, "9.1.0") }
             item { BuildSettingField("compileSdk", compileSdk, { compileSdk = it }, "36") }
-            item { BuildSettingField("Build Tools version", buildToolsVersion, { buildToolsVersion = it }, "36.0.0") }
-            item { BuildSettingField("NDK version (optional)", ndkVersion, { ndkVersion = it }, "") }
-            item { BuildSettingField("CMake version (optional)", cmakeVersion, { cmakeVersion = it }, "") }
+            item { BuildSettingField(stringResource(R.string.build_tools_version), buildToolsVersion, { buildToolsVersion = it }, "36.0.0") }
+            item { BuildSettingField(stringResource(R.string.build_ndk_version), ndkVersion, { ndkVersion = it }, "") }
+            item { BuildSettingField(stringResource(R.string.build_cmake_version), cmakeVersion, { cmakeVersion = it }, "") }
             item {
                 Button(
                     enabled = !saving && numericBuildFieldsValid,
@@ -1490,10 +1561,16 @@ private fun AppPreferencesScreen(
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (saving) "Saving…" else "Save build configuration") }
+                ) {
+                    Text(
+                        stringResource(
+                            if (saving) R.string.app_settings_saving else R.string.build_save_configuration,
+                        ),
+                    )
+                }
                 if (!numericBuildFieldsValid) {
                     Text(
-                        "Java major and compileSdk must be decimal integers when supplied.",
+                        stringResource(R.string.build_numeric_error),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -1522,9 +1599,24 @@ private fun BuildSettingField(
 }
 
 @Composable
-private fun ManagedAppIcon(record: RegisteredAppRecord) {
+private fun PlannedAppSetting(label: String, phase: String) {
+    OutlinedTextField(
+        value = stringResource(R.string.planned_phase, phase),
+        onValueChange = {},
+        modifier = Modifier.fillMaxWidth(),
+        enabled = false,
+        readOnly = true,
+        label = { Text(label) },
+        supportingText = { Text(stringResource(R.string.planned_unavailable)) },
+    )
+}
+
+@Composable
+internal fun ManagedAppIcon(record: RegisteredAppRecord) {
     val context = LocalContext.current
-    val assetId = record.latestRelease?.selectedAsset?.releaseAssetId
+    val assetId = record.latestRelease?.selectedAsset
+        ?.takeIf { it.downloadStatus == ReferenceDownloadStatus.VERIFIED.name }
+        ?.releaseAssetId
     val iconFile = remember(context.filesDir, assetId) {
         val safeId = assetId?.let { runCatching { UUID.fromString(it).toString() }.getOrNull() }
         safeId?.let { File(context.filesDir, "reference-icons/$it.png") }
@@ -1541,13 +1633,13 @@ private fun ManagedAppIcon(record: RegisteredAppRecord) {
         if (image != null) {
             Image(
                 bitmap = image,
-                contentDescription = "${record.app.displayName} icon",
+                contentDescription = null,
                 modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.large),
                 contentScale = ContentScale.Crop,
             )
         } else {
             Box(contentAlignment = Alignment.Center) {
-                Text(record.app.displayName.take(2).uppercase(), color = MaterialTheme.colorScheme.primary)
+                Text(record.app.resolvedDisplayName.take(2).uppercase(), color = MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -1698,7 +1790,7 @@ private fun SettingsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ToolchainScreen(
+internal fun ToolchainScreen(
     state: ToolchainUiState,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
@@ -1708,13 +1800,26 @@ private fun ToolchainScreen(
     onExecuteRemoval: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
+    val toolchainBackDescription = stringResource(R.string.action_back)
+    val toolchainRefreshDescription = stringResource(R.string.action_refresh)
     var acceptedLicenses by remember(state.plan?.planSha256) { mutableStateOf(emptySet<String>()) }
     var selectedArtifacts by remember(state.inventory?.items?.map { it.artifactId }) { mutableStateOf(emptySet<String>()) }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("Managed toolchains") },
-            navigationIcon = { IconButton(onClick = onBack) { NavigationGlyph("‹") } },
-            actions = { IconButton(enabled = !state.busy, onClick = onRefresh) { NavigationGlyph("↻") } },
+            title = { Text(stringResource(R.string.settings_toolchains)) },
+            navigationIcon = {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.semantics { contentDescription = toolchainBackDescription },
+                ) { NavigationGlyph("‹") }
+            },
+            actions = {
+                IconButton(
+                    enabled = !state.busy,
+                    onClick = onRefresh,
+                    modifier = Modifier.semantics { contentDescription = toolchainRefreshDescription },
+                ) { NavigationGlyph("↻") }
+            },
         )
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(
@@ -1723,20 +1828,29 @@ private fun ToolchainScreen(
         ) {
             item {
                 SectionTitle(
-                    "Trusted catalog plan",
-                    "Runner-owned Linux x86_64 store. Shared developer JDK/SDK paths are not imported or changed.",
+                    stringResource(R.string.toolchains_catalog_plan),
+                    stringResource(R.string.toolchains_catalog_plan_body),
                 )
             }
             val plan = state.plan
             if (plan == null) {
-                item { Text("No current plan. Refresh to resolve the bundled catalog snapshot.") }
+                item { Text(stringResource(R.string.toolchains_no_plan)) }
             } else {
                 items(plan.items, key = { "plan-${it.artifactId}" }) { item ->
                     DetailCard(item.component.name.displayEnum()) {
-                        DetailValue("Version", item.version)
-                        DetailValue("Download", formatBytes(item.downloadBytes.toLong()))
-                        DetailValue("Reservation", formatBytes(item.reservedBytes.toLong()))
-                        DetailValue("Status", if (item.alreadyInstalled) "Installed and verified" else "Required")
+                        DetailValue(stringResource(R.string.technical_version), item.version)
+                        DetailValue(stringResource(R.string.toolchains_download), formatBytes(item.downloadBytes.toLong()))
+                        DetailValue(stringResource(R.string.toolchains_reservation), formatBytes(item.reservedBytes.toLong()))
+                        DetailValue(
+                            stringResource(R.string.technical_status),
+                            stringResource(
+                                if (item.alreadyInstalled) {
+                                    R.string.toolchains_status_installed
+                                } else {
+                                    R.string.toolchains_status_required
+                                },
+                            ),
+                        )
                     }
                 }
                 items(plan.requiredLicenses, key = { "license-${it.licenseId}" }) { license ->
@@ -1751,8 +1865,8 @@ private fun ToolchainScreen(
                             Column(Modifier.weight(1f)) {
                                 Text(license.displayName, fontWeight = FontWeight.SemiBold)
                                 Text(license.text, style = MaterialTheme.typography.bodySmall)
-                                Text("Terms source: ${license.sourceUrl}", style = MaterialTheme.typography.labelSmall)
-                                Text("Consent digest: ${license.textSha256}", style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace)
+                                Text(stringResource(R.string.toolchains_terms_source, license.sourceUrl), style = MaterialTheme.typography.labelSmall)
+                                Text(stringResource(R.string.toolchains_consent_digest, license.textSha256), style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace)
                             }
                         }
                     }
@@ -1762,25 +1876,31 @@ private fun ToolchainScreen(
                         enabled = !state.busy && acceptedLicenses == plan.requiredLicenses.map { it.licenseId }.toSet(),
                         onClick = { onInstall(acceptedLicenses) },
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Install current plan") }
+                    ) { Text(stringResource(R.string.toolchains_install_plan)) }
                 }
             }
             state.installation?.let { installation ->
                 item {
-                    DetailCard("Installation") {
-                        DetailValue("State", installation.state.name.displayEnum())
-                        DetailValue("Progress", "${installation.progressPercent}%")
-                        installation.reason?.let { DetailValue("Reason", "${it.code}: ${it.message}") }
+                    DetailCard(stringResource(R.string.toolchains_installation)) {
+                        DetailValue(stringResource(R.string.storage_state), installation.state.name.displayEnum())
+                        DetailValue(stringResource(R.string.toolchains_progress), "${installation.progressPercent}%")
+                        installation.reason?.let { DetailValue(stringResource(R.string.storage_reason), "${it.code}: ${it.message}") }
                         if (installation.state.name !in setOf("INSTALLED", "CANCELLED", "FAILED", "RECONCILIATION_REQUIRED")) {
-                            TextButton(onClick = onCancel) { Text("Cancel after current I/O stops") }
+                            TextButton(onClick = onCancel) { Text(stringResource(R.string.toolchains_cancel)) }
                         }
                     }
                 }
             }
-            item { HorizontalDivider(); SectionTitle("Runner inventory", "Only Runner-verified product-store entries are shown.") }
+            item {
+                HorizontalDivider()
+                SectionTitle(
+                    stringResource(R.string.toolchains_runner_inventory),
+                    stringResource(R.string.toolchains_runner_inventory_body),
+                )
+            }
             val inventory = state.inventory
             if (inventory == null || inventory.items.isEmpty()) {
-                item { Text("Managed toolchain inventory is empty.") }
+                item { Text(stringResource(R.string.toolchains_empty)) }
             } else {
                 items(inventory.items, key = { "inventory-${it.artifactId}" }) { item ->
                     Card(Modifier.fillMaxWidth()) {
@@ -1799,18 +1919,18 @@ private fun ToolchainScreen(
                 }
                 item {
                     Button(enabled = selectedArtifacts.isNotEmpty() && !state.busy, onClick = { onPreviewRemoval(selectedArtifacts) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Preview selected toolchains")
+                        Text(stringResource(R.string.toolchains_preview_selected))
                     }
                 }
                 state.removalPreview?.let { preview ->
                     item {
-                        DetailCard("Removal confirmation") {
-                            DetailValue("Selected entries", preview.artifactIds.size.toString())
-                            DetailValue("Releasable", formatBytes(preview.releasableBytes.toLong()))
-                            DetailValue("Preview expires", preview.expiresAt)
-                            Text("Only the Runner-owned paths in this preview will be removed. This action does not touch the shared developer JDK or Android SDK.")
+                        DetailCard(stringResource(R.string.toolchains_removal_confirmation)) {
+                            DetailValue(stringResource(R.string.toolchains_selected_entries), preview.artifactIds.size.toString())
+                            DetailValue(stringResource(R.string.toolchains_releasable), formatBytes(preview.releasableBytes.toLong()))
+                            DetailValue(stringResource(R.string.toolchains_preview_expires), preview.expiresAt)
+                            Text(stringResource(R.string.toolchains_removal_body))
                             Button(enabled = !state.busy, onClick = onExecuteRemoval, modifier = Modifier.fillMaxWidth()) {
-                                Text("Confirm manual removal")
+                                Text(stringResource(R.string.toolchains_confirm_removal))
                             }
                         }
                     }
@@ -1823,7 +1943,7 @@ private fun ToolchainScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun StorageScreen(
+internal fun StorageScreen(
     apps: List<RegisteredAppRecord>,
     settings: GlobalSettingsEntity,
     androidSummary: AndroidStorageSummary?,
@@ -1842,8 +1962,12 @@ private fun StorageScreen(
     onCopyAudit: (android.net.Uri) -> Unit,
     onPreviewRunnerCleanup: () -> Unit,
     onExecuteRunnerCleanup: (Set<String>) -> Unit,
+    showAndroid: Boolean = true,
+    showRunner: Boolean = true,
 ) {
     BackHandler(onBack = onBack)
+    val storageBackDescription = stringResource(R.string.action_back)
+    val storageRefreshDescription = stringResource(R.string.action_refresh)
     var selectedItemIds by remember(cleanupPreview?.previewId) { mutableStateOf(emptySet<String>()) }
     var auditScope by rememberSaveable { mutableStateOf("ALL") }
     var selectedRunnerItemIds by remember(runnerCleanupPreview?.previewId) { mutableStateOf(emptySet<String>()) }
@@ -1852,30 +1976,48 @@ private fun StorageScreen(
     ) { destination -> destination?.let(onCopyAudit) }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("Storage") },
-            navigationIcon = { IconButton(onClick = onBack) { NavigationGlyph("‹") } },
-            actions = { IconButton(enabled = !busy, onClick = onRefresh) { NavigationGlyph("↻") } },
+            title = {
+                Text(
+                    stringResource(
+                        if (showAndroid) R.string.data_management_title else R.string.data_runner_separate,
+                    ),
+                )
+            },
+            navigationIcon = {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.semantics { contentDescription = storageBackDescription },
+                ) { NavigationGlyph("‹") }
+            },
+            actions = {
+                IconButton(
+                    enabled = !busy,
+                    onClick = onRefresh,
+                    modifier = Modifier.semantics { contentDescription = storageRefreshDescription },
+                ) { NavigationGlyph("↻") }
+            },
         )
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (showAndroid) {
             item {
-                DetailCard("Android app-private storage") {
+                DetailCard(stringResource(R.string.storage_android_private)) {
                     if (androidSummary == null) {
-                        Text("Storage has not been measured.")
+                        Text(stringResource(R.string.storage_not_measured))
                     } else {
-                        DetailValue("State", "${androidSummary.state} · ${androidSummary.measurementState}")
-                        DetailValue("Used", formatBytes(androidSummary.usedBytes))
-                        DetailValue("Reserved", formatBytes(androidSummary.reservedBytes))
-                        DetailValue("Budget", formatBytes(androidSummary.budgetBytes))
+                        DetailValue(stringResource(R.string.storage_state), "${androidSummary.state} · ${androidSummary.measurementState}")
+                        DetailValue(stringResource(R.string.storage_used), formatBytes(androidSummary.usedBytes))
+                        DetailValue(stringResource(R.string.storage_reserved), formatBytes(androidSummary.reservedBytes))
+                        DetailValue(stringResource(R.string.storage_budget), formatBytes(androidSummary.budgetBytes))
                         DetailValue(
                             "Unclassified",
                             androidSummary.unclassifiedBytes?.let(::formatBytes) ?: "Unavailable",
                         )
-                        DetailValue("Usable filesystem", androidSummary.usableBytes?.let(::formatBytes) ?: "Unavailable")
-                        DetailValue("Measured", androidSummary.measuredAt)
+                        DetailValue(stringResource(R.string.storage_usable_filesystem), androidSummary.usableBytes?.let(::formatBytes) ?: stringResource(R.string.value_not_available))
+                        DetailValue(stringResource(R.string.storage_measured), androidSummary.measuredAt)
                     }
                     Text(
                         "Lowering the budget below current usage never deletes files automatically.",
@@ -1885,7 +2027,7 @@ private fun StorageScreen(
             }
             item {
                 DropdownSetting(
-                    label = "Android storage budget",
+                    label = stringResource(R.string.storage_android_budget),
                     value = settings.androidStorageBudgetBytes,
                     options = listOf(1L, 2L, 4L, 8L, 16L, 32L, 64L)
                         .associate { gib -> gib * 1024L * 1024L * 1024L to "$gib GiB" },
@@ -1895,25 +2037,27 @@ private fun StorageScreen(
             }
             item {
                 DropdownSetting(
-                    label = "Storage warning threshold",
+                    label = stringResource(R.string.storage_warning_threshold),
                     value = settings.storageWarningPercent,
                     options = listOf(50, 60, 70, 80, 90, 95).associateWith { "$it%" },
                     onSelect = { onUpdate(settings.copy(storageWarningPercent = it)) },
                     enabled = !busy,
                 )
             }
+            }
+            if (showRunner) {
             item {
-                DetailCard("Runner storage") {
-                    DetailValue("Connection", runnerState.status.name)
-                    runnerState.runnerId?.let { DetailValue("Runner ID", it, monospace = true) }
+                DetailCard(stringResource(R.string.storage_runner)) {
+                    DetailValue(stringResource(R.string.storage_connection), runnerState.status.name)
+                    runnerState.runnerId?.let { DetailValue(stringResource(R.string.storage_runner_id), it, monospace = true) }
                     runnerState.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     runnerState.summary?.areas?.forEach { area ->
                         HorizontalDivider()
-                        DetailValue("Area", area.area)
-                        DetailValue("State", "${area.state} · ${area.measurementState}")
-                        DetailValue("Used / reserved", "${formatDecimalBytes(area.usedBytes)} / ${formatDecimalBytes(area.reservedBytes)}")
-                        DetailValue("Budget", formatDecimalBytes(area.budgetBytes))
-                        DetailValue("Usable filesystem", formatDecimalBytes(area.usableBytes))
+                        DetailValue(stringResource(R.string.storage_area), area.area)
+                        DetailValue(stringResource(R.string.storage_state), "${area.state} · ${area.measurementState}")
+                        DetailValue(stringResource(R.string.storage_used_reserved), "${formatDecimalBytes(area.usedBytes)} / ${formatDecimalBytes(area.reservedBytes)}")
+                        DetailValue(stringResource(R.string.storage_budget), formatDecimalBytes(area.budgetBytes))
+                        DetailValue(stringResource(R.string.storage_usable_filesystem), formatDecimalBytes(area.usableBytes))
                     }
                     Text(
                         "Unavailable or incompatible Runner storage is never treated as empty. Local Android history remains available.",
@@ -1921,14 +2065,16 @@ private fun StorageScreen(
                     )
                 }
             }
+            }
+            if (showAndroid) {
             item {
-                DetailCard("Local audit export") {
+                DetailCard(stringResource(R.string.storage_local_audit)) {
                     Text(
                         "Exports public allowlisted history only. APKs, source text, private Manifests, raw logs, credentials, and storage paths are excluded.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     DropdownSetting(
-                        label = "Scope",
+                        label = stringResource(R.string.storage_scope),
                         value = auditScope,
                         options = linkedMapOf("ALL" to "All registered apps") +
                             apps.associate { it.app.registeredAppId to it.app.displayName },
@@ -1939,34 +2085,34 @@ private fun StorageScreen(
                         enabled = !busy && (auditScope == "ALL" || apps.any { it.app.registeredAppId == auditScope }),
                         onClick = { onStageAudit(if (auditScope == "ALL") emptySet() else setOf(auditScope)) },
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Stage audit export") }
+                    ) { Text(stringResource(R.string.storage_stage_audit)) }
                     auditExport?.let { export ->
-                        DetailValue("State", export.state)
-                        DetailValue("Records", export.recordCount.toString())
-                        DetailValue("Size", formatBytes(export.sizeBytes))
-                        DetailValue("Payload SHA-256", export.payloadSha256, monospace = true)
-                        export.errorCode?.let { DetailValue("Error", it) }
+                        DetailValue(stringResource(R.string.storage_state), export.state)
+                        DetailValue(stringResource(R.string.storage_records), export.recordCount.toString())
+                        DetailValue(stringResource(R.string.storage_size), formatBytes(export.sizeBytes))
+                        DetailValue(stringResource(R.string.storage_payload_sha256), export.payloadSha256, monospace = true)
+                        export.errorCode?.let { DetailValue(stringResource(R.string.storage_error), it) }
                         Button(
                             enabled = !busy && export.state in setOf("STAGED", "FAILED"),
                             onClick = { auditDestination.launch(export.suggestedName) },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Choose local destination") }
+                        ) { Text(stringResource(R.string.storage_choose_destination)) }
                     }
                 }
             }
             item {
                 Button(enabled = !busy, onClick = onPreviewCleanup, modifier = Modifier.fillMaxWidth()) {
-                    Text("Preview Android cleanup")
+                    Text(stringResource(R.string.storage_preview_android))
                 }
             }
             cleanupPreview?.let { preview ->
                 item {
-                    DetailCard("Manual cleanup preview") {
-                        DetailValue("State", preview.state)
-                        DetailValue("Expires", preview.expiresAt)
-                        DetailValue("Items", preview.items.size.toString())
+                    DetailCard(stringResource(R.string.storage_manual_preview)) {
+                        DetailValue(stringResource(R.string.storage_state), preview.state)
+                        DetailValue(stringResource(R.string.storage_expires), preview.expiresAt)
+                        DetailValue(stringResource(R.string.storage_items), preview.items.size.toString())
                         if (preview.truncated) {
-                            Text("The preview is truncated and cannot be executed.", color = MaterialTheme.colorScheme.error)
+                            Text(stringResource(R.string.storage_truncated), color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -1987,12 +2133,12 @@ private fun StorageScreen(
                             Column(Modifier.weight(1f)) {
                                 Text("${item.resourceKind} · ${formatBytes(item.observedBytes)}")
                                 Text(item.resourceId, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                                Text("Eligible ${item.eligibleAt}", style = MaterialTheme.typography.bodySmall)
+                                Text(stringResource(R.string.storage_eligible, item.eligibleAt), style = MaterialTheme.typography.bodySmall)
                                 if (item.protectionReasons.isNotEmpty()) {
-                                    Text("Protected: ${item.protectionReasons.joinToString()}", color = MaterialTheme.colorScheme.error)
+                                    Text(stringResource(R.string.storage_protected, item.protectionReasons.joinToString()), color = MaterialTheme.colorScheme.error)
                                 }
-                                item.result?.let { DetailValue("Result", it) }
-                                item.reasonCode?.let { DetailValue("Reason", it) }
+                                item.result?.let { DetailValue(stringResource(R.string.storage_result), it) }
+                                item.reasonCode?.let { DetailValue(stringResource(R.string.storage_reason), it) }
                             }
                         }
                     }
@@ -2002,25 +2148,27 @@ private fun StorageScreen(
                         enabled = !busy && selectedItemIds.isNotEmpty() && !preview.truncated && preview.state == "PREVIEWED",
                         onClick = { onExecuteCleanup(selectedItemIds) },
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Delete selected retained bytes") }
+                    ) { Text(stringResource(R.string.storage_delete_android)) }
                 }
             }
+            }
+            if (showRunner) {
             item {
                 HorizontalDivider()
                 Button(
                     enabled = !busy && runnerState.status.name == "AVAILABLE",
                     onClick = onPreviewRunnerCleanup,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Preview Runner cleanup") }
+                ) { Text(stringResource(R.string.storage_preview_runner)) }
             }
             runnerCleanupPreview?.let { preview ->
                 item {
-                    DetailCard("Runner manual cleanup preview") {
-                        DetailValue("State", preview.state)
-                        DetailValue("Expires", preview.expiresAt)
-                        DetailValue("Items", preview.items.size.toString())
+                    DetailCard(stringResource(R.string.storage_runner_manual_preview)) {
+                        DetailValue(stringResource(R.string.storage_state), preview.state)
+                        DetailValue(stringResource(R.string.storage_expires), preview.expiresAt)
+                        DetailValue(stringResource(R.string.storage_items), preview.items.size.toString())
                         if (preview.truncated) {
-                            Text("The preview is truncated and cannot be executed.", color = MaterialTheme.colorScheme.error)
+                            Text(stringResource(R.string.storage_truncated), color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -2043,13 +2191,13 @@ private fun StorageScreen(
                             Column(Modifier.weight(1f)) {
                                 Text("${item.resourceKind} · ${formatDecimalBytes(item.observedBytes)}")
                                 Text(item.resourceId, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                                Text("Eligible ${item.eligibleAt}", style = MaterialTheme.typography.bodySmall)
+                                Text(stringResource(R.string.storage_eligible, item.eligibleAt), style = MaterialTheme.typography.bodySmall)
                                 if (item.protectionReasons.isNotEmpty()) {
-                                    Text("Protected: ${item.protectionReasons.joinToString()}", color = MaterialTheme.colorScheme.error)
+                                    Text(stringResource(R.string.storage_protected, item.protectionReasons.joinToString()), color = MaterialTheme.colorScheme.error)
                                 }
                                 runItem?.let {
-                                    DetailValue("Result", it.result)
-                                    it.reason?.let { reason -> DetailValue("Reason", reason.code) }
+                                    DetailValue(stringResource(R.string.storage_result), it.result)
+                                    it.reason?.let { reason -> DetailValue(stringResource(R.string.storage_reason), reason.code) }
                                 }
                             }
                         }
@@ -2061,8 +2209,9 @@ private fun StorageScreen(
                             runnerCleanupRun == null,
                         onClick = { onExecuteRunnerCleanup(selectedRunnerItemIds) },
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Delete selected Runner bytes") }
+                    ) { Text(stringResource(R.string.storage_delete_runner)) }
                 }
+            }
             }
             item { Spacer(Modifier.height(12.dp)) }
         }
@@ -2071,7 +2220,7 @@ private fun StorageScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun <T> DropdownSetting(
+internal fun <T> DropdownSetting(
     label: String,
     value: T,
     options: Map<T, String>,
@@ -2154,7 +2303,7 @@ private fun SourceScanEvidence(label: String, evidence: SourceScanWithDetails?) 
         "${evidence.scan.scannedFiles} files, ${evidence.scan.scannedBytes} bytes; " +
             "binary skipped ${evidence.scan.skippedBinaryFiles}, symlinks skipped ${evidence.scan.skippedSymlinks}",
     )
-    DetailValue("$label result", evidence.scan.resultSha256, true)
+    DetailValue(stringResource(R.string.technical_scan_result, label), evidence.scan.resultSha256, true)
     evidence.detectorCounts.sortedBy { it.detectorId }.forEach { count ->
         DetailValue(count.detectorId, count.count.toString())
     }
@@ -2163,7 +2312,10 @@ private fun SourceScanEvidence(label: String, evidence: SourceScanWithDetails?) 
         DetailValue(finding.detectorId, "${finding.displayPath}$position", true)
     }
     if (evidence.findings.size > MAX_SOURCE_SCAN_FINDINGS_IN_UI) {
-        DetailValue("Additional findings", (evidence.findings.size - MAX_SOURCE_SCAN_FINDINGS_IN_UI).toString())
+        DetailValue(
+            stringResource(R.string.technical_additional_findings),
+            (evidence.findings.size - MAX_SOURCE_SCAN_FINDINGS_IN_UI).toString(),
+        )
     }
     Text(
         "Static indicators only; this is not a safe/malicious verdict and does not change comparison, trust, update, or install policy.",

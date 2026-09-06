@@ -1,0 +1,2252 @@
+package com.sanka1610.reprodroid.ui
+
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sanka1610.reprodroid.R
+import com.sanka1610.reprodroid.data.local.AppGroupEntity
+import com.sanka1610.reprodroid.data.local.AppMetadataUpdate
+import com.sanka1610.reprodroid.data.local.AppTrackingState
+import com.sanka1610.reprodroid.data.local.ComparisonRunEntity
+import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
+import com.sanka1610.reprodroid.data.local.InstallationSource
+import com.sanka1610.reprodroid.data.local.JobRecord
+import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.PreferredAbi
+import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
+import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
+import com.sanka1610.reprodroid.data.local.ThemeMode
+import com.sanka1610.reprodroid.data.repository.AppDeletionPreview
+import com.sanka1610.reprodroid.ui.navigation.ReproDroidRoute
+import com.sanka1610.reprodroid.ui.theme.ReproDroidTheme
+
+@Composable
+fun ReproDroidApp(
+    managedViewModel: ManagedAppsViewModel,
+    jobViewModel: JobViewModel,
+    initialRoute: String? = null,
+) {
+    val apps by managedViewModel.apps.collectAsStateWithLifecycle()
+    val inactiveApps by managedViewModel.inactiveApps.collectAsStateWithLifecycle()
+    val groups by managedViewModel.groups.collectAsStateWithLifecycle()
+    val globalSettings by managedViewModel.settings.collectAsStateWithLifecycle()
+    val preview by managedViewModel.preview.collectAsStateWithLifecycle()
+    val sourceEditPreview by managedViewModel.sourceEditPreview.collectAsStateWithLifecycle()
+    val message by managedViewModel.message.collectAsStateWithLifecycle()
+    val activeAppIds by managedViewModel.activeAppIds.collectAsStateWithLifecycle()
+    val buildEnvironmentManifests by managedViewModel.buildEnvironmentManifests.collectAsStateWithLifecycle()
+    val runnerJobs by managedViewModel.runnerJobs.collectAsStateWithLifecycle()
+    val buildManifestWarnings by managedViewModel.buildManifestWarnings.collectAsStateWithLifecycle()
+    val sourceScanWarnings by managedViewModel.sourceScanWarnings.collectAsStateWithLifecycle()
+    val sandboxWarnings by managedViewModel.sandboxWarnings.collectAsStateWithLifecycle()
+    val availability by managedViewModel.availability.collectAsStateWithLifecycle()
+    val androidStorageSummary by managedViewModel.androidStorageSummary.collectAsStateWithLifecycle()
+    val androidCleanupPreview by managedViewModel.androidCleanupPreview.collectAsStateWithLifecycle()
+    val runnerStorageState by managedViewModel.runnerStorageState.collectAsStateWithLifecycle()
+    val storageBusy by managedViewModel.storageBusy.collectAsStateWithLifecycle()
+    val auditExport by managedViewModel.auditExport.collectAsStateWithLifecycle()
+    val runnerCleanupPreview by managedViewModel.runnerCleanupPreview.collectAsStateWithLifecycle()
+    val runnerCleanupRun by managedViewModel.runnerCleanupRun.collectAsStateWithLifecycle()
+    val toolchainState by managedViewModel.toolchainState.collectAsStateWithLifecycle()
+    val deletionPreview by managedViewModel.deletionPreview.collectAsStateWithLifecycle()
+    val deletionResult by managedViewModel.deletionResult.collectAsStateWithLifecycle()
+
+    var encodedRoute by rememberSaveable(initialRoute) {
+        mutableStateOf(ReproDroidRoute.parse(initialRoute).encode())
+    }
+    LaunchedEffect(initialRoute) {
+        if (initialRoute != null) encodedRoute = ReproDroidRoute.parse(initialRoute).encode()
+    }
+    val route = remember(encodedRoute) { ReproDroidRoute.parse(encodedRoute) }
+    val allApps = remember(apps, inactiveApps) { apps + inactiveApps }
+    val routeApp = route.appId?.let { id -> allApps.firstOrNull { it.app.registeredAppId == id } }
+    val comparisonRouteApp = (route as? ReproDroidRoute.Comparison)?.let { comparisonRoute ->
+        allApps.firstOrNull { record ->
+            record.comparisons.any { it.comparisonRunId == comparisonRoute.comparisonRunId }
+        }
+    }
+    var removalTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var uninstallTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var addRepositoryUrl by rememberSaveable { mutableStateOf("") }
+    var addModeName by rememberSaveable(globalSettings.updatedAt) {
+        mutableStateOf(globalSettings.defaultManagementMode)
+    }
+    var addInstallationSourceName by rememberSaveable(globalSettings.updatedAt) {
+        mutableStateOf(globalSettings.defaultInstallationSource)
+    }
+    var addRiskConfirmed by rememberSaveable { mutableStateOf(false) }
+    var addSeparateTarget by rememberSaveable { mutableStateOf(false) }
+    var inactiveReturnRoute by rememberSaveable { mutableStateOf(ReproDroidRoute.InactiveApps.encode()) }
+
+    fun navigate(destination: ReproDroidRoute) {
+        encodedRoute = destination.encode()
+    }
+
+    fun backDestination(current: ReproDroidRoute): ReproDroidRoute = when (current) {
+        ReproDroidRoute.InactiveApps,
+        ReproDroidRoute.DataManagement,
+        ReproDroidRoute.RunnerSettings,
+        ReproDroidRoute.UpdateSettings,
+        ReproDroidRoute.Authentication,
+        ReproDroidRoute.Backup,
+        -> ReproDroidRoute.Settings
+        ReproDroidRoute.DataStorage,
+        ReproDroidRoute.DataInactive,
+        -> ReproDroidRoute.DataManagement
+        ReproDroidRoute.RunnerStorage,
+        ReproDroidRoute.Toolchains,
+        ReproDroidRoute.Jobs,
+        -> ReproDroidRoute.RunnerSettings
+        ReproDroidRoute.GitHubStarsImport,
+        ReproDroidRoute.AddAnalysis,
+        -> ReproDroidRoute.AddSource
+        ReproDroidRoute.AddOptions -> ReproDroidRoute.AddAnalysis
+        ReproDroidRoute.AddConfirm -> ReproDroidRoute.AddOptions
+        is ReproDroidRoute.AppEdit,
+        is ReproDroidRoute.AppSettings,
+        is ReproDroidRoute.AppTechnical,
+        -> ReproDroidRoute.AppInformation(requireNotNull(current.appId))
+        is ReproDroidRoute.AppInformation ->
+            if (routeApp?.app?.trackingState == AppTrackingState.INACTIVE.name) {
+                ReproDroidRoute.parse(inactiveReturnRoute)
+            } else {
+                ReproDroidRoute.Apps
+            }
+        is ReproDroidRoute.Comparison -> comparisonRouteApp?.let {
+            ReproDroidRoute.AppInformation(it.app.registeredAppId)
+        } ?: ReproDroidRoute.Apps
+        else -> current
+    }
+
+    BackHandler(enabled = !route.isRoot) { navigate(backDestination(route)) }
+
+    LaunchedEffect(preview.repository, route) {
+        if (route == ReproDroidRoute.AddSource && preview.repository != null) {
+            navigate(ReproDroidRoute.AddAnalysis)
+        }
+    }
+
+    val uninstallLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        uninstallTargetId?.let { appId ->
+            managedViewModel.stopTrackingAfterConfirmedUninstall(appId) {
+                uninstallTargetId = null
+                removalTargetId = null
+                navigate(ReproDroidRoute.Apps)
+            }
+        }
+    }
+
+    LaunchedEffect(route, routeApp?.app?.trackingState) {
+        if (
+            routeApp?.app?.trackingState == AppTrackingState.INACTIVE.name &&
+            (route is ReproDroidRoute.AppEdit ||
+                route is ReproDroidRoute.AppSettings ||
+                route is ReproDroidRoute.AppTechnical)
+        ) {
+            navigate(ReproDroidRoute.AppInformation(routeApp.app.registeredAppId))
+        }
+    }
+
+    ReproDroidTheme(globalSettings) {
+        Surface(Modifier.fillMaxSize()) {
+            Scaffold(
+                bottomBar = {
+                    when {
+                        route.isRoot || route.isAddFlow || route == ReproDroidRoute.GitHubStarsImport ->
+                            RootNavigationBar(route, ::navigate)
+                        route.appId != null && routeApp != null -> AppActionBar(
+                            route = route,
+                            active = routeApp.app.trackingState == AppTrackingState.ACTIVE.name,
+                            onNavigate = ::navigate,
+                            onRemove = { removalTargetId = routeApp.app.registeredAppId },
+                        )
+                    }
+                },
+            ) { contentPadding ->
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding),
+                ) {
+                    message?.let { UiRMessageBanner(it, managedViewModel::clearMessage) }
+                    when (route) {
+                        ReproDroidRoute.Apps -> UiRAppsScreen(
+                            apps = apps,
+                            groups = groups,
+                            onSelect = { navigate(ReproDroidRoute.AppInformation(it)) },
+                            onAdd = { navigate(ReproDroidRoute.AddSource) },
+                            onCreateGroup = managedViewModel::createGroup,
+                            onRenameGroup = managedViewModel::renameGroup,
+                            onReorderGroups = managedViewModel::reorderGroups,
+                            onDeleteGroup = managedViewModel::deleteGroup,
+                        )
+                        ReproDroidRoute.InactiveApps -> InactiveAppsScreen(
+                            apps = inactiveApps,
+                            allowCompleteDeletion = false,
+                            onBack = { navigate(ReproDroidRoute.Settings) },
+                            onOpen = {
+                                inactiveReturnRoute = ReproDroidRoute.InactiveApps.encode()
+                                navigate(ReproDroidRoute.AppInformation(it))
+                            },
+                            onResume = { id -> managedViewModel.resumeTracking(id) },
+                            onPreviewDelete = managedViewModel::previewCompleteDeletion,
+                            deletionPreview = deletionPreview,
+                            deletionResult = deletionResult,
+                            onDelete = {
+                                managedViewModel.executeCompleteDeletion {
+                                    navigate(ReproDroidRoute.InactiveApps)
+                                }
+                            },
+                            onDismissDelete = managedViewModel::clearDeletionState,
+                        )
+                        ReproDroidRoute.AddSource,
+                        ReproDroidRoute.AddAnalysis,
+                        ReproDroidRoute.AddOptions,
+                        ReproDroidRoute.AddConfirm,
+                        -> UiRAddFlowScreen(
+                            route = route,
+                            preview = preview,
+                            repositoryUrl = addRepositoryUrl,
+                            onRepositoryUrlChange = {
+                                addRepositoryUrl = it
+                                managedViewModel.clearPreview()
+                            },
+                            mode = ManagementMode.entries.firstOrNull { it.name == addModeName }
+                                ?: ManagementMode.VERIFICATION,
+                            onModeChange = {
+                                addModeName = it.name
+                                if (it == ManagementMode.ACQUISITION) {
+                                    addInstallationSourceName = InstallationSource.OFFICIAL_RELEASE.name
+                                    addRiskConfirmed = false
+                                }
+                            },
+                            installationSource = InstallationSource.entries.firstOrNull {
+                                it.name == addInstallationSourceName
+                            } ?: InstallationSource.OFFICIAL_RELEASE,
+                            onInstallationSourceChange = {
+                                addInstallationSourceName = it.name
+                                if (it != InstallationSource.LOCAL_BUILD) addRiskConfirmed = false
+                            },
+                            localRiskConfirmed = addRiskConfirmed,
+                            onLocalRiskConfirmedChange = { addRiskConfirmed = it },
+                            separateManagementTarget = addSeparateTarget,
+                            onSeparateManagementTargetChange = { addSeparateTarget = it },
+                            onPreview = managedViewModel::preview,
+                            onCancelPreview = managedViewModel::clearPreview,
+                            onNavigate = ::navigate,
+                            onResume = { id ->
+                                managedViewModel.resumeTracking(id) {
+                                    managedViewModel.clearPreview()
+                                    navigate(ReproDroidRoute.AppInformation(id))
+                                }
+                            },
+                            onRegister = { mode, source, confirmed, separateTarget ->
+                                managedViewModel.register(mode, source, confirmed, separateTarget) { id ->
+                                    addRepositoryUrl = ""
+                                    addRiskConfirmed = false
+                                    addSeparateTarget = false
+                                    navigate(ReproDroidRoute.AppInformation(id))
+                                }
+                            },
+                        )
+                        ReproDroidRoute.Settings -> UiRSettingsScreen(
+                            settings = globalSettings,
+                            onUpdate = managedViewModel::updateGlobalSettings,
+                            onNavigate = ::navigate,
+                        )
+                        ReproDroidRoute.DataManagement -> DataManagementScreen(
+                            onBack = { navigate(ReproDroidRoute.Settings) },
+                            onStorage = {
+                                managedViewModel.refreshAndroidStorage()
+                                navigate(ReproDroidRoute.DataStorage)
+                            },
+                            onInactive = { navigate(ReproDroidRoute.DataInactive) },
+                            onRunner = { navigate(ReproDroidRoute.RunnerSettings) },
+                        )
+                        ReproDroidRoute.DataInactive -> InactiveAppsScreen(
+                            apps = inactiveApps,
+                            allowCompleteDeletion = true,
+                            onBack = {
+                                managedViewModel.clearDeletionState()
+                                navigate(ReproDroidRoute.DataManagement)
+                            },
+                            onOpen = {
+                                inactiveReturnRoute = ReproDroidRoute.DataInactive.encode()
+                                navigate(ReproDroidRoute.AppInformation(it))
+                            },
+                            onResume = { id -> managedViewModel.resumeTracking(id) },
+                            onPreviewDelete = managedViewModel::previewCompleteDeletion,
+                            deletionPreview = deletionPreview,
+                            deletionResult = deletionResult,
+                            onDelete = { managedViewModel.executeCompleteDeletion() },
+                            onDismissDelete = managedViewModel::clearDeletionState,
+                        )
+                        ReproDroidRoute.DataStorage -> StorageScreen(
+                            apps = allApps,
+                            settings = globalSettings,
+                            androidSummary = androidStorageSummary,
+                            runnerState = runnerStorageState,
+                            cleanupPreview = androidCleanupPreview,
+                            busy = storageBusy,
+                            auditExport = auditExport,
+                            runnerCleanupPreview = runnerCleanupPreview,
+                            runnerCleanupRun = runnerCleanupRun,
+                            onBack = {
+                                managedViewModel.clearAndroidCleanupPreview()
+                                navigate(ReproDroidRoute.DataManagement)
+                            },
+                            onUpdate = managedViewModel::updateGlobalSettings,
+                            onRefresh = managedViewModel::refreshAndroidStorage,
+                            onPreviewCleanup = managedViewModel::previewAndroidCleanup,
+                            onExecuteCleanup = managedViewModel::executeAndroidCleanup,
+                            onStageAudit = managedViewModel::stageAuditExport,
+                            onCopyAudit = managedViewModel::copyAuditExport,
+                            onPreviewRunnerCleanup = managedViewModel::previewRunnerCleanup,
+                            onExecuteRunnerCleanup = managedViewModel::executeRunnerCleanup,
+                            showAndroid = true,
+                            showRunner = false,
+                        )
+                        ReproDroidRoute.RunnerSettings -> RunnerSettingsScreen(
+                            onBack = { navigate(ReproDroidRoute.Settings) },
+                            onStorage = {
+                                managedViewModel.refreshRunnerStorage()
+                                navigate(ReproDroidRoute.RunnerStorage)
+                            },
+                            onJobs = { navigate(ReproDroidRoute.Jobs) },
+                            onToolchains = {
+                                managedViewModel.refreshToolchains()
+                                navigate(ReproDroidRoute.Toolchains)
+                            },
+                            onAuthentication = { navigate(ReproDroidRoute.Authentication) },
+                        )
+                        ReproDroidRoute.RunnerStorage -> StorageScreen(
+                            apps = allApps,
+                            settings = globalSettings,
+                            androidSummary = androidStorageSummary,
+                            runnerState = runnerStorageState,
+                            cleanupPreview = androidCleanupPreview,
+                            busy = storageBusy,
+                            auditExport = auditExport,
+                            runnerCleanupPreview = runnerCleanupPreview,
+                            runnerCleanupRun = runnerCleanupRun,
+                            onBack = {
+                                managedViewModel.clearAndroidCleanupPreview()
+                                navigate(ReproDroidRoute.RunnerSettings)
+                            },
+                            onUpdate = managedViewModel::updateGlobalSettings,
+                            onRefresh = managedViewModel::refreshRunnerStorage,
+                            onPreviewCleanup = managedViewModel::previewAndroidCleanup,
+                            onExecuteCleanup = managedViewModel::executeAndroidCleanup,
+                            onStageAudit = managedViewModel::stageAuditExport,
+                            onCopyAudit = managedViewModel::copyAuditExport,
+                            onPreviewRunnerCleanup = managedViewModel::previewRunnerCleanup,
+                            onExecuteRunnerCleanup = managedViewModel::executeRunnerCleanup,
+                            showAndroid = false,
+                            showRunner = true,
+                        )
+                        ReproDroidRoute.Toolchains -> ToolchainScreen(
+                            state = toolchainState,
+                            onBack = { navigate(ReproDroidRoute.RunnerSettings) },
+                            onRefresh = managedViewModel::refreshToolchains,
+                            onInstall = managedViewModel::installToolchains,
+                            onCancel = managedViewModel::cancelToolchainInstallation,
+                            onPreviewRemoval = managedViewModel::previewToolchainRemoval,
+                            onExecuteRemoval = managedViewModel::executeToolchainRemoval,
+                        )
+                        ReproDroidRoute.Jobs -> BackScaffoldTitle(
+                            title = stringResource(R.string.settings_jobs),
+                            onBack = { navigate(ReproDroidRoute.RunnerSettings) },
+                        ) { JobScreen(jobViewModel) }
+                        ReproDroidRoute.UpdateSettings -> PlannedFeatureScreen(
+                            title = stringResource(R.string.settings_updates),
+                            phase = "4.5",
+                            body = stringResource(R.string.planned_updates_body),
+                            controls = listOf(
+                                stringResource(R.string.future_update_schedule),
+                                stringResource(R.string.future_update_interval),
+                                stringResource(R.string.future_update_constraints),
+                                stringResource(R.string.future_update_notifications),
+                            ),
+                            onBack = { navigate(ReproDroidRoute.Settings) },
+                        )
+                        ReproDroidRoute.Authentication -> PlannedFeatureScreen(
+                            title = stringResource(R.string.settings_authentication),
+                            phase = "4.6",
+                            body = stringResource(R.string.planned_auth_body),
+                            controls = listOf(
+                                stringResource(R.string.future_auth_pairing),
+                                stringResource(R.string.future_auth_credentials),
+                                stringResource(R.string.future_auth_revocation),
+                            ),
+                            onBack = { navigate(ReproDroidRoute.RunnerSettings) },
+                        )
+                        ReproDroidRoute.Backup -> PlannedFeatureScreen(
+                            title = stringResource(R.string.settings_backup),
+                            phase = "4.8",
+                            body = stringResource(R.string.planned_backup_body),
+                            controls = listOf(
+                                stringResource(R.string.future_backup_create),
+                                stringResource(R.string.future_backup_restore),
+                                stringResource(R.string.future_log_export),
+                            ),
+                            onBack = { navigate(ReproDroidRoute.Settings) },
+                        )
+                        ReproDroidRoute.GitHubStarsImport -> PlannedFeatureScreen(
+                            title = stringResource(R.string.github_stars_title),
+                            phase = "4.5",
+                            body = stringResource(R.string.github_stars_body),
+                            controls = listOf(stringResource(R.string.future_stars_select_import)),
+                            onBack = { navigate(ReproDroidRoute.AddSource) },
+                        )
+                        is ReproDroidRoute.AppInformation -> routeApp?.let { record ->
+                            AppInformationScreen(
+                                record = record,
+                                active = record.app.registeredAppId in activeAppIds,
+                                runnerJobs = runnerJobs.associateBy { it.job.jobId },
+                                onBack = { navigate(backDestination(route)) },
+                                onRefresh = { managedViewModel.refresh(record.app.registeredAppId) },
+                                onTechnical = {
+                                    navigate(ReproDroidRoute.AppTechnical(record.app.registeredAppId))
+                                },
+                                onComparison = { comparisonId ->
+                                    navigate(ReproDroidRoute.Comparison(comparisonId))
+                                },
+                                onResume = {
+                                    managedViewModel.resumeTracking(record.app.registeredAppId) {
+                                        navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId))
+                                    }
+                                },
+                            )
+                        } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
+                        is ReproDroidRoute.AppEdit -> routeApp?.let { record ->
+                            AppEditScreen(
+                                record = record,
+                                groups = groups,
+                                sourcePreview = sourceEditPreview,
+                                saving = record.app.registeredAppId in activeAppIds,
+                                onBack = { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
+                                onSave = { update ->
+                                    managedViewModel.updateMetadata(record.app.registeredAppId, update) {
+                                        navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId))
+                                    }
+                                },
+                                onInspectSource = { url ->
+                                    managedViewModel.previewSourceEdit(
+                                        record.app.registeredAppId,
+                                        record.app.updatedAt,
+                                        url,
+                                    )
+                                },
+                                onApplySource = {
+                                    managedViewModel.applySourceEdit(record.app.registeredAppId) {
+                                        navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId))
+                                    }
+                                },
+                                onClearSource = managedViewModel::clearSourceEditPreview,
+                                onRegisterSeparately = {
+                                    addRepositoryUrl = sourceEditPreview.requestedUrl.orEmpty()
+                                    managedViewModel.clearSourceEditPreview()
+                                    managedViewModel.clearPreview()
+                                    navigate(ReproDroidRoute.AddSource)
+                                },
+                            )
+                        } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
+                        is ReproDroidRoute.AppSettings -> routeApp?.let { record ->
+                            AppPreferencesScreen(
+                                record = record,
+                                globalSettings = globalSettings,
+                                saving = record.app.registeredAppId in activeAppIds,
+                                onBack = { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
+                                onSave = { update ->
+                                    managedViewModel.updatePreferences(record.app.registeredAppId, update) {
+                                        navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId))
+                                    }
+                                },
+                                onSaveBuildConfiguration = { revision, input ->
+                                    managedViewModel.saveBuildConfiguration(record.app.registeredAppId, revision, input)
+                                },
+                            )
+                        } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
+                        is ReproDroidRoute.AppTechnical -> routeApp?.let { record ->
+                            AppDetailScreen(
+                                record = record,
+                                globalSettings = globalSettings,
+                                active = record.app.registeredAppId in activeAppIds,
+                                onBack = { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
+                                onSettings = { navigate(ReproDroidRoute.AppSettings(record.app.registeredAppId)) },
+                                onRefresh = { managedViewModel.refresh(record.app.registeredAppId) },
+                                onSelectReleaseAsset = { snapshotId, assetId ->
+                                    managedViewModel.selectReleaseAsset(record.app.registeredAppId, snapshotId, assetId)
+                                },
+                                onInstall = { confirmed -> managedViewModel.install(record.app.registeredAppId, confirmed) },
+                                onStartComparison = { managedViewModel.startComparison(record.app.registeredAppId) },
+                                onRefreshComparison = { managedViewModel.refreshComparison(record.app.registeredAppId, it) },
+                                onConfirmComparison = { managedViewModel.confirmComparison(record.app.registeredAppId, it) },
+                                onContinueComparisonSourceScan = {
+                                    managedViewModel.continueComparisonSourceScan(record.app.registeredAppId, it)
+                                },
+                                runnerJobs = runnerJobs.associateBy { it.job.jobId },
+                                buildEnvironmentManifests = buildEnvironmentManifests.associateBy { it.manifest.jobId },
+                                buildManifestWarnings = buildManifestWarnings,
+                                sourceScanWarnings = sourceScanWarnings,
+                                sandboxWarnings = sandboxWarnings,
+                                availability = availability,
+                            )
+                        } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
+                        is ReproDroidRoute.Comparison -> comparisonRouteApp?.let { record ->
+                            val comparison = record.comparisons.firstOrNull {
+                                it.comparisonRunId == route.comparisonRunId
+                            }
+                            if (comparison == null) {
+                                MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
+                            } else {
+                                ComparisonEvidenceScreen(
+                                    comparison = comparison,
+                                    onBack = {
+                                        navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId))
+                                    },
+                                )
+                            }
+                        } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
+                    }
+                }
+            }
+        }
+    }
+
+    removalTargetId?.let { appId ->
+        allApps.firstOrNull { it.app.registeredAppId == appId }?.let { record ->
+            RemoveTrackingDialog(
+                record = record,
+                otherPackageReferenceCount = knownPackageName(record)?.let { packageName ->
+                    allApps.count { candidate ->
+                        candidate.app.registeredAppId != record.app.registeredAppId &&
+                            knownPackageName(candidate) == packageName
+                    }
+                } ?: 0,
+                onDismiss = { removalTargetId = null },
+                onStop = {
+                    managedViewModel.stopTracking(appId) {
+                        removalTargetId = null
+                        navigate(ReproDroidRoute.Apps)
+                    }
+                },
+                onUninstall = { packageName ->
+                    uninstallTargetId = appId
+                    uninstallLauncher.launch(
+                        Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName"))
+                            .putExtra(Intent.EXTRA_RETURN_RESULT, true),
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun RootNavigationBar(route: ReproDroidRoute, onNavigate: (ReproDroidRoute) -> Unit) {
+    NavigationBar {
+        NavigationBarItem(
+            selected = route == ReproDroidRoute.Apps,
+            onClick = { onNavigate(ReproDroidRoute.Apps) },
+            icon = { Icon(Icons.Default.Home, contentDescription = null) },
+            label = { Text(stringResource(R.string.nav_apps)) },
+        )
+        NavigationBarItem(
+            selected = route in ReproDroidRoute.addFlowRoutes || route == ReproDroidRoute.GitHubStarsImport,
+            onClick = { onNavigate(ReproDroidRoute.AddSource) },
+            icon = { Icon(Icons.Default.Add, contentDescription = null) },
+            label = { Text(stringResource(R.string.nav_add)) },
+        )
+        NavigationBarItem(
+            selected = route == ReproDroidRoute.Settings,
+            onClick = { onNavigate(ReproDroidRoute.Settings) },
+            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+            label = { Text(stringResource(R.string.nav_settings)) },
+        )
+    }
+}
+
+@Composable
+private fun AppActionBar(
+    route: ReproDroidRoute,
+    active: Boolean,
+    onNavigate: (ReproDroidRoute) -> Unit,
+    onRemove: () -> Unit,
+) {
+    val appId = requireNotNull(route.appId)
+    NavigationBar {
+        NavigationBarItem(
+            selected = route is ReproDroidRoute.AppInformation,
+            onClick = { onNavigate(ReproDroidRoute.AppInformation(appId)) },
+            icon = { Icon(Icons.Default.Info, contentDescription = null) },
+            label = { Text(stringResource(R.string.action_information)) },
+        )
+        NavigationBarItem(
+            selected = route is ReproDroidRoute.AppEdit,
+            enabled = active,
+            onClick = { onNavigate(ReproDroidRoute.AppEdit(appId)) },
+            icon = { Icon(Icons.Default.Edit, contentDescription = null) },
+            label = { Text(stringResource(R.string.action_edit)) },
+        )
+        NavigationBarItem(
+            selected = route is ReproDroidRoute.AppSettings,
+            enabled = active,
+            onClick = { onNavigate(ReproDroidRoute.AppSettings(appId)) },
+            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+            label = { Text(stringResource(R.string.nav_settings)) },
+        )
+        NavigationBarItem(
+            selected = false,
+            enabled = active,
+            onClick = onRemove,
+            icon = { Icon(Icons.Default.Delete, contentDescription = null) },
+            label = { Text(stringResource(R.string.action_remove)) },
+        )
+    }
+}
+
+@Composable
+private fun UiRMessageBanner(message: String, onDismiss: () -> Unit) {
+    val visibleMessage = when {
+        message.contains("already registered as the primary", ignoreCase = true) ->
+            stringResource(R.string.error_already_registered)
+        message.contains("different repository", ignoreCase = true) ->
+            stringResource(R.string.error_different_repository)
+        message.contains("rate limit", ignoreCase = true) -> stringResource(R.string.error_rate_limit)
+        message.contains("not found", ignoreCase = true) -> stringResource(R.string.error_not_found)
+        message.contains("reload", ignoreCase = true) -> stringResource(R.string.error_stale)
+        else -> message.take(MAX_VISIBLE_ERROR_LENGTH)
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(visibleMessage, Modifier.weight(1f))
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_dismiss)) }
+        }
+    }
+}
+
+@Composable
+private fun UiRAppsScreen(
+    apps: List<RegisteredAppRecord>,
+    groups: List<AppGroupEntity>,
+    onSelect: (String) -> Unit,
+    onAdd: () -> Unit,
+    onCreateGroup: (String) -> Unit,
+    onRenameGroup: (String, String) -> Unit,
+    onReorderGroups: (List<String>) -> Unit,
+    onDeleteGroup: (String) -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var selectedGroupId by rememberSaveable { mutableStateOf(ALL_GROUP_ID) }
+    var showGroups by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(groups, selectedGroupId) {
+        if (
+            selectedGroupId != ALL_GROUP_ID &&
+            selectedGroupId != UNGROUPED_ID &&
+            groups.none { it.groupId == selectedGroupId }
+        ) {
+            selectedGroupId = ALL_GROUP_ID
+        }
+    }
+    val filtered = remember(apps, query, selectedGroupId) {
+        apps.filter { record ->
+            val inGroup = when (selectedGroupId) {
+                ALL_GROUP_ID -> true
+                UNGROUPED_ID -> record.app.groupId == null
+                else -> record.app.groupId == selectedGroupId
+            }
+            inGroup && (
+                record.app.resolvedDisplayName.contains(query, ignoreCase = true) ||
+                    record.app.canonicalRepositoryUrl.contains(query, ignoreCase = true) ||
+                    record.latestRelease?.selectedAsset?.packageName?.contains(query, ignoreCase = true) == true
+                )
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                stringResource(R.string.apps_title),
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { showGroups = true }) { Text(stringResource(R.string.action_manage_groups)) }
+        }
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            placeholder = { Text(stringResource(R.string.apps_search_hint)) },
+            singleLine = true,
+        )
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FilterChip(
+                selected = selectedGroupId == ALL_GROUP_ID,
+                onClick = { selectedGroupId = ALL_GROUP_ID },
+                label = { Text(stringResource(R.string.group_all)) },
+            )
+            FilterChip(
+                selected = selectedGroupId == UNGROUPED_ID,
+                onClick = { selectedGroupId = UNGROUPED_ID },
+                label = { Text(stringResource(R.string.group_ungrouped)) },
+            )
+            groups.forEach { group ->
+                FilterChip(
+                    selected = selectedGroupId == group.groupId,
+                    onClick = { selectedGroupId = group.groupId },
+                    label = { Text(group.displayName) },
+                )
+            }
+        }
+        if (filtered.isEmpty()) {
+            EmptyState(
+                title = stringResource(if (apps.isEmpty()) R.string.apps_empty_title else R.string.apps_search_empty_title),
+                body = stringResource(if (apps.isEmpty()) R.string.apps_empty_body else R.string.apps_search_empty_body),
+                actionLabel = if (apps.isEmpty()) stringResource(R.string.action_add_app) else null,
+                onAction = onAdd,
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item { Spacer(Modifier.height(4.dp)) }
+                items(filtered, key = { it.app.registeredAppId }) { record ->
+                    AppListCard(record, onSelect)
+                }
+                item { Spacer(Modifier.height(16.dp)) }
+            }
+        }
+    }
+    if (showGroups) {
+        GroupManagerDialog(
+            groups = groups,
+            onDismiss = { showGroups = false },
+            onCreate = onCreateGroup,
+            onRename = onRenameGroup,
+            onReorder = onReorderGroups,
+            onDelete = onDeleteGroup,
+        )
+    }
+}
+
+@Composable
+private fun AppListCard(record: RegisteredAppRecord, onSelect: (String) -> Unit) {
+    val latest = record.latestRelease
+    val asset = latest?.selectedAsset
+    Card(
+        Modifier.fillMaxWidth().clickable { onSelect(record.app.registeredAppId) },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            ManagedAppIcon(record)
+            Column(Modifier.weight(1f).padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        record.app.resolvedDisplayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(asset?.versionName ?: latest?.snapshot?.tagName ?: stringResource(R.string.value_unknown))
+                }
+                Text(
+                    record.group?.displayName ?: stringResource(R.string.group_ungrouped),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusChip(record.trustLevel?.name ?: record.app.releaseDiscoveryStatus)
+                    asset?.updateStatus?.let { StatusChip(it) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GroupManagerDialog(
+    groups: List<AppGroupEntity>,
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Unit,
+    onRename: (String, String) -> Unit,
+    onReorder: (List<String>) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
+    var deletingId by rememberSaveable { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.groups_title)) },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { if (it.length <= MAX_GROUP_NAME_LENGTH) name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.group_name)) },
+                    singleLine = true,
+                )
+                Button(
+                    enabled = name.isNotBlank(),
+                    onClick = {
+                        val editing = editingId
+                        if (editing == null) onCreate(name) else onRename(editing, name)
+                        name = ""
+                        editingId = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(if (editingId == null) R.string.action_create_group else R.string.action_rename_group))
+                }
+                if (groups.isEmpty()) Text(stringResource(R.string.groups_empty))
+                groups.forEachIndexed { index, group ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text(group.displayName, style = MaterialTheme.typography.titleSmall)
+                            Column(Modifier.fillMaxWidth()) {
+                                TextButton(
+                                    enabled = index > 0,
+                                    onClick = {
+                                        val ids = groups.map(AppGroupEntity::groupId).toMutableList()
+                                        ids[index - 1] = group.groupId
+                                        ids[index] = groups[index - 1].groupId
+                                        onReorder(ids)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(stringResource(R.string.action_move_up)) }
+                                TextButton(
+                                    enabled = index < groups.lastIndex,
+                                    onClick = {
+                                        val ids = groups.map(AppGroupEntity::groupId).toMutableList()
+                                        ids[index + 1] = group.groupId
+                                        ids[index] = groups[index + 1].groupId
+                                        onReorder(ids)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(stringResource(R.string.action_move_down)) }
+                                TextButton(
+                                    onClick = { editingId = group.groupId; name = group.displayName },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(stringResource(R.string.action_edit))
+                                }
+                                TextButton(
+                                    onClick = { deletingId = group.groupId },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(stringResource(R.string.action_remove))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_dismiss)) } },
+    )
+    deletingId?.let { id ->
+        AlertDialog(
+            onDismissRequest = { deletingId = null },
+            title = { Text(stringResource(R.string.action_delete_group)) },
+            text = { Text(stringResource(R.string.group_delete_explanation)) },
+            confirmButton = {
+                TextButton(onClick = { onDelete(id); deletingId = null }) {
+                    Text(stringResource(R.string.action_delete_group))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingId = null }) { Text(stringResource(R.string.action_cancel)) }
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UiRAddFlowScreen(
+    route: ReproDroidRoute,
+    preview: RepositoryPreviewState,
+    repositoryUrl: String,
+    onRepositoryUrlChange: (String) -> Unit,
+    mode: ManagementMode,
+    onModeChange: (ManagementMode) -> Unit,
+    installationSource: InstallationSource,
+    onInstallationSourceChange: (InstallationSource) -> Unit,
+    localRiskConfirmed: Boolean,
+    onLocalRiskConfirmedChange: (Boolean) -> Unit,
+    separateManagementTarget: Boolean,
+    onSeparateManagementTargetChange: (Boolean) -> Unit,
+    onPreview: (String) -> Unit,
+    onCancelPreview: () -> Unit,
+    onNavigate: (ReproDroidRoute) -> Unit,
+    onResume: (String) -> Unit,
+    onRegister: (ManagementMode, InstallationSource, Boolean, Boolean) -> Unit,
+) {
+    val resolved = preview.repository
+    val existing = preview.existingPrimaryRegistration
+    val canCreatePrimary = existing == null || separateManagementTarget
+    val codebergUnavailableDescription = stringResource(R.string.future_feature_content_description, "4.7")
+    val content: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            AddPhaseHeader(route)
+            when (route) {
+            ReproDroidRoute.AddSource -> {
+                Text(stringResource(R.string.add_source_help), style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(
+                    value = repositoryUrl,
+                    onValueChange = onRepositoryUrlChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.add_repository_url)) },
+                    supportingText = { Text(stringResource(R.string.add_github_only)) },
+                    singleLine = true,
+                    enabled = !preview.isLoading,
+                )
+                Button(
+                    enabled = repositoryUrl.isNotBlank() && !preview.isLoading,
+                    onClick = { onPreview(repositoryUrl) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.add_inspect_repository)) }
+                if (preview.isLoading) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(stringResource(R.string.add_inspecting), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onCancelPreview, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                }
+                OutlinedButton(
+                    enabled = false,
+                    onClick = {},
+                    modifier = Modifier.fillMaxWidth().semantics {
+                        contentDescription = codebergUnavailableDescription
+                    },
+                ) { Text(stringResource(R.string.add_codeberg_phase)) }
+                OutlinedButton(
+                    onClick = { onNavigate(ReproDroidRoute.GitHubStarsImport) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.github_stars_title)) }
+            }
+            ReproDroidRoute.AddAnalysis -> {
+                if (resolved == null) {
+                    AddPreviewMissing { onNavigate(ReproDroidRoute.AddSource) }
+                } else {
+                    UiRDetailCard(stringResource(R.string.add_repository_verified)) {
+                        UiRDetailValue(stringResource(R.string.label_repository), resolved.normalizedInputUrl, true)
+                        UiRDetailValue(stringResource(R.string.add_repository_id), resolved.identity.providerRepositoryId, true)
+                        UiRDetailValue(stringResource(R.string.label_branch), resolved.identity.defaultBranch)
+                        UiRDetailValue(
+                            stringResource(R.string.label_commit),
+                            resolved.discovery.resolvedCommitSha ?: stringResource(R.string.value_not_available),
+                            true,
+                        )
+                        UiRDetailValue(stringResource(R.string.add_discovery_state), resolved.discovery.state)
+                        UiRDetailValue(
+                            stringResource(R.string.add_gradle_candidates),
+                            resolved.discovery.candidates.size.toString(),
+                        )
+                        resolved.discovery.candidates.take(8).forEach { candidate ->
+                            UiRDetailValue(candidate.fileKind, candidate.relativePath, true)
+                        }
+                        if (resolved.discovery.candidates.size > 8) {
+                            Text(stringResource(R.string.add_more_candidates, resolved.discovery.candidates.size - 8))
+                        }
+                        Text(stringResource(R.string.add_known_facts), style = MaterialTheme.typography.bodySmall)
+                    }
+                    existing?.let {
+                        ExistingRegistrationCard(it, onResume)
+                    }
+                    Button(
+                        onClick = { onNavigate(ReproDroidRoute.AddOptions) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.action_continue)) }
+                }
+            }
+            ReproDroidRoute.AddOptions -> {
+                if (resolved == null) {
+                    AddPreviewMissing { onNavigate(ReproDroidRoute.AddSource) }
+                } else {
+                    DropdownSetting(
+                        label = stringResource(R.string.settings_management_mode),
+                        value = mode,
+                        options = linkedMapOf(
+                            ManagementMode.VERIFICATION to stringResource(R.string.mode_verification),
+                            ManagementMode.ACQUISITION to stringResource(R.string.mode_acquisition),
+                        ),
+                        onSelect = onModeChange,
+                    )
+                    DropdownSetting(
+                        label = stringResource(R.string.settings_installation_source),
+                        value = installationSource,
+                        options = InstallationSource.entries
+                            .filter { mode == ManagementMode.VERIFICATION || it == InstallationSource.OFFICIAL_RELEASE }
+                            .associateWith {
+                                stringResource(
+                                    if (it == InstallationSource.OFFICIAL_RELEASE) {
+                                        R.string.installation_official
+                                    } else {
+                                        R.string.installation_local
+                                    },
+                                )
+                            },
+                        onSelect = onInstallationSourceChange,
+                        supportingText = stringResource(R.string.add_options_copy_note),
+                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                        Checkbox(
+                            checked = separateManagementTarget,
+                            onCheckedChange = onSeparateManagementTargetChange,
+                        )
+                        Text(stringResource(R.string.add_separate_target), Modifier.padding(top = 12.dp))
+                    }
+                    if (installationSource == InstallationSource.LOCAL_BUILD) {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Top) {
+                                Checkbox(checked = localRiskConfirmed, onCheckedChange = onLocalRiskConfirmedChange)
+                                Text(stringResource(R.string.add_local_build_risk), Modifier.padding(top = 12.dp))
+                            }
+                        }
+                    }
+                    Button(
+                        enabled = installationSource != InstallationSource.LOCAL_BUILD || localRiskConfirmed,
+                        onClick = { onNavigate(ReproDroidRoute.AddConfirm) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.action_continue)) }
+                }
+            }
+            ReproDroidRoute.AddConfirm -> {
+                if (resolved == null) {
+                    AddPreviewMissing { onNavigate(ReproDroidRoute.AddSource) }
+                } else {
+                    UiRDetailCard(stringResource(R.string.add_confirm_title)) {
+                        UiRDetailValue(stringResource(R.string.label_repository), resolved.normalizedInputUrl, true)
+                        UiRDetailValue(stringResource(R.string.add_repository_id), resolved.identity.providerRepositoryId, true)
+                        UiRDetailValue(stringResource(R.string.settings_management_mode), mode.name)
+                        UiRDetailValue(stringResource(R.string.settings_installation_source), installationSource.name)
+                        UiRDetailValue(
+                            stringResource(R.string.add_management_slot),
+                            stringResource(
+                                if (separateManagementTarget) R.string.add_slot_separate else R.string.add_slot_primary,
+                            ),
+                        )
+                        Text(stringResource(R.string.add_no_automatic_work), style = MaterialTheme.typography.bodySmall)
+                    }
+                    existing?.takeIf { !separateManagementTarget }?.let {
+                        ExistingRegistrationCard(it, onResume)
+                    }
+                    Button(
+                        enabled = canCreatePrimary && !preview.isLoading,
+                        onClick = {
+                            onRegister(mode, installationSource, localRiskConfirmed, separateManagementTarget)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            stringResource(
+                                if (preview.isLoading) R.string.add_registering else R.string.add_register,
+                            ),
+                        )
+                    }
+                    if (preview.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+            }
+                else -> Unit
+            }
+        }
+    }
+    if (route == ReproDroidRoute.AddSource) {
+        LazyColumn(
+            Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item { Spacer(Modifier.height(16.dp)) }
+            item { content() }
+            item { Spacer(Modifier.height(16.dp)) }
+        }
+    } else {
+        BackScaffoldTitle(
+            title = stringResource(R.string.add_title),
+            onBack = {
+                onNavigate(
+                    when (route) {
+                        ReproDroidRoute.AddAnalysis -> ReproDroidRoute.AddSource
+                        ReproDroidRoute.AddOptions -> ReproDroidRoute.AddAnalysis
+                        ReproDroidRoute.AddConfirm -> ReproDroidRoute.AddOptions
+                        else -> ReproDroidRoute.AddSource
+                    },
+                )
+            },
+        ) {
+            LazyColumn(
+                Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                item { Spacer(Modifier.height(8.dp)) }
+                item { content() }
+                item { Spacer(Modifier.height(16.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddPhaseHeader(route: ReproDroidRoute) {
+    val phase = when (route) {
+        ReproDroidRoute.AddSource -> R.string.add_source_phase
+        ReproDroidRoute.AddAnalysis -> R.string.add_analysis_phase
+        ReproDroidRoute.AddOptions -> R.string.add_options_phase
+        ReproDroidRoute.AddConfirm -> R.string.add_confirm_phase
+        else -> R.string.add_source_phase
+    }
+    Text(stringResource(phase), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+}
+
+@Composable
+private fun AddPreviewMissing(onReturn: () -> Unit) {
+    EmptyState(
+        title = stringResource(R.string.add_preview_missing_title),
+        body = stringResource(R.string.add_preview_missing_body),
+        actionLabel = stringResource(R.string.action_back),
+        onAction = onReturn,
+    )
+}
+
+@Composable
+private fun ExistingRegistrationCard(
+    existing: com.sanka1610.reprodroid.data.repository.ExistingPrimaryRegistration,
+    onResume: (String) -> Unit,
+) {
+    UiRDetailCard(stringResource(R.string.add_existing_title)) {
+        Text(existing.displayName)
+        Text(
+            stringResource(
+                if (existing.trackingState == AppTrackingState.INACTIVE.name) {
+                    R.string.add_existing_inactive
+                } else {
+                    R.string.add_existing_active
+                },
+            ),
+        )
+        if (existing.trackingState == AppTrackingState.INACTIVE.name) {
+            Button(onClick = { onResume(existing.registeredAppId) }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.action_resume_tracking))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppInformationScreen(
+    record: RegisteredAppRecord,
+    active: Boolean,
+    runnerJobs: Map<String, JobRecord>,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onTechnical: () -> Unit,
+    onComparison: (String) -> Unit,
+    onResume: () -> Unit,
+) {
+    val asset = record.latestRelease?.selectedAsset
+    val comparison = record.currentComparison
+    val currentJob = comparison?.let { runnerJobs[it.repeatRunnerJobId ?: it.runnerJobId] }
+    Column(Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text(record.app.resolvedDisplayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            navigationIcon = { BackButton(onBack) },
+            actions = {
+                IconButton(
+                    enabled = !active && record.app.trackingState == AppTrackingState.ACTIVE.name,
+                    onClick = onRefresh,
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.action_refresh))
+                }
+            },
+        )
+        if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ManagedAppIcon(record)
+                    Column(Modifier.padding(start = 14.dp)) {
+                        Text(record.app.resolvedDisplayName, style = MaterialTheme.typography.titleLarge)
+                        record.app.authorDisplayOverride?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                        Text(record.group?.displayName ?: stringResource(R.string.group_ungrouped))
+                    }
+                }
+            }
+            item {
+                UiRDetailCard(stringResource(R.string.section_current_state)) {
+                    UiRDetailValue(
+                        stringResource(R.string.label_tracking),
+                        stringResource(
+                            if (record.app.trackingState == AppTrackingState.ACTIVE.name) {
+                                R.string.tracking_active
+                            } else {
+                                R.string.tracking_inactive
+                            },
+                        ),
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.label_installed_version),
+                        asset?.installedVersionName ?: stringResource(R.string.value_not_available),
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.label_latest_version),
+                        asset?.versionName ?: record.latestRelease?.snapshot?.tagName ?: stringResource(R.string.value_unknown),
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.label_update),
+                        statusLabel(asset?.updateStatus ?: "NOT_EVALUATED"),
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.label_last_checked),
+                        record.app.lastReleaseCheckedAt ?: stringResource(R.string.value_never),
+                    )
+                }
+            }
+            item {
+                UiRDetailCard(stringResource(R.string.section_reproducibility)) {
+                    UiRDetailValue(
+                        stringResource(R.string.label_verification),
+                        record.trustLevel?.name?.let { statusLabel(it) } ?: stringResource(R.string.value_unknown),
+                    )
+                    comparison?.let {
+                        UiRDetailValue(stringResource(R.string.label_comparison_status), statusLabel(it.status))
+                        UiRDetailValue(stringResource(R.string.label_official_primary), statusLabel(it.outcome))
+                        if (it.protocolVersion >= 2) {
+                            UiRDetailValue(stringResource(R.string.label_official_repeat), statusLabel(it.repeatOfficialOutcome))
+                            UiRDetailValue(stringResource(R.string.label_local_repeatability), statusLabel(it.repeatabilityOutcome))
+                        }
+                        OutlinedButton(
+                            onClick = { onComparison(it.comparisonRunId) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.action_open_comparison)) }
+                    }
+                }
+            }
+            item {
+                UiRDetailCard(stringResource(R.string.section_build_summary)) {
+                    UiRDetailValue(
+                        stringResource(R.string.label_build_configuration),
+                        record.selectedBuildConfiguration?.let { "r${it.revision} · ${statusLabel(it.validationState)}" }
+                            ?: stringResource(R.string.value_not_available),
+                    )
+                    currentJob?.let {
+                        UiRDetailValue(
+                            stringResource(R.string.label_comparison_status),
+                            "${statusLabel(it.job.state)} · ${it.job.progressPercent}%",
+                        )
+                    }
+                }
+            }
+            item {
+                UiRDetailCard(stringResource(R.string.section_source)) {
+                    UiRDetailValue(stringResource(R.string.label_provider), record.app.provider)
+                    UiRDetailValue(stringResource(R.string.label_repository_owner), repositoryOwner(record.app.canonicalRepositoryUrl))
+                    UiRDetailValue(stringResource(R.string.label_repository), record.app.canonicalRepositoryUrl, true)
+                    UiRDetailValue(
+                        stringResource(R.string.label_branch),
+                        record.latestSourceDiscovery?.requestedBranch ?: stringResource(R.string.value_unknown),
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.label_commit),
+                        record.latestSourceDiscovery?.resolvedCommitSha
+                            ?: record.latestRelease?.snapshot?.resolvedCommitSha
+                            ?: stringResource(R.string.value_unknown),
+                        true,
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.label_package),
+                        asset?.packageName ?: stringResource(R.string.value_unknown),
+                        true,
+                    )
+                }
+            }
+            if (record.app.note.isNotBlank()) {
+                item { UiRDetailCard(stringResource(R.string.label_note)) { Text(record.app.note) } }
+            }
+            item {
+                OutlinedButton(
+                    enabled = record.app.trackingState == AppTrackingState.ACTIVE.name,
+                    onClick = onTechnical,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.action_open_details))
+                }
+            }
+            if (record.app.trackingState == AppTrackingState.INACTIVE.name) {
+                item {
+                    Button(onClick = onResume, Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.action_resume_tracking))
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(12.dp)) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ComparisonEvidenceScreen(
+    comparison: ComparisonRunEntity,
+    onBack: () -> Unit,
+) {
+    BackScaffoldTitle(stringResource(R.string.comparison_evidence_title), onBack) {
+        LazyColumn(
+            Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                UiRDetailCard(stringResource(R.string.section_current_state)) {
+                    UiRDetailValue(
+                        stringResource(R.string.label_comparison_status),
+                        statusLabel(comparison.status),
+                    )
+                    UiRDetailValue(stringResource(R.string.label_verification), statusLabel(comparison.outcome))
+                    if (comparison.protocolVersion >= 2) {
+                        UiRDetailValue(
+                            stringResource(R.string.label_official_repeat),
+                            statusLabel(comparison.repeatOfficialOutcome),
+                        )
+                        UiRDetailValue(
+                            stringResource(R.string.label_local_repeatability),
+                            statusLabel(comparison.repeatabilityOutcome),
+                        )
+                    }
+                }
+            }
+            item {
+                UiRDetailCard(stringResource(R.string.section_identity)) {
+                    UiRDetailValue(
+                        stringResource(R.string.comparison_id),
+                        comparison.comparisonRunId,
+                        true,
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.label_commit),
+                        comparison.expectedCommitSha,
+                        true,
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.comparison_reference_asset),
+                        comparison.referenceAssetId,
+                        true,
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.comparison_runner_job),
+                        comparison.runnerJobId,
+                        true,
+                    )
+                    comparison.repeatRunnerJobId?.let {
+                        UiRDetailValue(stringResource(R.string.comparison_repeat_job), it, true)
+                    }
+                }
+            }
+            comparison.incomparableReason?.let { reason ->
+                item { UiRDetailCard(stringResource(R.string.comparison_reason)) { Text(reason) } }
+            }
+            item { Spacer(Modifier.height(12.dp)) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppEditScreen(
+    record: RegisteredAppRecord,
+    groups: List<AppGroupEntity>,
+    sourcePreview: SourceEditPreviewState,
+    saving: Boolean,
+    onBack: () -> Unit,
+    onSave: (AppMetadataUpdate) -> Unit,
+    onInspectSource: (String) -> Unit,
+    onApplySource: () -> Unit,
+    onClearSource: () -> Unit,
+    onRegisterSeparately: () -> Unit,
+) {
+    var displayName by rememberSaveable(record.app.registeredAppId, record.app.updatedAt) {
+        mutableStateOf(record.app.displayNameOverride.orEmpty())
+    }
+    var author by rememberSaveable(record.app.registeredAppId, record.app.updatedAt) {
+        mutableStateOf(record.app.authorDisplayOverride.orEmpty())
+    }
+    var note by rememberSaveable(record.app.registeredAppId, record.app.updatedAt) {
+        mutableStateOf(record.app.note)
+    }
+    var groupId by rememberSaveable(record.app.registeredAppId, record.app.updatedAt) {
+        mutableStateOf(record.app.groupId)
+    }
+    var sourceUrl by rememberSaveable(record.app.registeredAppId, record.app.updatedAt) {
+        mutableStateOf(record.app.canonicalRepositoryUrl)
+    }
+    val sourceResult = sourcePreview.repository.takeIf { sourcePreview.registeredAppId == record.app.registeredAppId }
+    val identityMatches = sourceResult?.identity?.providerRepositoryId == record.repositoryBinding?.providerRepositoryId
+    Column(Modifier.fillMaxSize()) {
+        TopAppBar(title = { Text(stringResource(R.string.app_edit_title)) }, navigationIcon = { BackButton(onBack) })
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                OutlinedTextField(
+                    value = displayName,
+                    onValueChange = { if (it.length <= MAX_DISPLAY_NAME_LENGTH) displayName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.label_display_name)) },
+                    supportingText = { Text(stringResource(R.string.label_default_name, record.app.displayName)) },
+                    singleLine = true,
+                )
+            }
+            item {
+                TextButton(onClick = { displayName = "" }) { Text(stringResource(R.string.action_use_default)) }
+            }
+            item {
+                OutlinedTextField(
+                    value = author,
+                    onValueChange = { if (it.length <= MAX_AUTHOR_DISPLAY_LENGTH) author = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.label_author_display)) },
+                    supportingText = { Text(stringResource(R.string.label_author_not_verified)) },
+                    singleLine = true,
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { if (it.length <= MAX_NOTE_LENGTH) note = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.label_note)) },
+                    supportingText = { Text(stringResource(R.string.label_note_support)) },
+                    minLines = 3,
+                    maxLines = 8,
+                )
+            }
+            item {
+                UiRDetailCard(stringResource(R.string.label_group)) {
+                    GroupChoice(null, stringResource(R.string.group_ungrouped), groupId) { groupId = null }
+                    groups.forEach { group ->
+                        GroupChoice(group.groupId, group.displayName, groupId) { groupId = group.groupId }
+                    }
+                }
+            }
+            item {
+                Button(
+                    enabled = !saving,
+                    onClick = {
+                        onSave(
+                            AppMetadataUpdate(
+                                displayNameOverride = displayName,
+                                authorDisplayOverride = author,
+                                note = note,
+                                groupId = groupId,
+                                expectedUpdatedAt = record.app.updatedAt,
+                            ),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.action_save)) }
+            }
+            item { HorizontalDivider() }
+            item {
+                OutlinedTextField(
+                    value = sourceUrl,
+                    onValueChange = { sourceUrl = it; onClearSource() },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.label_source_url)) },
+                    supportingText = { Text(stringResource(R.string.source_same_identity_required)) },
+                    singleLine = true,
+                )
+            }
+            item {
+                OutlinedButton(
+                    enabled = sourceUrl.isNotBlank() && !sourcePreview.isLoading,
+                    onClick = { onInspectSource(sourceUrl) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.source_inspect)) }
+            }
+            if (sourcePreview.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            sourceResult?.let { result ->
+                item {
+                    UiRDetailCard(stringResource(R.string.section_source)) {
+                        UiRDetailValue(stringResource(R.string.label_repository), result.normalizedInputUrl, true)
+                        UiRDetailValue(stringResource(R.string.label_branch), result.identity.defaultBranch)
+                        UiRDetailValue(stringResource(R.string.label_commit), result.discovery.resolvedCommitSha ?: "UNKNOWN", true)
+                        Text(
+                            stringResource(
+                                if (identityMatches) R.string.source_identity_match else R.string.source_identity_mismatch,
+                            ),
+                            color = if (identityMatches) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        )
+                        Button(
+                            enabled = identityMatches && !saving,
+                            onClick = onApplySource,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.source_apply)) }
+                        if (!identityMatches) {
+                            OutlinedButton(
+                                onClick = onRegisterSeparately,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(stringResource(R.string.source_register_separately)) }
+                        }
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(12.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun GroupChoice(id: String?, label: String, selectedId: String?, onSelect: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onSelect).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = id == selectedId, onClick = onSelect)
+        Text(label, Modifier.padding(start = 8.dp))
+    }
+}
+
+@Composable
+private fun UiRSettingsScreen(
+    settings: GlobalSettingsEntity,
+    onUpdate: (GlobalSettingsEntity) -> Unit,
+    onNavigate: (ReproDroidRoute) -> Unit,
+) {
+    var appearanceExpanded by rememberSaveable { mutableStateOf(true) }
+    var defaultsExpanded by rememberSaveable { mutableStateOf(false) }
+    var updatesExpanded by rememberSaveable { mutableStateOf(false) }
+    var authenticationExpanded by rememberSaveable { mutableStateOf(false) }
+    var integrationsExpanded by rememberSaveable { mutableStateOf(false) }
+    var backupExpanded by rememberSaveable { mutableStateOf(false) }
+    var diagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
+    LazyColumn(
+        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item { Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 16.dp)) }
+        item {
+            AccordionSection(stringResource(R.string.settings_appearance), appearanceExpanded, { appearanceExpanded = !appearanceExpanded }) {
+                DropdownSetting(
+                    label = stringResource(R.string.settings_theme),
+                    value = settings.themeMode,
+                    options = linkedMapOf(
+                        ThemeMode.SYSTEM.name to stringResource(R.string.settings_theme_system),
+                        ThemeMode.LIGHT.name to stringResource(R.string.settings_theme_light),
+                        ThemeMode.DARK.name to stringResource(R.string.settings_theme_dark),
+                    ),
+                    onSelect = { onUpdate(settings.copy(themeMode = it)) },
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.settings_dynamic_color), style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(R.string.settings_dynamic_color_body), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(
+                        checked = settings.dynamicColorEnabled,
+                        onCheckedChange = { onUpdate(settings.copy(dynamicColorEnabled = it)) },
+                    )
+                }
+            }
+        }
+        item {
+            AccordionSection(stringResource(R.string.settings_app_defaults), defaultsExpanded, { defaultsExpanded = !defaultsExpanded }) {
+                DropdownSetting(
+                    stringResource(R.string.settings_release_variant),
+                    settings.defaultReleaseVariantPreference,
+                    ReleaseVariantPreference.entries.associate { it.name to localizedEnumLabel(it.name) },
+                    { onUpdate(settings.copy(defaultReleaseVariantPreference = it)) },
+                )
+                DropdownSetting(
+                    stringResource(R.string.settings_abi),
+                    settings.defaultPreferredAbi,
+                    PreferredAbi.entries.associate { it.name to abiLabel(it.name) },
+                    { onUpdate(settings.copy(defaultPreferredAbi = it)) },
+                )
+                DropdownSetting(
+                    stringResource(R.string.app_settings_apk_limit),
+                    settings.defaultMaxApkSizeBytes,
+                    UI_R_APK_LIMITS.associateWith { "${it / MEBIBYTE} MiB" },
+                    { onUpdate(settings.copy(defaultMaxApkSizeBytes = it)) },
+                    supportingText = stringResource(R.string.settings_apk_limit_body),
+                )
+                DropdownSetting(
+                    stringResource(R.string.settings_management_mode),
+                    settings.defaultManagementMode,
+                    linkedMapOf(
+                        ManagementMode.VERIFICATION.name to stringResource(R.string.mode_verification),
+                        ManagementMode.ACQUISITION.name to stringResource(R.string.mode_acquisition),
+                    ),
+                    {
+                        onUpdate(
+                            settings.copy(
+                                defaultManagementMode = it,
+                                defaultInstallationSource = if (it == ManagementMode.ACQUISITION.name) {
+                                    InstallationSource.OFFICIAL_RELEASE.name
+                                } else {
+                                    settings.defaultInstallationSource
+                                },
+                            ),
+                        )
+                    },
+                )
+                DropdownSetting(
+                    stringResource(R.string.settings_installation_source),
+                    settings.defaultInstallationSource,
+                    InstallationSource.entries
+                        .filter {
+                            settings.defaultManagementMode == ManagementMode.VERIFICATION.name ||
+                                it == InstallationSource.OFFICIAL_RELEASE
+                        }
+                        .associate {
+                            it.name to stringResource(
+                                if (it == InstallationSource.OFFICIAL_RELEASE) {
+                                    R.string.installation_official
+                                } else {
+                                    R.string.installation_local
+                                },
+                            )
+                        },
+                    { onUpdate(settings.copy(defaultInstallationSource = it)) },
+                )
+            }
+        }
+        item {
+            AccordionSection(stringResource(R.string.settings_updates), updatesExpanded, { updatesExpanded = !updatesExpanded }) {
+                PlannedCard("4.5", stringResource(R.string.planned_updates_body)) {
+                    onNavigate(ReproDroidRoute.UpdateSettings)
+                }
+            }
+        }
+        item {
+            AccordionSection(stringResource(R.string.settings_authentication), authenticationExpanded, { authenticationExpanded = !authenticationExpanded }) {
+                PlannedCard("4.6", stringResource(R.string.planned_auth_body)) {
+                    onNavigate(ReproDroidRoute.Authentication)
+                }
+            }
+        }
+        item {
+            AccordionSection(stringResource(R.string.settings_integrations), integrationsExpanded, { integrationsExpanded = !integrationsExpanded }) {
+                SettingsLink(stringResource(R.string.settings_runner)) { onNavigate(ReproDroidRoute.RunnerSettings) }
+                DisabledSetting(stringResource(R.string.planned_codeberg), "4.7")
+            }
+        }
+        item {
+            AccordionSection(stringResource(R.string.settings_backup), backupExpanded, { backupExpanded = !backupExpanded }) {
+                PlannedCard("4.8", stringResource(R.string.planned_backup_body)) {
+                    onNavigate(ReproDroidRoute.Backup)
+                }
+            }
+        }
+        item {
+            AccordionSection(stringResource(R.string.settings_debug), diagnosticsExpanded, { diagnosticsExpanded = !diagnosticsExpanded }) {
+                SettingsLink(stringResource(R.string.settings_storage)) { onNavigate(ReproDroidRoute.DataManagement) }
+                SettingsLink(stringResource(R.string.settings_runner)) { onNavigate(ReproDroidRoute.RunnerSettings) }
+            }
+        }
+        item { Spacer(Modifier.height(16.dp)) }
+    }
+}
+
+@Composable
+private fun AccordionSection(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = stringResource(
+                        if (expanded) R.string.action_collapse else R.string.action_expand,
+                    ),
+                )
+            }
+            AnimatedVisibility(expanded) {
+                Column(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    content = content,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsLink(label: String, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, Modifier.fillMaxWidth()) { Text(label) }
+}
+
+@Composable
+private fun PlannedCard(phase: String, body: String, onOpen: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(body)
+            Text(stringResource(R.string.planned_phase, phase), color = MaterialTheme.colorScheme.secondary)
+            Text(stringResource(R.string.planned_unavailable), style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun DisabledSetting(label: String, phase: String) {
+    val description = stringResource(R.string.future_feature_content_description, phase)
+    OutlinedButton(
+        enabled = false,
+        onClick = {},
+        modifier = Modifier.fillMaxWidth().semantics { contentDescription = description },
+    ) { Text(label) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DataManagementScreen(
+    onBack: () -> Unit,
+    onStorage: () -> Unit,
+    onInactive: () -> Unit,
+    onRunner: () -> Unit,
+) {
+    BackScaffoldTitle(stringResource(R.string.data_management_title), onBack) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SettingsLink(stringResource(R.string.data_android_storage), onStorage)
+            SettingsLink(stringResource(R.string.inactive_apps_title), onInactive)
+            Text(stringResource(R.string.data_android_deletion_note), style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider()
+            SettingsLink(stringResource(R.string.data_runner_separate), onRunner)
+            Text(stringResource(R.string.data_runner_note), style = MaterialTheme.typography.bodySmall)
+            DisabledSetting(stringResource(R.string.data_log_export), "4.8")
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RunnerSettingsScreen(
+    onBack: () -> Unit,
+    onStorage: () -> Unit,
+    onJobs: () -> Unit,
+    onToolchains: () -> Unit,
+    onAuthentication: () -> Unit,
+) {
+    BackScaffoldTitle(stringResource(R.string.settings_runner), onBack) {
+        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SettingsLink(stringResource(R.string.settings_storage), onStorage)
+            SettingsLink(stringResource(R.string.settings_toolchains), onToolchains)
+            SettingsLink(stringResource(R.string.settings_jobs), onJobs)
+            PlannedCard("4.6", stringResource(R.string.planned_auth_body), onAuthentication)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlannedFeatureScreen(
+    title: String,
+    phase: String,
+    body: String,
+    controls: List<String>,
+    onBack: () -> Unit,
+) {
+    BackScaffoldTitle(title, onBack) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
+        ) {
+            Text(stringResource(R.string.planned_unavailable), style = MaterialTheme.typography.titleLarge)
+            Text(body)
+            Text(stringResource(R.string.planned_phase, phase), color = MaterialTheme.colorScheme.secondary)
+            controls.forEach { control -> DisabledSetting(control, phase) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InactiveAppsScreen(
+    apps: List<RegisteredAppRecord>,
+    allowCompleteDeletion: Boolean,
+    onBack: () -> Unit,
+    onOpen: (String) -> Unit,
+    onResume: (String) -> Unit,
+    onPreviewDelete: (String) -> Unit,
+    deletionPreview: AppDeletionPreview?,
+    deletionResult: com.sanka1610.reprodroid.data.repository.AppDeletionResult?,
+    onDelete: () -> Unit,
+    onDismissDelete: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        TopAppBar(title = { Text(stringResource(R.string.inactive_apps_title)) }, navigationIcon = { BackButton(onBack) })
+        if (apps.isEmpty()) {
+            EmptyState(stringResource(R.string.inactive_apps_title), stringResource(R.string.inactive_apps_empty))
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(apps, key = { it.app.registeredAppId }) { record ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(record.app.resolvedDisplayName, style = MaterialTheme.typography.titleMedium)
+                            Text(record.app.canonicalRepositoryUrl, style = MaterialTheme.typography.bodySmall)
+                            Column(Modifier.fillMaxWidth()) {
+                                TextButton(
+                                    onClick = { onOpen(record.app.registeredAppId) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(stringResource(R.string.action_information))
+                                }
+                                TextButton(
+                                    onClick = { onResume(record.app.registeredAppId) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(stringResource(R.string.action_resume_tracking))
+                                }
+                                if (allowCompleteDeletion) {
+                                    TextButton(
+                                        onClick = { onPreviewDelete(record.app.registeredAppId) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text(stringResource(R.string.action_preview_deletion))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                item { Spacer(Modifier.height(12.dp)) }
+            }
+        }
+    }
+    deletionPreview?.takeIf { allowCompleteDeletion }?.let { preview ->
+        DeletionPreviewDialog(preview, onDismissDelete, onDelete)
+    }
+    deletionResult?.takeIf { allowCompleteDeletion }?.let { result ->
+        AlertDialog(
+            onDismissRequest = onDismissDelete,
+            title = {
+                Text(
+                    stringResource(
+                        if (result.failedFileNames.isEmpty()) {
+                            R.string.deletion_result_complete
+                        } else {
+                            R.string.deletion_result_reconciliation
+                        },
+                    ),
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(stringResource(R.string.deletion_result_files, result.deletedFiles))
+                    Text(stringResource(R.string.deletion_result_bytes, humanBytes(result.releasedBytes)))
+                    if (result.failedFileNames.isNotEmpty()) {
+                        Text(stringResource(R.string.deletion_result_failed_files, result.failedFileNames.joinToString()))
+                        Text(stringResource(R.string.deletion_result_cleanup_hint))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onDismissDelete) { Text(stringResource(R.string.action_dismiss)) }
+            },
+        )
+    }
+}
+
+@Composable
+private fun DeletionPreviewDialog(preview: AppDeletionPreview, onDismiss: () -> Unit, onDelete: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.deletion_preview_title)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(preview.displayName, style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.deletion_preview_body))
+                Text(stringResource(R.string.deletion_release_count, preview.releaseCount))
+                Text(stringResource(R.string.deletion_comparison_count, preview.comparisonCount))
+                Text(stringResource(R.string.deletion_install_count, preview.installAttemptCount))
+                Text(stringResource(R.string.deletion_local_bytes, humanBytes(preview.localBytes)))
+                if (preview.protectionReasons.isNotEmpty()) {
+                    Text(
+                        stringResource(R.string.deletion_protected, preview.protectionReasons.joinToString()),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Text(stringResource(R.string.deletion_audit_hint), style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = preview.protectionReasons.isEmpty(), onClick = onDelete) {
+                Text(stringResource(R.string.action_delete_permanently))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    )
+}
+
+@Composable
+private fun RemoveTrackingDialog(
+    record: RegisteredAppRecord,
+    otherPackageReferenceCount: Int,
+    onDismiss: () -> Unit,
+    onStop: () -> Unit,
+    onUninstall: (String) -> Unit,
+) {
+    val packageName = knownPackageName(record)
+    val installedVersion = record.latestRelease?.selectedAsset?.installedVersionName
+    var selectedAction by rememberSaveable(record.app.registeredAppId) { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(
+                    if (selectedAction == null) R.string.remove_title else R.string.remove_final_title,
+                ),
+            )
+        },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (selectedAction == null) {
+                    Text(stringResource(R.string.remove_body))
+                    OutlinedButton(
+                        onClick = { selectedAction = REMOVE_TRACKING_ONLY },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.action_stop_tracking)) }
+                    OutlinedButton(
+                        enabled = packageName != null,
+                        onClick = { selectedAction = REMOVE_WITH_UNINSTALL },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.action_uninstall_stop_tracking)) }
+                    Text(
+                        stringResource(
+                            if (packageName == null) R.string.remove_package_unknown else R.string.remove_uninstall_body,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    Text(
+                        stringResource(
+                            if (selectedAction == REMOVE_WITH_UNINSTALL) {
+                                R.string.remove_final_uninstall_body
+                            } else {
+                                R.string.remove_final_tracking_body
+                            },
+                        ),
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.label_package),
+                        packageName ?: stringResource(R.string.value_unknown),
+                        true,
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.label_installed_version),
+                        installedVersion ?: stringResource(R.string.value_not_available),
+                    )
+                    UiRDetailValue(
+                        stringResource(R.string.remove_other_references),
+                        otherPackageReferenceCount.toString(),
+                    )
+                    Text(stringResource(R.string.remove_history_preserved), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            if (selectedAction != null) {
+                TextButton(
+                    onClick = {
+                        if (selectedAction == REMOVE_WITH_UNINSTALL) {
+                            packageName?.let(onUninstall)
+                        } else {
+                            onStop()
+                        }
+                    },
+                ) { Text(stringResource(R.string.action_confirm)) }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    if (selectedAction == null) onDismiss() else selectedAction = null
+                },
+            ) {
+                Text(stringResource(if (selectedAction == null) R.string.action_cancel else R.string.action_back))
+            }
+        },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackScaffoldTitle(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        TopAppBar(title = { Text(title) }, navigationIcon = { BackButton(onBack) })
+        Box(Modifier.fillMaxSize()) { content() }
+    }
+}
+
+@Composable
+private fun BackButton(onBack: () -> Unit) {
+    IconButton(onClick = onBack) {
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
+    }
+}
+
+@Composable
+private fun EmptyState(
+    title: String,
+    body: String,
+    actionLabel: String? = null,
+    onAction: () -> Unit = {},
+) {
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(body, style = MaterialTheme.typography.bodyMedium)
+            actionLabel?.let { Button(onClick = onAction) { Text(it) } }
+        }
+    }
+}
+
+@Composable
+private fun MissingRecordScreen(onBack: () -> Unit) {
+    EmptyState(
+        title = stringResource(R.string.value_not_available),
+        body = stringResource(R.string.apps_search_empty_body),
+        actionLabel = stringResource(R.string.action_back),
+        onAction = onBack,
+    )
+}
+
+@Composable
+private fun StatusChip(value: String) {
+    AssistChip(onClick = {}, label = { Text(statusLabel(value)) })
+}
+
+@Composable
+private fun UiRDetailCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun UiRDetailValue(label: String, value: String, monospace: Boolean = false) {
+    val clipboard = LocalClipboardManager.current
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.weight(1f),
+            )
+            if (monospace && value.isNotBlank()) {
+                TextButton(onClick = { clipboard.setText(AnnotatedString(value)) }) {
+                    Text(stringResource(R.string.action_copy))
+                }
+            }
+        }
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
+            overflow = TextOverflow.Visible,
+        )
+    }
+}
+
+private fun repositoryOwner(repositoryUrl: String): String = runCatching {
+    Uri.parse(repositoryUrl).pathSegments.firstOrNull()
+}.getOrNull().orEmpty().ifBlank { "UNKNOWN" }
+
+private fun knownPackageName(record: RegisteredAppRecord): String? =
+    record.latestRelease?.selectedAsset?.packageName
+        ?: record.releases.asSequence()
+            .flatMap { it.assets.asSequence() }
+            .mapNotNull { it.packageName }
+            .firstOrNull()
+
+private fun String.humanize(): String = lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
+
+@Composable
+private fun statusLabel(value: String?): String = when (value) {
+    "ACTIVE" -> stringResource(R.string.state_active)
+    "INACTIVE" -> stringResource(R.string.state_inactive)
+    "NOT_CHECKED", "NOT_EVALUATED" -> stringResource(R.string.state_not_checked)
+    "CHECKING", "RESOLVING", "SCANNING_TREE" -> stringResource(R.string.state_checking)
+    "PENDING", "QUEUED" -> stringResource(R.string.state_pending)
+    "RUNNING", "BUILDING" -> stringResource(R.string.state_running)
+    "AVAILABLE", "UP_TO_DATE", "SUCCESS", "COMPLETE", "COMPLETED" -> stringResource(R.string.state_success)
+    "UPDATE_AVAILABLE" -> stringResource(R.string.state_update_available)
+    "NOT_INSTALLED" -> stringResource(R.string.state_not_installed)
+    "REPRODUCIBLE", "EQUIVALENT" -> stringResource(R.string.state_reproducible)
+    "MATCH" -> stringResource(R.string.state_match)
+    "BUILDABLE" -> stringResource(R.string.state_buildable)
+    "DIFFERENT" -> stringResource(R.string.state_different)
+    "INCOMPARABLE" -> stringResource(R.string.state_incomparable)
+    "FAILED", "ERROR" -> stringResource(R.string.state_error)
+    "CANCELLED" -> stringResource(R.string.state_cancelled)
+    "INTERRUPTED" -> stringResource(R.string.state_interrupted)
+    "AWAITING_ASSET_SELECTION" -> stringResource(R.string.state_awaiting_selection)
+    "OLDER_THAN_INSTALLED" -> stringResource(R.string.state_older_than_installed)
+    "UNKNOWN", null -> stringResource(R.string.value_unknown)
+    else -> value.humanize()
+}
+
+@Composable
+private fun localizedEnumLabel(value: String): String = when (value) {
+    ReleaseVariantPreference.RELEASE.name -> stringResource(R.string.enum_release)
+    ReleaseVariantPreference.PREVIEW.name -> stringResource(R.string.enum_preview)
+    ReleaseVariantPreference.DEBUG.name -> stringResource(R.string.enum_debug)
+    else -> value.humanize()
+}
+
+@Composable
+private fun abiLabel(value: String): String = when (value) {
+    PreferredAbi.ARM64_V8A.name -> "arm64-v8a"
+    PreferredAbi.ARMEABI_V7A.name -> "armeabi-v7a"
+    PreferredAbi.X86_64.name -> "x86_64"
+    PreferredAbi.UNIVERSAL.name -> stringResource(R.string.enum_universal)
+    else -> value
+}
+
+private fun humanBytes(value: Long): String = when {
+    value >= 1024L * 1024 * 1024 -> "%.2f GiB".format(value / (1024.0 * 1024 * 1024))
+    value >= 1024L * 1024 -> "%.2f MiB".format(value / (1024.0 * 1024))
+    value >= 1024L -> "%.2f KiB".format(value / 1024.0)
+    else -> "$value B"
+}
+
+private const val ALL_GROUP_ID = "__all__"
+private const val UNGROUPED_ID = "__ungrouped__"
+private const val REMOVE_TRACKING_ONLY = "TRACKING_ONLY"
+private const val REMOVE_WITH_UNINSTALL = "WITH_UNINSTALL"
+private const val MAX_VISIBLE_ERROR_LENGTH = 800
+private const val MAX_GROUP_NAME_LENGTH = 80
+private const val MAX_DISPLAY_NAME_LENGTH = 120
+private const val MAX_AUTHOR_DISPLAY_LENGTH = 160
+private const val MAX_NOTE_LENGTH = 10_000
+private const val MEBIBYTE = 1024L * 1024L
+private val UI_R_APK_LIMITS = listOf(64L * MEBIBYTE, 128L * MEBIBYTE, 256L * MEBIBYTE, 512L * MEBIBYTE)

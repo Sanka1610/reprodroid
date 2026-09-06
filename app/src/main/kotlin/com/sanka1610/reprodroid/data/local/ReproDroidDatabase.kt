@@ -13,6 +13,7 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         LogEntity::class,
         InstallAttemptEntity::class,
         RegisteredAppEntity::class,
+        AppGroupEntity::class,
         ReleaseSnapshotEntity::class,
         ReleaseAssetEntity::class,
         ComparisonRunEntity::class,
@@ -41,7 +42,7 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         AuditExportEntity::class,
         ToolchainInstallationReferenceEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -51,6 +52,43 @@ abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun toolchainDao(): ToolchainDao
 
     companion object {
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS app_groups (
+                        groupId TEXT NOT NULL,
+                        displayName TEXT NOT NULL,
+                        sortOrder INTEGER NOT NULL,
+                        createdAt TEXT NOT NULL,
+                        updatedAt TEXT NOT NULL,
+                        PRIMARY KEY(groupId)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_app_groups_sortOrder ON app_groups(sortOrder)",
+                )
+                db.execSQL("ALTER TABLE registered_apps ADD COLUMN displayNameOverride TEXT")
+                db.execSQL("ALTER TABLE registered_apps ADD COLUMN authorDisplayOverride TEXT")
+                db.execSQL("ALTER TABLE registered_apps ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE registered_apps ADD COLUMN groupId TEXT")
+                db.execSQL(
+                    "ALTER TABLE registered_apps ADD COLUMN trackingState TEXT NOT NULL DEFAULT 'ACTIVE'",
+                )
+                db.execSQL("ALTER TABLE registered_apps ADD COLUMN trackingStoppedAt TEXT")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_registered_apps_groupId ON registered_apps(groupId)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_registered_apps_trackingState ON registered_apps(trackingState)",
+                )
+                db.execSQL(
+                    "ALTER TABLE global_settings ADD COLUMN dynamicColorEnabled INTEGER NOT NULL DEFAULT 1",
+                )
+            }
+        }
+
         val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 listOf(
