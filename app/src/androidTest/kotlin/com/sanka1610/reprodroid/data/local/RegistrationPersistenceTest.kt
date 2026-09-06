@@ -218,16 +218,16 @@ class RegistrationPersistenceTest {
                     it.downloadStatus == ReferenceDownloadStatus.NOT_DOWNLOADED.name
             })
 
-            val selected = snapshot.assets.single { it.providerAssetId == 201L }
+            val selected = snapshot.assets.single { it.providerAssetId == "201" }
             database.managedAppDao().upsertReleaseAsset(
                 selected.copy(downloadStatus = ReferenceDownloadStatus.VERIFIED.name),
             )
-            repository.selectReleaseAsset(appId, snapshot.snapshot.releaseSnapshotId, 201L)
+            repository.selectReleaseAsset(appId, snapshot.snapshot.releaseSnapshotId, "201")
 
             val afterSelection = requireNotNull(database.managedAppDao().getRegisteredAppRecord(appId))
             val selectedRelease = requireNotNull(afterSelection.latestRelease)
             assertEquals(ReleaseDiscoveryStatus.AVAILABLE.name, afterSelection.app.releaseDiscoveryStatus)
-            assertEquals(201L, selectedRelease.snapshot.selectedProviderAssetId)
+            assertEquals("201", selectedRelease.snapshot.selectedProviderAssetId)
             assertEquals(
                 AssetSelectionReason.MANUAL_RELEASE_ASSET.name,
                 requireNotNull(selectedRelease.selectedAsset).selectionReason,
@@ -535,7 +535,7 @@ class RegistrationPersistenceTest {
                     provider = "GITHUB",
                     instance = "github.com",
                     providerRepositoryId = "https://github.com/example/project",
-                    providerReleaseId = 100,
+                    providerReleaseId = "100",
                     tagName = "1.0",
                     resolvedCommitSha = commitSha,
                     targetCommitishRaw = "main",
@@ -546,7 +546,7 @@ class RegistrationPersistenceTest {
                     isImmutable = false,
                     releaseCreatedAt = "2026-09-01T00:00:00Z",
                     publishedAt = "2026-09-01T00:00:00Z",
-                    providerAssetId = 200,
+                    providerAssetId = "200",
                     assetName = "project.apk",
                     stableAssetUrl = "https://github.com/example/project/releases/download/1.0/project.apk",
                     contentType = "application/vnd.android.package-archive",
@@ -572,7 +572,7 @@ class RegistrationPersistenceTest {
                 ReleaseSnapshotEntity(
                     releaseSnapshotId = snapshotId,
                     registeredAppId = appId,
-                    providerReleaseId = 100,
+                    providerReleaseId = "100",
                     tagName = "1.0",
                     resolvedCommitSha = commitSha,
                     releaseName = "1.0",
@@ -586,14 +586,14 @@ class RegistrationPersistenceTest {
                     fetchedAt = observedAt,
                     observationSha256 = observationSha,
                     lastObservedAt = observedAt,
-                    selectedProviderAssetId = 200,
+                    selectedProviderAssetId = "200",
                 ),
             )
             dao.upsertReleaseAsset(
                 ReleaseAssetEntity(
                     releaseAssetId = assetId,
                     releaseSnapshotId = snapshotId,
-                    providerAssetId = 200,
+                    providerAssetId = "200",
                     assetName = "project.apk",
                     stableAssetUrl = "https://github.com/example/project/releases/download/1.0/project.apk",
                     selectionReason = "SINGLE_APK",

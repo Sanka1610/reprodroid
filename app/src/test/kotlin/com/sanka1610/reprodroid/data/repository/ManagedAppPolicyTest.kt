@@ -197,7 +197,7 @@ class ManagedAppPolicyTest {
         val snapshot = ReleaseSnapshotEntity(
             releaseSnapshotId = "release",
             registeredAppId = "app",
-            providerReleaseId = 1,
+            providerReleaseId = "1",
             tagName = "1.0",
             resolvedCommitSha = "sha",
             releaseName = "1.0",
@@ -211,12 +211,12 @@ class ManagedAppPolicyTest {
             fetchedAt = "2026-08-24T00:00:00Z",
             observationSha256 = "0".repeat(64),
             lastObservedAt = "2026-08-24T00:00:00Z",
-            selectedProviderAssetId = 1,
+            selectedProviderAssetId = "1",
         )
         val asset = ReleaseAssetEntity(
             releaseAssetId = "asset",
             releaseSnapshotId = "release",
-            providerAssetId = 1,
+            providerAssetId = "1",
             assetName = "app.apk",
             stableAssetUrl = "https://github.com/example/app/releases/download/1.0/app.apk",
             selectionReason = "SINGLE_APK",

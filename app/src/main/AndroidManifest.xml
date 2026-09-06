@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- URL登録で実行時に判明するpackageのversion・署名照会に必要。ADR-0008を参照。 -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
@@ -32,5 +33,15 @@
             android:exported="false"
             android:noHistory="true"
             android:theme="@style/Theme.ReproDroid.InstallCallback" />
+        <receiver
+            android:name=".work.ReleaseScheduleReconcileReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

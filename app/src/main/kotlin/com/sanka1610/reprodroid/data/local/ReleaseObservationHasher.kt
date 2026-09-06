@@ -11,7 +11,7 @@ internal data class ReleaseObservationInput(
     val provider: String,
     val instance: String,
     val providerRepositoryId: String,
-    val providerReleaseId: Long,
+    val providerReleaseId: String,
     val tagName: String,
     val resolvedCommitSha: String,
     val targetCommitishRaw: String,
@@ -22,7 +22,7 @@ internal data class ReleaseObservationInput(
     val isImmutable: Boolean,
     val releaseCreatedAt: String,
     val publishedAt: String,
-    val providerAssetId: Long?,
+    val providerAssetId: String?,
     val assetName: String?,
     val stableAssetUrl: String?,
     val contentType: String?,
@@ -33,7 +33,7 @@ internal data class ReleaseObservationInput(
 )
 
 internal data class ReleaseObservationCandidate(
-    val providerAssetId: Long,
+    val providerAssetId: String,
     val assetName: String,
     val stableAssetUrl: String,
     val contentType: String,
@@ -48,7 +48,7 @@ internal object ReleaseObservationHasher {
             put("provider", input.provider)
             put("instance", input.instance)
             put("providerRepositoryId", input.providerRepositoryId)
-            put("providerReleaseId", input.providerReleaseId.toString())
+            put("providerReleaseId", input.providerReleaseId)
             put("tagName", input.tagName)
             put("resolvedCommitSha", input.resolvedCommitSha)
             put("targetCommitishRaw", input.targetCommitishRaw)
@@ -63,7 +63,7 @@ internal object ReleaseObservationHasher {
                 put("selectedAsset", JsonNull)
             } else {
                 put("selectedAsset", buildJsonObject {
-                    put("providerAssetId", input.providerAssetId.toString())
+                    put("providerAssetId", input.providerAssetId)
                     put("name", requireNotNull(input.assetName))
                     put("stableUrl", requireNotNull(input.stableAssetUrl))
                     put("contentType", requireNotNull(input.contentType))
@@ -76,12 +76,13 @@ internal object ReleaseObservationHasher {
                 put("manualCandidates", buildJsonArray {
                     input.manualCandidates
                         .sortedWith(
-                            compareBy<ReleaseObservationCandidate> { it.providerAssetId }
+                            compareBy<ReleaseObservationCandidate> { it.providerAssetId.length }
+                                .thenBy { it.providerAssetId }
                                 .thenBy { it.assetName },
                         )
                         .forEach { candidate ->
                             add(buildJsonObject {
-                                put("providerAssetId", candidate.providerAssetId.toString())
+                                put("providerAssetId", candidate.providerAssetId)
                                 put("name", candidate.assetName)
                                 put("stableUrl", candidate.stableAssetUrl)
                                 put("contentType", candidate.contentType)

@@ -1,5 +1,7 @@
 # ReproDroid
 
+**Phase 4.5実装（2026-09-06）:** Android Room20、provider IDのlossless TEXT migration、public GitHub metadata-only確認、Roomを正本とするschedule／cooldown／retry、candidate／notification outbox／dedup、明示的な通知permission操作、全体／app別設定UIを実装しました。scheduled／manual metadata checkはAPK・source archiveを取得せず、toolchain、Runner Job、build／comparison／trust／installを開始しません。debug／release JVM testは各147件（skip／failure／error 0）、lintDebugはerror 0（warning 32、hint 1）、debug／release assembleとdebug AndroidTest APK compileがPASSです。端末がないためinstrumentation実行、Android 16の実public GitHub／scheduled／background／notification製品受入は`NOT_RUN`であり、製品経路の完了を意味しません。正本は[Phase 4.5契約](../reprodroid-project/docs/design/phase-4-release-check-contract.md)、[ADR-0023](../reprodroid-project/docs/adr/0023-phase-4-scheduled-release-discovery-and-notifications.md)、[実装記録](../reprodroid-project/reports/2026/09/2026-09-06-phase-4-5-implementation.md)です。
+
 **UI-R現在地（2026-09-06）:** Phase 4.4と4.5の間の特殊工程として、Room19、typed route、Apps／Add／Settingsとapp内Information／Edit／Settings／Remove、単一所属group、追跡解除／再開、Settingsからの完全local deletion、System／Light／Dark＋Dynamic Color、英語base／日本語resource、将来Phaseのdisabled接続点を実装しました。Phase 4.5〜4.8のbackend機能は先行実装していません。debug／release JVM testは各127件、lint、debug／release assembleがPASSです。接続端末を確認できず、Room migration、TalkBack、font scale、uninstall／deletion、Android 16製品経路は`NOT_RUN`です。詳細は[UI-R実装記録](../reprodroid-project/reports/2026/09/2026-09-06-ui-r-implementation.md)を参照してください。
 
 **Phase 4.4 baseline（2026-09-05）:** Room18へgeneric build／comparison client、configuration snapshot、raw 3軸履歴、限定resource retry表示、release単位の複数APK明示選択を実装しました。複数候補は先頭やsizeで自動選択せず、候補metadataだけを表示し、利用者が選んだ1 APKだけを取得・検査します。Runner-owned truthを複製せず、API capability／runner ID／schemaを厳格検証します。JVM testは123件、Android 16 instrumentationは64件（明示opt-in skip 9）、いずれもfailure 0です。全9 artifactの空store導入とRunner再起動後inventory復元は確認しました。generic Android + Docker Build A/B製品E2Eは利用者指示により実施しておらず、Reproducible判定の証拠ではありません。v1 execution mutationへのfallbackはありません。
@@ -271,9 +273,9 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 
 Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E完了時に`./gradlew testDebugUnitTest lintDebug build --rerun-tasks -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080`を実行し、113 actionable tasksすべてexecuted、`BUILD SUCCESSFUL`を確認しました。標準installerの各callbackとRoom復元はWindows Android Emulator上のE2Eで確認しています。
 
-## Phase 4.4実装後の状態・対象外
+## Phase 4.5実装後の状態・対象外
 
-Phase 3Eの固定profile、Phase 4.0基礎契約、4.1登録、4.2 history／storage、4.3 trusted toolchain、4.4 generic build／comparison clientを実装しています。4.4はRoom18、Runner v2 capability strict validation、configuration snapshot、raw三軸履歴、限定resource retry表示、release単位の複数APK明示選択を含みます。4.3の空store導入は9 artifact、inventory、Runner restart復旧、manual removal cleanupまで確認しました。[Phase 4 roadmap](../reprodroid-project/docs/design/phase-4-roadmap.md)、[ADR-0021](../reprodroid-project/docs/adr/0021-phase-4-generic-build-sandbox-and-comparison.md)、[4.4実装記録](../reprodroid-project/reports/2026/09/2026-09-05-phase-4-4-implementation.md)を正本とします。4.1の実public GitHub製品経路と4.2の追加証跡3件は独立して残る。Android + Docker公開source二projectのBuild A／B・比較E2Eは利用者指示により`NOT_RUN`であり、製品経路の成功・raw outcome・Reproducibleの証拠ではない。
+Phase 3Eの固定profile、Phase 4.0基礎契約、4.1登録、4.2 history／storage、4.3 trusted toolchain、4.4 generic build／comparison client、特殊工程UI-R、4.5 scheduled release metadata discoveryを実装しています。4.5はRoom20に設定、app override、schedule state、check run、candidate、provider cooldown、notification outbox／dedup／representationを追加し、既存provider release／asset IDをcanonical decimal TEXTへ移行します。one-time unique WorkManager dispatchはRoomのnext eligibleを参照し、public GitHub metadataとtag full SHAだけを確認します。APK bytes、Runner、toolchain、build、comparison、trust、installへ副作用を接続していません。自動検証はdebug／release JVM test各147件、lintDebug、debug／release assemble、debug AndroidTest APK compileがPASSです。Room19→20 migration／WorkManager等のinstrumentationはcompile-onlyで、接続端末上の実行とAndroid 16製品経路は`NOT_RUN`です。[Phase 4 roadmap](../reprodroid-project/docs/design/phase-4-roadmap.md)、[4.5実装契約](../reprodroid-project/docs/design/phase-4-release-check-contract.md)、[ADR-0023](../reprodroid-project/docs/adr/0023-phase-4-scheduled-release-discovery-and-notifications.md)、[実装記録](../reprodroid-project/reports/2026/09/2026-09-06-phase-4-5-implementation.md)を正本とします。4.1の実public GitHub製品経路と4.2の追加証跡3件は独立して残る。Android + Docker公開source二projectのBuild A／B・比較E2Eは利用者指示により`NOT_RUN`であり、製品経路の成功・raw outcome・Reproducibleの証拠ではない。
 
 計画範囲はpublic GitHub／Codebergのsource-onlyを含むGradle登録、汎用build／comparison、不足toolchain導入、history／手動cleanup／監査export、定期確認・通知、release HTTPS／pairing、暗号化backup／migration、Android／Runnerのlog export、署名releaseとlicense・privacy対応です。GitLabは将来候補。Play Store／F-Droid配布・適合性評価、Google Play services、共有用診断・自動送信は対象外です。
 
@@ -285,7 +287,7 @@ Phase 3Eの固定profile、Phase 4.0基礎契約、4.1登録、4.2 history／sto
 - DEX／native raw差異をsemantic一致で`Reproducible`へ昇格する判定
 - ReproDroid鍵によるlocal comparison artifactの署名
 - MicroG-RE `6.1.4`以外のrelease comparison profile
-- 定期更新、通知、任意assetの直接選択、private repository／GitHub token
+- private repository／GitHub token、GitHub Stars import、任意assetの自動選択・取得
 - split APK、APKS、AAB
 - root/Shizuku特権インストール
 - silent install、自動アンインストール、署名検証回避

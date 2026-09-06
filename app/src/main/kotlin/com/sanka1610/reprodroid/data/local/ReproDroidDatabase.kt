@@ -41,8 +41,17 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         CleanupItemEntity::class,
         AuditExportEntity::class,
         ToolchainInstallationReferenceEntity::class,
+        ReleaseCheckSettingsEntity::class,
+        AppReleaseCheckOverrideEntity::class,
+        ReleaseScheduleStateEntity::class,
+        ReleaseCheckRunEntity::class,
+        ReleaseCandidateEntity::class,
+        NotificationOutboxEntity::class,
+        ProviderCooldownEntity::class,
+        NotificationDedupHeaderEntity::class,
+        ProviderRepresentationEntity::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -50,8 +59,207 @@ abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun managedAppDao(): ManagedAppDao
     abstract fun storageDao(): StorageDao
     abstract fun toolchainDao(): ToolchainDao
+    abstract fun releaseCheckDao(): ReleaseCheckDao
 
     companion object {
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                requirePositiveProviderIds(db)
+                db.execSQL("PRAGMA defer_foreign_keys = ON")
+                val dependentTables = listOf(
+                    "comparison_runs",
+                    "release_install_attempts",
+                    "comparison_entries",
+                    "advanced_comparison_entries",
+                    "apk_entry_evidence",
+                    "advanced_comparison_summaries",
+                    "semantic_difference_evidence",
+                )
+                dependentTables.forEach { table ->
+                    db.execSQL("CREATE TEMP TABLE migration20_backup_$table AS SELECT * FROM $table")
+                }
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS release_snapshots_new (
+                        releaseSnapshotId TEXT NOT NULL,
+                        registeredAppId TEXT NOT NULL,
+                        providerReleaseId TEXT NOT NULL,
+                        tagName TEXT NOT NULL,
+                        resolvedCommitSha TEXT NOT NULL,
+                        releaseName TEXT NOT NULL,
+                        releaseUrl TEXT NOT NULL,
+                        targetCommitishRaw TEXT NOT NULL,
+                        isDraft INTEGER NOT NULL,
+                        isPrerelease INTEGER NOT NULL,
+                        isImmutable INTEGER NOT NULL,
+                        releaseCreatedAt TEXT NOT NULL,
+                        publishedAt TEXT NOT NULL,
+                        fetchedAt TEXT NOT NULL,
+                        observationSha256 TEXT NOT NULL DEFAULT '',
+                        lastObservedAt TEXT NOT NULL DEFAULT '',
+                        selectedProviderAssetId TEXT,
+                        PRIMARY KEY(releaseSnapshotId),
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO release_snapshots_new (
+                        releaseSnapshotId, registeredAppId, providerReleaseId, tagName,
+                        resolvedCommitSha, releaseName, releaseUrl, targetCommitishRaw,
+                        isDraft, isPrerelease, isImmutable, releaseCreatedAt, publishedAt,
+                        fetchedAt, observationSha256, lastObservedAt, selectedProviderAssetId
+                    )
+                    SELECT releaseSnapshotId, registeredAppId, CAST(providerReleaseId AS TEXT), tagName,
+                        resolvedCommitSha, releaseName, releaseUrl, targetCommitishRaw,
+                        isDraft, isPrerelease, isImmutable, releaseCreatedAt, publishedAt,
+                        fetchedAt, observationSha256, lastObservedAt,
+                        CASE WHEN selectedProviderAssetId IS NULL THEN NULL
+                            ELSE CAST(selectedProviderAssetId AS TEXT) END
+                    FROM release_snapshots
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS release_assets_new (
+                        releaseAssetId TEXT NOT NULL,
+                        releaseSnapshotId TEXT NOT NULL,
+                        providerAssetId TEXT NOT NULL,
+                        assetName TEXT NOT NULL,
+                        stableAssetUrl TEXT NOT NULL,
+                        selectionReason TEXT NOT NULL,
+                        contentType TEXT NOT NULL,
+                        providerSizeBytes INTEGER NOT NULL,
+                        providerDigestSha256 TEXT,
+                        downloadStatus TEXT NOT NULL,
+                        downloadErrorCode TEXT,
+                        downloadErrorMessage TEXT,
+                        localContentPath TEXT,
+                        downloadedSizeBytes INTEGER,
+                        computedRawSha256 TEXT,
+                        responseEtag TEXT,
+                        finalDownloadHost TEXT,
+                        packageName TEXT,
+                        versionName TEXT,
+                        versionCode INTEGER,
+                        signingCertificateSha256 TEXT,
+                        currentSignerSha256 TEXT,
+                        existingInstallStatus TEXT,
+                        installedVersionName TEXT,
+                        installedVersionCode INTEGER,
+                        updateStatus TEXT NOT NULL DEFAULT 'NOT_EVALUATED',
+                        updateEvaluatedAt TEXT,
+                        comparisonEligibility TEXT NOT NULL,
+                        incomparableReason TEXT,
+                        downloadedAt TEXT,
+                        PRIMARY KEY(releaseAssetId),
+                        FOREIGN KEY(releaseSnapshotId) REFERENCES release_snapshots_new(releaseSnapshotId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO release_assets_new (
+                        releaseAssetId, releaseSnapshotId, providerAssetId, assetName,
+                        stableAssetUrl, selectionReason, contentType, providerSizeBytes,
+                        providerDigestSha256, downloadStatus, downloadErrorCode,
+                        downloadErrorMessage, localContentPath, downloadedSizeBytes,
+                        computedRawSha256, responseEtag, finalDownloadHost, packageName,
+                        versionName, versionCode, signingCertificateSha256, currentSignerSha256,
+                        existingInstallStatus, installedVersionName, installedVersionCode,
+                        updateStatus, updateEvaluatedAt, comparisonEligibility,
+                        incomparableReason, downloadedAt
+                    )
+                    SELECT releaseAssetId, releaseSnapshotId, CAST(providerAssetId AS TEXT), assetName,
+                        stableAssetUrl, selectionReason, contentType, providerSizeBytes,
+                        providerDigestSha256, downloadStatus, downloadErrorCode,
+                        downloadErrorMessage, localContentPath, downloadedSizeBytes,
+                        computedRawSha256, responseEtag, finalDownloadHost, packageName,
+                        versionName, versionCode, signingCertificateSha256, currentSignerSha256,
+                        existingInstallStatus, installedVersionName, installedVersionCode,
+                        updateStatus, updateEvaluatedAt, comparisonEligibility,
+                        incomparableReason, downloadedAt
+                    FROM release_assets
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE release_assets")
+                db.execSQL("DROP TABLE release_snapshots")
+                db.execSQL("ALTER TABLE release_snapshots_new RENAME TO release_snapshots")
+                db.execSQL("ALTER TABLE release_assets_new RENAME TO release_assets")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_release_snapshots_registeredAppId " +
+                        "ON release_snapshots(registeredAppId)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_release_snapshots_registeredAppId_observationSha256 " +
+                        "ON release_snapshots(registeredAppId, observationSha256)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_release_assets_releaseSnapshotId " +
+                        "ON release_assets(releaseSnapshotId)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_release_assets_releaseSnapshotId_providerAssetId " +
+                        "ON release_assets(releaseSnapshotId, providerAssetId)",
+                )
+                dependentTables.forEach { table ->
+                    db.execSQL("INSERT OR REPLACE INTO $table SELECT * FROM migration20_backup_$table")
+                }
+                dependentTables.asReversed().forEach { table ->
+                    db.execSQL("DROP TABLE migration20_backup_$table")
+                }
+                RELEASE_CHECK_SCHEMA_SQL.forEach(db::execSQL)
+            }
+        }
+
+        private fun requirePositiveProviderIds(db: SupportSQLiteDatabase) {
+            val invalid = db.query(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM release_snapshots WHERE providerReleaseId <= 0) +
+                    (SELECT COUNT(*) FROM release_snapshots
+                        WHERE selectedProviderAssetId IS NOT NULL AND selectedProviderAssetId <= 0) +
+                    (SELECT COUNT(*) FROM release_assets WHERE providerAssetId <= 0)
+                """.trimIndent(),
+            ).use { cursor ->
+                cursor.moveToFirst()
+                cursor.getLong(0)
+            }
+            check(invalid == 0L) { "Room19 contains a non-positive provider ID; migration stopped without reset." }
+        }
+
+        private val RELEASE_CHECK_SCHEMA_SQL = listOf(
+            """CREATE TABLE IF NOT EXISTS release_check_settings (singletonId INTEGER NOT NULL, enabled INTEGER NOT NULL, scheduleMode TEXT NOT NULL, intervalHours INTEGER NOT NULL, dailyLocalMinute INTEGER NOT NULL, releaseChannel TEXT NOT NULL, networkPolicy TEXT NOT NULL, batteryPolicy TEXT NOT NULL, revision INTEGER NOT NULL, updatedAt TEXT NOT NULL, PRIMARY KEY(singletonId))""",
+            """CREATE TABLE IF NOT EXISTS app_release_check_overrides (registeredAppId TEXT NOT NULL, enabled INTEGER, scheduleMode TEXT, intervalHours INTEGER, dailyLocalMinute INTEGER, releaseChannel TEXT, networkPolicy TEXT, batteryPolicy TEXT, notificationMuted INTEGER NOT NULL, revision INTEGER NOT NULL, updatedAt TEXT NOT NULL, PRIMARY KEY(registeredAppId), FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId) ON UPDATE NO ACTION ON DELETE CASCADE)""",
+            """CREATE TABLE IF NOT EXISTS release_schedule_states (registeredAppId TEXT NOT NULL, lastAttemptAt TEXT, lastTerminalAt TEXT, nextEligibleAt TEXT NOT NULL, waitingReason TEXT NOT NULL, consecutiveRetry INTEGER NOT NULL, updatedAt TEXT NOT NULL, PRIMARY KEY(registeredAppId), FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId) ON UPDATE NO ACTION ON DELETE CASCADE)""",
+            "CREATE INDEX IF NOT EXISTS index_release_schedule_states_nextEligibleAt ON release_schedule_states(nextEligibleAt)",
+            "CREATE INDEX IF NOT EXISTS index_release_schedule_states_waitingReason ON release_schedule_states(waitingReason)",
+            """CREATE TABLE IF NOT EXISTS release_check_runs (checkRunId TEXT NOT NULL, registeredAppId TEXT NOT NULL, trigger TEXT NOT NULL, effectiveSettingsJson TEXT NOT NULL, outcome TEXT NOT NULL, providerEvidenceJson TEXT NOT NULL, startedAt TEXT NOT NULL, finishedAt TEXT NOT NULL, PRIMARY KEY(checkRunId), FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId) ON UPDATE NO ACTION ON DELETE CASCADE)""",
+            "CREATE INDEX IF NOT EXISTS index_release_check_runs_registeredAppId ON release_check_runs(registeredAppId)",
+            "CREATE INDEX IF NOT EXISTS index_release_check_runs_finishedAt ON release_check_runs(finishedAt)",
+            "CREATE INDEX IF NOT EXISTS index_release_check_runs_outcome ON release_check_runs(outcome)",
+            """CREATE TABLE IF NOT EXISTS release_candidates (candidateId TEXT NOT NULL, registeredAppId TEXT NOT NULL, provider TEXT NOT NULL, instance TEXT NOT NULL, providerRepositoryId TEXT NOT NULL, providerReleaseId TEXT NOT NULL, tagName TEXT NOT NULL, resolvedCommitSha TEXT NOT NULL, releaseName TEXT NOT NULL, releaseUrl TEXT NOT NULL, targetCommitishRaw TEXT NOT NULL, isPrerelease INTEGER NOT NULL, isImmutable INTEGER NOT NULL, releaseCreatedAt TEXT NOT NULL, publishedAt TEXT NOT NULL, assetsJson TEXT NOT NULL, observationSha256 TEXT NOT NULL, state TEXT NOT NULL, unseen INTEGER NOT NULL, firstSeenAt TEXT NOT NULL, lastSeenAt TEXT NOT NULL, PRIMARY KEY(candidateId), FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId) ON UPDATE NO ACTION ON DELETE CASCADE)""",
+            "CREATE INDEX IF NOT EXISTS index_release_candidates_registeredAppId ON release_candidates(registeredAppId)",
+            "CREATE INDEX IF NOT EXISTS index_release_candidates_state ON release_candidates(state)",
+            "CREATE INDEX IF NOT EXISTS index_release_candidates_lastSeenAt ON release_candidates(lastSeenAt)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS index_release_candidates_registeredAppId_observationSha256 ON release_candidates(registeredAppId, observationSha256)",
+            """CREATE TABLE IF NOT EXISTS notification_outbox (outboxId TEXT NOT NULL, candidateId TEXT NOT NULL, registeredAppId TEXT NOT NULL, notificationType TEXT NOT NULL, notificationId INTEGER NOT NULL, state TEXT NOT NULL, createdAt TEXT NOT NULL, attemptedAt TEXT, terminalAt TEXT, errorCode TEXT, PRIMARY KEY(outboxId), FOREIGN KEY(candidateId) REFERENCES release_candidates(candidateId) ON UPDATE NO ACTION ON DELETE CASCADE)""",
+            "CREATE INDEX IF NOT EXISTS index_notification_outbox_candidateId ON notification_outbox(candidateId)",
+            "CREATE INDEX IF NOT EXISTS index_notification_outbox_state ON notification_outbox(state)",
+            "CREATE INDEX IF NOT EXISTS index_notification_outbox_notificationId ON notification_outbox(notificationId)",
+            """CREATE TABLE IF NOT EXISTS provider_cooldowns (provider TEXT NOT NULL, instance TEXT NOT NULL, reason TEXT NOT NULL, notBefore TEXT NOT NULL, rateLimitRemaining INTEGER, rateLimitResetAt TEXT, updatedAt TEXT NOT NULL, PRIMARY KEY(provider, instance))""",
+            "CREATE INDEX IF NOT EXISTS index_provider_cooldowns_notBefore ON provider_cooldowns(notBefore)",
+            """CREATE TABLE IF NOT EXISTS notification_dedup_headers (dedupKey TEXT NOT NULL, registeredAppId TEXT NOT NULL, provider TEXT NOT NULL, instance TEXT NOT NULL, providerRepositoryId TEXT NOT NULL, providerReleaseId TEXT NOT NULL, observationSha256 TEXT NOT NULL, notificationType TEXT NOT NULL, disposition TEXT NOT NULL, notificationId INTEGER NOT NULL, firstSeenAt TEXT NOT NULL, lastSeenAt TEXT NOT NULL, PRIMARY KEY(dedupKey))""",
+            "CREATE INDEX IF NOT EXISTS index_notification_dedup_headers_registeredAppId ON notification_dedup_headers(registeredAppId)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS index_notification_dedup_headers_notificationId ON notification_dedup_headers(notificationId)",
+            "CREATE INDEX IF NOT EXISTS index_notification_dedup_headers_lastSeenAt ON notification_dedup_headers(lastSeenAt)",
+            """CREATE TABLE IF NOT EXISTS provider_representations (endpointKey TEXT NOT NULL, provider TEXT NOT NULL, instance TEXT NOT NULL, providerRepositoryId TEXT NOT NULL, etag TEXT, responseBody TEXT NOT NULL, receivedAt TEXT NOT NULL, PRIMARY KEY(endpointKey))""",
+            "CREATE INDEX IF NOT EXISTS index_provider_representations_provider_instance_providerRepositoryId ON provider_representations(provider, instance, providerRepositoryId)",
+        )
+
         val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -196,7 +404,7 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                             provider = provider,
                             instance = instance,
                             providerRepositoryId = repositoryId,
-                            providerReleaseId = cursor.getLong(2),
+                            providerReleaseId = cursor.getLong(2).toString(),
                             tagName = cursor.getString(3),
                             resolvedCommitSha = cursor.getString(4),
                             releaseName = cursor.getString(5),
@@ -207,7 +415,7 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                             isImmutable = cursor.getInt(10) != 0,
                             releaseCreatedAt = cursor.getString(11),
                             publishedAt = cursor.getString(12),
-                            providerAssetId = if (hasSelectedAsset) cursor.getLong(19) else null,
+                            providerAssetId = if (hasSelectedAsset) cursor.getLong(19).toString() else null,
                             assetName = if (hasSelectedAsset) cursor.getString(20) else null,
                             stableAssetUrl = if (hasSelectedAsset) cursor.getString(21) else null,
                             contentType = if (hasSelectedAsset) cursor.getString(22) else null,

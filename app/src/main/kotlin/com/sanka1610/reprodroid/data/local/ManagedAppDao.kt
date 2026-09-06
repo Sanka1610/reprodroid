@@ -115,7 +115,7 @@ interface ManagedAppDao {
     )
     suspend fun getReleaseSnapshot(
         registeredAppId: String,
-        providerReleaseId: Long,
+        providerReleaseId: String,
     ): ReleaseSnapshotEntity?
 
     @Query(
@@ -134,7 +134,7 @@ interface ManagedAppDao {
         "SELECT * FROM release_assets WHERE releaseSnapshotId = :releaseSnapshotId " +
             "AND providerAssetId = :providerAssetId",
     )
-    suspend fun getReleaseAsset(releaseSnapshotId: String, providerAssetId: Long): ReleaseAssetEntity?
+    suspend fun getReleaseAsset(releaseSnapshotId: String, providerAssetId: String): ReleaseAssetEntity?
 
     @Query("SELECT * FROM release_assets WHERE downloadStatus = 'DOWNLOADING'")
     suspend fun getInterruptedDownloads(): List<ReleaseAssetEntity>
