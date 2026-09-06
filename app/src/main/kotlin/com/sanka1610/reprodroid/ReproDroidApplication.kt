@@ -7,12 +7,18 @@ import com.sanka1610.reprodroid.data.local.DatabaseMigrationGate
 import com.sanka1610.reprodroid.data.network.RunnerApiClient
 import com.sanka1610.reprodroid.data.repository.JobRepository
 import com.sanka1610.reprodroid.data.repository.ManagedAppRepository
+import com.sanka1610.reprodroid.data.repository.ReleaseCheckRepository
 import com.sanka1610.reprodroid.work.JobSyncWorker
+import com.sanka1610.reprodroid.work.ReleaseCheckScheduler
 import com.sanka1610.reprodroid.data.storage.AndroidStorageManager
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupManager
 import com.sanka1610.reprodroid.data.storage.RunnerRetentionCoordinator
 import com.sanka1610.reprodroid.data.storage.AuditExportManager
 import com.sanka1610.reprodroid.data.toolchain.ToolchainCoordinator
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class ReproDroidApplication : Application() {
     lateinit var jobRepository: JobRepository
@@ -29,13 +35,17 @@ class ReproDroidApplication : Application() {
         private set
     lateinit var toolchainCoordinator: ToolchainCoordinator
         private set
+    lateinit var releaseCheckRepository: ReleaseCheckRepository
+        private set
+
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
         DatabaseMigrationGate.prepare(
             context = applicationContext,
             databaseName = "reprodroid.sqlite3",
-            targetVersion = 19,
+            targetVersion = 20,
         )
         val database = Room.databaseBuilder(
             applicationContext,
@@ -60,6 +70,7 @@ class ReproDroidApplication : Application() {
             ReproDroidDatabase.MIGRATION_16_17,
             ReproDroidDatabase.MIGRATION_17_18,
             ReproDroidDatabase.MIGRATION_18_19,
+            ReproDroidDatabase.MIGRATION_19_20,
         ).build()
         storageManager = AndroidStorageManager(applicationContext, database)
         cleanupManager = AndroidCleanupManager(applicationContext, database)
@@ -84,6 +95,12 @@ class ReproDroidApplication : Application() {
             cleanupManager = cleanupManager,
             retentionCoordinator = retentionCoordinator,
         )
+        releaseCheckRepository = ReleaseCheckRepository(applicationContext, database)
         JobSyncWorker.schedule(this)
+        applicationScope.launch {
+            releaseCheckRepository.ensureInitialized()
+            ReleaseCheckScheduler.enqueueDelivery(applicationContext)
+            ReleaseCheckScheduler.scheduleNext(applicationContext, releaseCheckRepository)
+        }
     }
 }

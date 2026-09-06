@@ -638,7 +638,7 @@ internal fun AppDetailScreen(
     onBack: () -> Unit,
     onSettings: () -> Unit,
     onRefresh: () -> Unit,
-    onSelectReleaseAsset: (String, Long) -> Unit,
+    onSelectReleaseAsset: (String, String) -> Unit,
     onInstall: (Boolean) -> Unit,
     onStartComparison: () -> Unit,
     onRefreshComparison: (String) -> Unit,
@@ -660,7 +660,7 @@ internal fun AppDetailScreen(
     var selectedReleaseAssetId by rememberSaveable(
         record.app.registeredAppId,
         latest?.snapshot?.releaseSnapshotId,
-    ) { mutableStateOf<Long?>(null) }
+    ) { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var installRiskConfirmed by rememberSaveable(record.app.registeredAppId) { mutableStateOf(false) }

@@ -345,7 +345,7 @@ class AndroidStorageManagerTest {
                 ReleaseSnapshotEntity(
                     releaseSnapshotId = snapshotId,
                     registeredAppId = appId,
-                    providerReleaseId = label.hashCode().toLong().absoluteValue + 1,
+                    providerReleaseId = (label.hashCode().toLong().absoluteValue + 1).toString(),
                     tagName = label,
                     resolvedCommitSha = "1".repeat(40),
                     releaseName = label,
@@ -359,14 +359,14 @@ class AndroidStorageManagerTest {
                     fetchedAt = old,
                     observationSha256 = label.padEnd(64, '0').take(64),
                     lastObservedAt = lastObservedAt,
-                    selectedProviderAssetId = label.hashCode().toLong().absoluteValue + 100,
+                    selectedProviderAssetId = (label.hashCode().toLong().absoluteValue + 100).toString(),
                 ),
             )
             dao.upsertReleaseAsset(
                 ReleaseAssetEntity(
                     releaseAssetId = assetId,
                     releaseSnapshotId = snapshotId,
-                    providerAssetId = label.hashCode().toLong().absoluteValue + 100,
+                    providerAssetId = (label.hashCode().toLong().absoluteValue + 100).toString(),
                     assetName = "$label.apk",
                     stableAssetUrl = "https://github.com/example/retention/releases/download/$label/$label.apk",
                     selectionReason = "SINGLE_APK",

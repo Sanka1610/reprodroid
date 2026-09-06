@@ -8,9 +8,11 @@ import com.sanka1610.reprodroid.ReproDroidApplication
 import com.sanka1610.reprodroid.data.local.AppSettingsUpdate
 import com.sanka1610.reprodroid.data.local.AppGroupEntity
 import com.sanka1610.reprodroid.data.local.AppMetadataUpdate
+import com.sanka1610.reprodroid.data.local.AppReleaseCheckOverrideEntity
 import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
 import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.ReleaseCheckSettingsEntity
 import com.sanka1610.reprodroid.data.provider.RepositoryRegistrationPreview
 import com.sanka1610.reprodroid.data.repository.BuildConfigurationInput
 import com.sanka1610.reprodroid.data.repository.AppDeletionPreview
@@ -19,11 +21,13 @@ import com.sanka1610.reprodroid.data.repository.ExistingPrimaryRegistration
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupPreview
 import com.sanka1610.reprodroid.data.storage.AndroidStorageSummary
 import com.sanka1610.reprodroid.data.storage.StagedAuditExport
+import com.sanka1610.reprodroid.work.ReleaseCheckScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -53,6 +57,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     private val retentionCoordinator = reprodroidApplication.retentionCoordinator
     private val auditExportManager = reprodroidApplication.auditExportManager
     private val toolchainCoordinator = reprodroidApplication.toolchainCoordinator
+    private val releaseCheckRepository = reprodroidApplication.releaseCheckRepository
 
     val apps = repository.observeApps().stateIn(
         scope = viewModelScope,
@@ -66,6 +71,13 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         initialValue = emptyList(),
     )
 
+    val appCatalogLoaded = combine(repository.observeApps(), repository.observeInactiveApps()) { _, _ -> true }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = false,
+        )
+
     val groups = repository.observeGroups().stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -76,6 +88,30 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = GlobalSettingsEntity(updatedAt = Instant.EPOCH.toString()),
+    )
+
+    val releaseCheckSettings = releaseCheckRepository.observeSettings().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ReleaseCheckSettingsEntity(updatedAt = Instant.EPOCH.toString()),
+    )
+
+    val releaseCheckOverrides = releaseCheckRepository.observeOverrides().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    val releaseScheduleStates = releaseCheckRepository.observeScheduleStates().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    val releaseCandidates = releaseCheckRepository.observeCandidates().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
     )
 
     val buildEnvironmentManifests = jobRepository.observeBuildEnvironmentManifests().stateIn(
@@ -204,6 +240,11 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
                     installationSource = installationSource,
                     separateManagementTarget = separateManagementTarget,
                 )
+                ReleaseCheckScheduler.reconcile(
+                    getApplication(),
+                    releaseCheckRepository,
+                    forceRecalculate = true,
+                )
                 if (previewGeneration.isCurrent(request)) {
                     _preview.value = RepositoryPreviewState(generation = request.generation)
                     onRegistered(appId)
@@ -238,7 +279,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     fun selectReleaseAsset(
         registeredAppId: String,
         releaseSnapshotId: String,
-        providerAssetId: Long,
+        providerAssetId: String,
     ) = runAppAction(registeredAppId) {
         repository.selectReleaseAsset(registeredAppId, releaseSnapshotId, providerAssetId)
     }
@@ -337,17 +378,20 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
 
     fun stopTracking(registeredAppId: String, onStopped: () -> Unit) = runAppAction(registeredAppId) {
         repository.stopTracking(registeredAppId)
+        ReleaseCheckScheduler.reconcile(getApplication(), releaseCheckRepository, forceRecalculate = true)
         onStopped()
     }
 
     fun stopTrackingAfterConfirmedUninstall(registeredAppId: String, onStopped: () -> Unit) =
         runAppAction(registeredAppId) {
             repository.stopTrackingAfterConfirmedUninstall(registeredAppId)
+            ReleaseCheckScheduler.reconcile(getApplication(), releaseCheckRepository, forceRecalculate = true)
             onStopped()
         }
 
     fun resumeTracking(registeredAppId: String, onResumed: () -> Unit = {}) = runAppAction(registeredAppId) {
         repository.resumeTracking(registeredAppId)
+        ReleaseCheckScheduler.reconcile(getApplication(), releaseCheckRepository, forceRecalculate = true)
         onResumed()
     }
 
@@ -361,6 +405,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         runAppAction(preview.registeredAppId) {
             _deletionResult.value = repository.executeCompleteDeletion(preview)
             _deletionPreview.value = null
+            ReleaseCheckScheduler.reconcile(getApplication(), releaseCheckRepository, forceRecalculate = true)
             onDeleted()
         }
     }
@@ -411,6 +456,47 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
                 _message.value = failure.userMessage()
             }
         }
+    }
+
+    fun updateReleaseCheckSettings(settings: ReleaseCheckSettingsEntity) {
+        viewModelScope.launch {
+            try {
+                releaseCheckRepository.updateSettings(settings)
+                ReleaseCheckScheduler.scheduleNext(
+                    getApplication(),
+                    releaseCheckRepository,
+                    androidx.work.ExistingWorkPolicy.REPLACE,
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                _message.value = failure.userMessage()
+            }
+        }
+    }
+
+    fun updateReleaseCheckOverride(override: AppReleaseCheckOverrideEntity) =
+        runAppAction(override.registeredAppId) {
+            releaseCheckRepository.updateOverride(override)
+            ReleaseCheckScheduler.scheduleNext(
+                getApplication(),
+                releaseCheckRepository,
+                androidx.work.ExistingWorkPolicy.REPLACE,
+            )
+        }
+
+    fun checkReleaseMetadataNow(registeredAppId: String) = runAppAction(registeredAppId) {
+        releaseCheckRepository.checkNow(registeredAppId)
+        ReleaseCheckScheduler.enqueueDelivery(getApplication())
+        ReleaseCheckScheduler.scheduleNext(
+            getApplication(),
+            releaseCheckRepository,
+            androidx.work.ExistingWorkPolicy.REPLACE,
+        )
+    }
+
+    fun markReleaseCandidateSeen(candidateId: String) {
+        viewModelScope.launch { releaseCheckRepository.markCandidateSeen(candidateId) }
     }
 
     fun refreshStorage() = runStorageAction {

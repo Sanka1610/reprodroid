@@ -35,7 +35,7 @@ class GitHubReleasesClientTest {
 
     @Test
     fun `selector chooses the only APK`() {
-        val selected = ReleaseAssetSelector.select(listOf(asset(1, "microg-6.1.4.apk")))
+        val selected = ReleaseAssetSelector.select(listOf(asset("1", "microg-6.1.4.apk")))
         assertEquals("SINGLE_APK", selected.reason)
         assertEquals("a".repeat(64), selected.providerSha256)
     }
@@ -43,9 +43,9 @@ class GitHubReleasesClientTest {
     @Test
     fun `selector chooses exactly one arm64-v8a APK among multiple candidates`() {
         val selected = ReleaseAssetSelector.select(
-            listOf(asset(1, "app-x86_64.apk"), asset(2, "app-arm64-v8a.apk")),
+            listOf(asset("1", "app-x86_64.apk"), asset("2", "app-arm64-v8a.apk")),
         )
-        assertEquals(2, selected.asset.id)
+        assertEquals("2", selected.asset.id)
         assertEquals("PREFERRED_ABI_FILENAME", selected.reason)
     }
 
@@ -53,14 +53,14 @@ class GitHubReleasesClientTest {
     fun `selector uses per-app ABI and variant preferences when ABI alone is ambiguous`() {
         val selected = ReleaseAssetSelector.select(
             assets = listOf(
-                asset(1, "app-release-arm64-v8a.apk"),
-                asset(2, "app-preview-arm64-v8a.apk"),
-                asset(3, "app-release-armeabi-v7a.apk"),
+                asset("1", "app-release-arm64-v8a.apk"),
+                asset("2", "app-preview-arm64-v8a.apk"),
+                asset("3", "app-release-armeabi-v7a.apk"),
             ),
             preferredAbi = PreferredAbi.ARM64_V8A,
             preferredVariant = ReleaseVariantPreference.PREVIEW,
         )
-        assertEquals(2, selected.asset.id)
+        assertEquals("2", selected.asset.id)
         assertEquals("PREFERRED_ABI_AND_VARIANT_FILENAME", selected.reason)
     }
 
@@ -68,12 +68,12 @@ class GitHubReleasesClientTest {
     fun `selector supports armeabi-v7a preference`() {
         val selected = ReleaseAssetSelector.select(
             assets = listOf(
-                asset(1, "app-release-arm64-v8a.apk"),
-                asset(2, "app-release-armeabi-v7a.apk"),
+                asset("1", "app-release-arm64-v8a.apk"),
+                asset("2", "app-release-armeabi-v7a.apk"),
             ),
             preferredAbi = PreferredAbi.ARMEABI_V7A,
         )
-        assertEquals(2, selected.asset.id)
+        assertEquals("2", selected.asset.id)
     }
 
     @Test
@@ -81,8 +81,8 @@ class GitHubReleasesClientTest {
         val failure = assertThrows(ReleaseAssetSelectionException::class.java) {
             ReleaseAssetSelector.select(
                 assets = listOf(
-                    asset(1, "app-preview-arm64-v8a.apk"),
-                    asset(2, "app-release-x86_64.apk"),
+                    asset("1", "app-preview-arm64-v8a.apk"),
+                    asset("2", "app-release-x86_64.apk"),
                 ),
                 preferredAbi = PreferredAbi.ARM64_V8A,
                 preferredVariant = ReleaseVariantPreference.RELEASE,
@@ -94,10 +94,10 @@ class GitHubReleasesClientTest {
     @Test
     fun `selector fails closed when multiple APKs have no unique arm64-v8a candidate`() {
         assertThrows(ReleaseAssetSelectionException::class.java) {
-            ReleaseAssetSelector.select(listOf(asset(1, "app-universal.apk"), asset(2, "app-x86.apk")))
+            ReleaseAssetSelector.select(listOf(asset("1", "app-universal.apk"), asset("2", "app-x86.apk")))
         }
         assertThrows(ReleaseAssetSelectionException::class.java) {
-            ReleaseAssetSelector.select(listOf(asset(1, "one-arm64-v8a.apk"), asset(2, "two_arm64_v8a.apk")))
+            ReleaseAssetSelector.select(listOf(asset("1", "one-arm64-v8a.apk"), asset("2", "two_arm64_v8a.apk")))
         }
     }
 
@@ -122,7 +122,7 @@ class GitHubReleasesClientTest {
         )
 
         assertEquals(commitSha.lowercase(), resolved.resolvedCommitSha)
-        assertEquals(407554800, requireNotNull(resolved.selectedAsset).asset.id)
+        assertEquals("407554800", requireNotNull(resolved.selectedAsset).asset.id)
     }
 
     @Test
@@ -141,7 +141,7 @@ class GitHubReleasesClientTest {
         val resolved = GitHubReleasesClient(engine).resolveLatestRelease("https://github.com/example/project")
 
         assertNull(resolved.selectedAsset)
-        assertEquals(listOf(10L, 11L), resolved.candidates.map { it.asset.id })
+        assertEquals(listOf("10", "11"), resolved.candidates.map { it.asset.id })
     }
 
     @Test
@@ -165,7 +165,7 @@ class GitHubReleasesClientTest {
         assertEquals(1, requests)
     }
 
-    private fun asset(id: Long, name: String) = GitHubReleaseAsset(
+    private fun asset(id: String, name: String) = GitHubReleaseAsset(
         id = id,
         name = name,
         state = "uploaded",

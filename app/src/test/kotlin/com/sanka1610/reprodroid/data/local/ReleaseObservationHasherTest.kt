@@ -31,7 +31,7 @@ class ReleaseObservationHasherTest {
     @Test
     fun `manual candidate set is order independent and part of the observation`() {
         val first = ReleaseObservationCandidate(
-            providerAssetId = 10,
+            providerAssetId = "10",
             assetName = "app-a.apk",
             stableAssetUrl = "https://github.com/example/app/releases/download/v1/app-a.apk",
             contentType = "application/vnd.android.package-archive",
@@ -39,7 +39,7 @@ class ReleaseObservationHasherTest {
             providerDigestSha256 = "a".repeat(64),
         )
         val second = first.copy(
-            providerAssetId = 11,
+            providerAssetId = "11",
             assetName = "app-b.apk",
             stableAssetUrl = "https://github.com/example/app/releases/download/v1/app-b.apk",
             providerDigestSha256 = "b".repeat(64),
@@ -69,7 +69,7 @@ class ReleaseObservationHasherTest {
         provider = "GITHUB",
         instance = "github.com",
         providerRepositoryId = "42",
-        providerReleaseId = 7,
+        providerReleaseId = "7",
         tagName = "v1",
         resolvedCommitSha = "a".repeat(40),
         targetCommitishRaw = "main",
@@ -80,7 +80,7 @@ class ReleaseObservationHasherTest {
         isImmutable = true,
         releaseCreatedAt = "2026-08-31T00:00:00Z",
         publishedAt = "2026-09-01T00:00:00Z",
-        providerAssetId = 9,
+        providerAssetId = "9",
         assetName = "app.apk",
         stableAssetUrl = "https://github.com/example/app/releases/download/v1/app.apk",
         contentType = "application/vnd.android.package-archive",

@@ -212,7 +212,7 @@ data class GlobalSettingsEntity(
 data class ReleaseSnapshotEntity(
     @PrimaryKey val releaseSnapshotId: String,
     val registeredAppId: String,
-    val providerReleaseId: Long,
+    val providerReleaseId: String,
     val tagName: String,
     val resolvedCommitSha: String,
     val releaseName: String,
@@ -228,7 +228,7 @@ data class ReleaseSnapshotEntity(
     val observationSha256: String,
     @ColumnInfo(defaultValue = "''")
     val lastObservedAt: String,
-    val selectedProviderAssetId: Long? = null,
+    val selectedProviderAssetId: String? = null,
 )
 
 @Entity(
@@ -249,7 +249,7 @@ data class ReleaseSnapshotEntity(
 data class ReleaseAssetEntity(
     @PrimaryKey val releaseAssetId: String,
     val releaseSnapshotId: String,
-    val providerAssetId: Long,
+    val providerAssetId: String,
     val assetName: String,
     val stableAssetUrl: String,
     val selectionReason: String,

@@ -1048,7 +1048,7 @@ class ManagedAppRepository(
     suspend fun selectReleaseAsset(
         registeredAppId: String,
         releaseSnapshotId: String,
-        providerAssetId: Long,
+        providerAssetId: String,
     ) {
         val record = dao.getRegisteredAppRecord(registeredAppId)
             ?: throw IllegalArgumentException("Registered app was not found.")

@@ -7,21 +7,21 @@ import org.junit.Test
 class ReleaseSnapshotWithAssetsTest {
     @Test
     fun `multiple candidates have no selected asset until an explicit provider asset id is stored`() {
-        val candidates = listOf(asset(10), asset(11))
+        val candidates = listOf(asset("10"), asset("11"))
         assertNull(ReleaseSnapshotWithAssets(snapshot(selectedProviderAssetId = null), candidates).selectedAsset)
 
         assertEquals(
-            11,
+            "11",
             requireNotNull(
-                ReleaseSnapshotWithAssets(snapshot(selectedProviderAssetId = 11), candidates).selectedAsset,
+                ReleaseSnapshotWithAssets(snapshot(selectedProviderAssetId = "11"), candidates).selectedAsset,
             ).providerAssetId,
         )
     }
 
-    private fun snapshot(selectedProviderAssetId: Long?) = ReleaseSnapshotEntity(
+    private fun snapshot(selectedProviderAssetId: String?) = ReleaseSnapshotEntity(
         releaseSnapshotId = "release",
         registeredAppId = "app",
-        providerReleaseId = 1,
+        providerReleaseId = "1",
         tagName = "v1",
         resolvedCommitSha = "a".repeat(40),
         releaseName = "Version 1",
@@ -38,7 +38,7 @@ class ReleaseSnapshotWithAssetsTest {
         selectedProviderAssetId = selectedProviderAssetId,
     )
 
-    private fun asset(providerAssetId: Long) = ReleaseAssetEntity(
+    private fun asset(providerAssetId: String) = ReleaseAssetEntity(
         releaseAssetId = "asset-$providerAssetId",
         releaseSnapshotId = "release",
         providerAssetId = providerAssetId,

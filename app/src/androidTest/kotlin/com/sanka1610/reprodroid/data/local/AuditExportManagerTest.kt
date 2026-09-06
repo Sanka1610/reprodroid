@@ -69,7 +69,7 @@ class AuditExportManagerTest {
             ReleaseSnapshotEntity(
                 releaseSnapshotId = snapshotId,
                 registeredAppId = appId,
-                providerReleaseId = 7,
+                providerReleaseId = "7",
                 tagName = "v1",
                 resolvedCommitSha = "a".repeat(40),
                 releaseName = "Version 1",
@@ -83,14 +83,14 @@ class AuditExportManagerTest {
                 fetchedAt = now,
                 observationSha256 = "b".repeat(64),
                 lastObservedAt = now,
-                selectedProviderAssetId = 9,
+                selectedProviderAssetId = "9",
             ),
         )
         database.managedAppDao().upsertReleaseAsset(
             ReleaseAssetEntity(
                 releaseAssetId = assetId,
                 releaseSnapshotId = snapshotId,
-                providerAssetId = 9,
+                providerAssetId = "9",
                 assetName = "app.apk",
                 stableAssetUrl = "https://downloads.invalid/app.apk?token=CANARY_SIGNED_URL",
                 selectionReason = "SINGLE_APK",
