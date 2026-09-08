@@ -50,8 +50,9 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         ProviderCooldownEntity::class,
         NotificationDedupHeaderEntity::class,
         ProviderRepresentationEntity::class,
+        RunnerConnectionEntity::class,
     ],
-    version = 20,
+    version = 21,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -60,8 +61,42 @@ abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun storageDao(): StorageDao
     abstract fun toolchainDao(): ToolchainDao
     abstract fun releaseCheckDao(): ReleaseCheckDao
+    abstract fun runnerConnectionDao(): RunnerConnectionDao
 
     companion object {
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE jobs ADD COLUMN runnerId TEXT")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS runner_connections (
+                        runnerId TEXT NOT NULL,
+                        endpoint TEXT NOT NULL,
+                        rootSpkiSha256 TEXT NOT NULL,
+                        caCertificateFileReference TEXT NOT NULL,
+                        caCertificateSha256 TEXT NOT NULL,
+                        credentialFileReference TEXT NOT NULL,
+                        principalId TEXT,
+                        displayName TEXT NOT NULL,
+                        transportMode TEXT NOT NULL,
+                        pairingRequestId TEXT,
+                        pairingState TEXT NOT NULL,
+                        confirmationFingerprint TEXT,
+                        pairingExpiresAt TEXT,
+                        revocationKnowledge TEXT NOT NULL,
+                        active INTEGER NOT NULL,
+                        createdAt TEXT NOT NULL,
+                        updatedAt TEXT NOT NULL,
+                        PRIMARY KEY(runnerId)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_runner_connections_active ON runner_connections(active)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_runner_connections_pairingState ON runner_connections(pairingState)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_runner_connections_updatedAt ON runner_connections(updatedAt)")
+            }
+        }
+
         val MIGRATION_19_20 = object : Migration(19, 20) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 requirePositiveProviderIds(db)

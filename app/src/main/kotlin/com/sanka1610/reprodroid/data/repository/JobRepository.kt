@@ -129,6 +129,7 @@ class JobRepository(
         configurationCanonicalJson: String,
         expectedArtifactFileName: String,
     ): String {
+        val runnerId = runnerApi.activeRunnerId()
         val capabilities = runnerApi.getV2Capabilities().capabilities.associate { it.id to it.contractVersion }
         check(capabilities["generic-build"] == 1 && capabilities["apk-comparison"] == 1) {
             "Runner does not advertise the complete Phase 4.4 generic build and comparison contract."
@@ -144,10 +145,12 @@ class JobRepository(
         val created = runnerApi.createGenericBuild(
             GenericBuildCreateRequest(repositoryUrl, commitSha, snapshot, riskAcknowledged = true),
             UUID.randomUUID().toString(),
+            expectedRunnerId = runnerId ?: "local-development",
         )
+        check(runnerApi.activeRunnerId() == runnerId) { "Runner connection changed while creating the Job." }
         val now = Instant.now().toString()
         syncMutex.withLock {
-            jobDao.upsertJob(
+            jobDao.insertNewJob(
                 JobEntity(
                     jobId = created.jobId,
                     executionMode = ExecutionMode.REAL_TRUSTED.name,
@@ -168,6 +171,7 @@ class JobRepository(
                     genericConfigurationSha256 = configurationSha256,
                     genericExpectedArtifactFileName = expectedArtifactFileName,
                     genericMemoryBytes = snapshot.memoryBytes,
+                    runnerId = runnerId,
                 ),
             )
             syncJobLocked(created.jobId)
@@ -175,8 +179,15 @@ class JobRepository(
         return created.jobId
     }
 
-    suspend fun recordGenericComparison(request: CreateGenericComparisonRequest): GenericComparisonResponse =
-        runnerApi.createGenericComparison(request, UUID.randomUUID().toString())
+    suspend fun recordGenericComparison(request: CreateGenericComparisonRequest): GenericComparisonResponse {
+        requireRunnerBinding(requireNotNull(jobDao.getJob(request.buildAJobId)))
+        requireRunnerBinding(requireNotNull(jobDao.getJob(request.buildBJobId)))
+        return runnerApi.createGenericComparison(
+            request,
+            UUID.randomUUID().toString(),
+            expectedRunnerId = runnerBinding(requireNotNull(jobDao.getJob(request.buildAJobId))),
+        )
+    }
 
     suspend fun retryGenericResource(comparisonId: String): GenericResourceRetryResponse =
         syncMutex.withLock {
@@ -186,10 +197,16 @@ class JobRepository(
             val originalB = requireNotNull(jobDao.getGenericJob(comparisonId, GenericBuildAttempt.B.name)) {
                 "The local Build B record for this comparison is missing."
             }
-            val response = runnerApi.retryGenericResource(comparisonId, UUID.randomUUID().toString())
+            requireRunnerBinding(originalA)
+            requireRunnerBinding(originalB)
+            val response = runnerApi.retryGenericResource(
+                comparisonId,
+                UUID.randomUUID().toString(),
+                expectedRunnerId = runnerBinding(originalA),
+            )
             val now = Instant.now().toString()
             database.withTransaction {
-                jobDao.upsertJobs(
+                jobDao.insertNewJobs(
                     listOf(
                         originalA.resourceRetryCopy(
                             jobId = response.buildAJobId,
@@ -260,10 +277,12 @@ class JobRepository(
         request: CreateJobRequest,
         outcome: SimulationOutcome?,
     ): String {
-        val created = runnerApi.createJob(request)
+        val runnerId = runnerApi.activeRunnerId()
+        val created = runnerApi.createJob(request, expectedRunnerId = runnerId ?: "local-development")
+        check(runnerApi.activeRunnerId() == runnerId) { "Runner connection changed while creating the Job." }
         val now = Instant.now().toString()
         syncMutex.withLock {
-            jobDao.upsertJob(
+            jobDao.insertNewJob(
                 JobEntity(
                     jobId = created.jobId,
                     executionMode = request.executionMode.name,
@@ -278,6 +297,7 @@ class JobRepository(
                     errorMessage = null,
                     createdAt = now,
                     updatedAt = now,
+                    runnerId = runnerId,
                 ),
             )
             syncJobLocked(created.jobId)
@@ -328,6 +348,7 @@ class JobRepository(
 
     private suspend fun syncJobLocked(jobId: String) {
         val existing = jobDao.getJob(jobId)
+        requireRunnerBinding(existing)
         val existingArtifacts = jobDao.getArtifacts(jobId).associateBy(ArtifactEntity::artifactId)
         val remote = verifiedRemoteJob(jobId, existing)
         validateSourceScanSummary(remote)
@@ -336,7 +357,11 @@ class JobRepository(
         var hasMore: Boolean
         do {
             val requestedAfterSequence = afterSequence
-            val logPage = runnerApi.getLogs(jobId, afterSequence)
+            val logPage = runnerApi.getLogs(
+                jobId,
+                afterSequence,
+                expectedRunnerId = runnerBinding(requireNotNull(existing)),
+            )
             validateLogPage(requestedAfterSequence, logPage)
             newLogs += logPage.entries.map { entry ->
                 LogEntity(
@@ -379,7 +404,10 @@ class JobRepository(
 
     private suspend fun fetchAndStoreSourceScan(remote: JobResponse) {
         try {
-            val response = runnerApi.getSourceScan(remote.jobId)
+            val response = runnerApi.getSourceScan(
+                remote.jobId,
+                expectedRunnerId = runnerBinding(requireNotNull(jobDao.getJob(remote.jobId))),
+            )
             val validated = validateSourceScanDetail(
                 jobId = remote.jobId,
                 remoteJob = remote,
@@ -414,7 +442,10 @@ class JobRepository(
 
     private suspend fun fetchAndStoreBuildEnvironmentManifest(remote: JobResponse) {
         try {
-            val response = runnerApi.getBuildEnvironmentManifest(remote.jobId)
+            val response = runnerApi.getBuildEnvironmentManifest(
+                remote.jobId,
+                expectedRunnerId = runnerBinding(requireNotNull(jobDao.getJob(remote.jobId))),
+            )
             val validated = validateBuildEnvironmentManifest(
                 jobId = remote.jobId,
                 remoteJob = remote,
@@ -449,9 +480,12 @@ class JobRepository(
 
     suspend fun cancelJob(jobId: String) {
         syncMutex.withLock {
-            val existing = jobDao.getJob(jobId)
-            if (existing?.genericComparisonId != null) runnerApi.cancelGenericBuild(jobId, UUID.randomUUID().toString())
-            else runnerApi.cancelJob(jobId)
+            val existing = requireNotNull(jobDao.getJob(jobId))
+            requireRunnerBinding(existing)
+            val binding = runnerBinding(existing)
+            if (existing.genericComparisonId != null) {
+                runnerApi.cancelGenericBuild(jobId, UUID.randomUUID().toString(), binding)
+            } else runnerApi.cancelJob(jobId, binding)
             syncJobLocked(jobId)
         }
     }
@@ -464,7 +498,7 @@ class JobRepository(
             }
             verifiedRemoteJob(jobId, existing)
             val request = ConfirmJobRequest(resolvedCommitSha = resolvedCommitSha, riskAcknowledged = true)
-            runnerApi.confirmGenericBuild(jobId, request, UUID.randomUUID().toString())
+            runnerApi.confirmGenericBuild(jobId, request, UUID.randomUUID().toString(), runnerBinding(requireNotNull(existing)))
             syncJobLocked(jobId)
         }
     }
@@ -481,9 +515,14 @@ class JobRepository(
                     riskAcknowledged = true,
                 )
             if (jobDao.getJob(jobId)?.genericComparisonId != null) {
-                runnerApi.continueGenericSourceScan(jobId, request, UUID.randomUUID().toString())
+                runnerApi.continueGenericSourceScan(
+                    jobId,
+                    request,
+                    UUID.randomUUID().toString(),
+                    runnerBinding(requireNotNull(jobDao.getJob(jobId))),
+                )
             } else {
-                runnerApi.continueSourceScan(jobId, request)
+                runnerApi.continueSourceScan(jobId, request, runnerBinding(requireNotNull(jobDao.getJob(jobId))))
             }
             syncJobLocked(jobId)
         }
@@ -493,9 +532,10 @@ class JobRepository(
         rejectLegacyExecutionMutation()
         return syncMutex.withLock {
             val original = requireNotNull(jobDao.getJob(jobId)) { "The local job does not exist." }
-            val created = runnerApi.retryJob(jobId)
+            requireRunnerBinding(original)
+            val created = runnerApi.retryJob(jobId, runnerBinding(original))
             val now = Instant.now().toString()
-            jobDao.upsertJob(
+            jobDao.insertNewJob(
                 original.copy(
                     jobId = created.jobId,
                     state = created.state.name,
@@ -526,8 +566,12 @@ class JobRepository(
     )
 
     private suspend fun verifiedRemoteJob(jobId: String, existing: JobEntity?): JobResponse {
+        requireRunnerBinding(existing)
         try {
-            val remote = if (existing?.genericComparisonId != null) runnerApi.getGenericBuild(jobId).job else runnerApi.getJob(jobId)
+            val binding = runnerBinding(requireNotNull(existing))
+            val remote = if (existing.genericComparisonId != null) {
+                runnerApi.getGenericBuild(jobId, binding).job
+            } else runnerApi.getJob(jobId, binding)
             return remote.also { validateSandboxRefresh(existing, it) }
         } catch (failure: CancellationException) { throw failure } catch (failure: RunnerApiException) { throw failure }
         catch (_: Exception) {
@@ -548,6 +592,7 @@ class JobRepository(
         requireSigningCertificate: Boolean,
     ) = syncMutex.withLock {
         val job = requireNotNull(jobDao.getJob(jobId)) { "The local job does not exist." }
+        requireRunnerBinding(job)
         val artifact = requireNotNull(jobDao.getArtifact(jobId, artifactId)) { "The APK artifact does not exist." }
         check(job.executionMode == ExecutionMode.REAL_TRUSTED.name && job.state == "SUCCEEDED") {
             "Only a succeeded trusted real build can transfer APK content."
@@ -579,7 +624,7 @@ class JobRepository(
                 ),
             )
             val response = withContext(Dispatchers.IO) {
-                runnerApi.downloadArtifact(jobId, artifactId, temporaryPath.toFile())
+                runnerApi.downloadArtifact(jobId, artifactId, temporaryPath.toFile(), runnerBinding(job))
             }
             check(response.contentType?.substringBefore(';') == APK_CONTENT_TYPE) {
                 "Runner returned an unexpected artifact content type."
@@ -792,6 +837,21 @@ class JobRepository(
         const val APK_CONTENT_TYPE = "application/vnd.android.package-archive"
         const val INSTALL_CALLBACK_GRACE_SECONDS = 30L
     }
+
+    private fun requireRunnerBinding(job: JobEntity?) {
+        val currentRunnerId = runnerApi.activeRunnerId()
+        if (currentRunnerId != null) {
+            check(job != null && job.runnerId == currentRunnerId) {
+                "This Job belongs to another or pre-pairing Runner and was not sent. Explicit server-side adoption and a new fetch are required."
+            }
+        } else {
+            check(job?.runnerId == null) {
+                "A paired Runner Job cannot be sent through development transport."
+            }
+        }
+    }
+
+    private fun runnerBinding(job: JobEntity): String = job.runnerId ?: "local-development"
 }
 
 internal fun JobResponse.toJobEntity(existing: JobEntity?, logCursor: Long): JobEntity = JobEntity(
@@ -834,4 +894,5 @@ internal fun JobResponse.toJobEntity(existing: JobEntity?, logCursor: Long): Job
     genericRetryOfJobId = genericBuild?.retryOfJobId ?: existing?.genericRetryOfJobId,
     genericMemoryBytes = genericBuild?.memoryBytes ?: existing?.genericMemoryBytes,
     genericDiscoverySha256 = discovery?.outputSha256 ?: existing?.genericDiscoverySha256,
+    runnerId = existing?.runnerId,
 )

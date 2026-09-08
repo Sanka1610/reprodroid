@@ -52,6 +52,8 @@ data class JobEntity(
     val genericRetryOfJobId: String? = null,
     val genericMemoryBytes: Long? = null,
     val genericDiscoverySha256: String? = null,
+    /** Null denotes pre-4.6/development history and is never sent to a paired Runner. */
+    val runnerId: String? = null,
 )
 
 @Entity(

@@ -58,6 +58,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     private val auditExportManager = reprodroidApplication.auditExportManager
     private val toolchainCoordinator = reprodroidApplication.toolchainCoordinator
     private val releaseCheckRepository = reprodroidApplication.releaseCheckRepository
+    private val runnerConnectionRepository = reprodroidApplication.runnerConnectionRepository
 
     val apps = repository.observeApps().stateIn(
         scope = viewModelScope,
@@ -133,6 +134,10 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     val runnerCleanupPreview = retentionCoordinator.cleanupPreview
     val runnerCleanupRun = retentionCoordinator.cleanupRun
     val toolchainState = toolchainCoordinator.state
+    val runnerConnectionStatus = runnerConnectionRepository.status
+    val runnerConnections = runnerConnectionRepository.connections.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList(),
+    )
 
     val availability = repository.observeAvailability().stateIn(
         scope = viewModelScope,
@@ -213,6 +218,33 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
                     _preview.value = RepositoryPreviewState(generation = request.generation)
                     _message.value = failure.userMessage()
                 }
+            }
+        }
+    }
+
+    fun pairRunner(payload: String) = runConnectionAction { runnerConnectionRepository.pair(payload) }
+
+    fun refreshRunnerConnection() = runConnectionAction { runnerConnectionRepository.refreshHealth() }
+
+    fun cancelRunnerPairing(runnerId: String) = runConnectionAction {
+        runnerConnectionRepository.cancelPending(runnerId)
+    }
+
+    fun selfRevokeRunner() = runConnectionAction { runnerConnectionRepository.selfRevoke() }
+
+    fun deleteLocalRunnerConnection(runnerId: String) = runConnectionAction {
+        runnerConnectionRepository.localDelete(runnerId)
+    }
+
+    private fun runConnectionAction(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                // Connection failures are bounded reason codes, never raw TLS/HTTP exception text.
+                runnerConnectionRepository.reportActionFailure(failure)
             }
         }
     }

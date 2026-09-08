@@ -18,6 +18,21 @@ import org.junit.Test
 import java.nio.file.Files
 
 class RunnerApiClientTest {
+    @Test
+    fun `release transport policy rejects HTTP before any request reaches the engine`() {
+        var requests = 0
+        val engine = MockEngine { requests++; respond("{}", HttpStatusCode.OK, jsonHeaders) }
+        RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true, allowDevelopmentHttp = false).use { client ->
+            assertThrows(RunnerConfigurationException::class.java) {
+                runBlocking { client.getJob("job-1") }
+            }
+            assertThrows(RunnerConfigurationException::class.java) {
+                runBlocking { client.getV2Capabilities() }
+            }
+        }
+        assertEquals(0, requests)
+    }
+
     @Test fun `additive outer Job fields stay compatible but unknown sandbox fields fail`() = runBlocking {
         var sandbox = """{"mode":"HOST","origin":"NEW_JOB"}"""
         val engine = MockEngine {
@@ -26,7 +41,7 @@ class RunnerApiClientTest {
                 "requiresConfirmation":false,"latestLogSequence":0,"artifacts":[],"createdAt":"now","updatedAt":"now",
                 "futureAdditiveField":true,"sandbox":$sandbox}""", HttpStatusCode.OK, jsonHeaders)
         }
-        val client = RunnerApiClient("http://127.0.0.1:8080", engine)
+        val client = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentHttp = true)
         assertEquals(BuildSandboxMode.HOST, client.getJob("job").sandbox?.mode)
         sandbox = """{"mode":"HOST","origin":"NEW_JOB","futureSandboxField":true}"""
         org.junit.Assert.assertTrue(runCatching { client.getJob("job") }.exceptionOrNull() is RunnerResponseIntegrityException)
@@ -77,7 +92,7 @@ class RunnerApiClientTest {
                 headers = jsonHeaders,
             )
         }
-        val client = RunnerApiClient("http://127.0.0.1:8080", engine)
+        val client = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentHttp = true)
 
         val created = client.createJob(
             CreateJobRequest(
@@ -101,7 +116,7 @@ class RunnerApiClientTest {
                 headers = jsonHeaders,
             )
         }
-        val client = RunnerApiClient("http://127.0.0.1:8080", engine)
+        val client = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentHttp = true)
 
         try {
             client.getJob("missing")
@@ -119,7 +134,7 @@ class RunnerApiClientTest {
             assertEquals("http://127.0.0.1:8080/v1/jobs/job-1/confirm", request.url.toString())
             respond(content = "", status = HttpStatusCode.NoContent)
         }
-        val client = RunnerApiClient("http://127.0.0.1:8080", engine)
+        val client = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentHttp = true)
 
         client.confirmJob(
             "job-1",
@@ -149,7 +164,7 @@ class RunnerApiClientTest {
                 ),
             )
         }
-        val client = RunnerApiClient("http://127.0.0.1:8080", engine)
+        val client = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentHttp = true)
         val destination = Files.createTempFile("reprodroid-download-test", ".apk").toFile()
         try {
             val downloaded = client.downloadArtifact("job-1", "artifact-1", destination)
@@ -188,7 +203,7 @@ class RunnerApiClientTest {
                 headers = jsonHeaders,
             )
         }
-        val manifest = RunnerApiClient("http://127.0.0.1:8080", engine)
+        val manifest = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentHttp = true)
             .getBuildEnvironmentManifest("job-1")
 
         assertEquals(1, manifest.schemaVersion)
@@ -209,7 +224,7 @@ class RunnerApiClientTest {
         }
         assertThrows(RunnerResponseIntegrityException::class.java) {
             runBlocking {
-                RunnerApiClient("http://127.0.0.1:8080", engine)
+                RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentHttp = true)
                     .getBuildEnvironmentManifest("job-1")
             }
         }
@@ -227,7 +242,7 @@ class RunnerApiClientTest {
             )
         }
 
-        val scan = RunnerApiClient("http://127.0.0.1:8080", engine).getSourceScan("job-1")
+        val scan = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentHttp = true).getSourceScan("job-1")
 
         assertEquals(SourceScanDetectorId.PROCESS_EXEC_API, scan.findings.single().detectorId)
         assertEquals("a".repeat(64), scan.resultSha256)
@@ -244,7 +259,7 @@ class RunnerApiClientTest {
         }
         assertThrows(RunnerResponseIntegrityException::class.java) {
             runBlocking {
-                RunnerApiClient("http://127.0.0.1:8080", unknownFieldEngine).getSourceScan("job-1")
+                RunnerApiClient("http://127.0.0.1:8080", unknownFieldEngine, allowDevelopmentHttp = true).getSourceScan("job-1")
             }
         }
         val oversizedEngine = MockEngine {
@@ -259,7 +274,7 @@ class RunnerApiClientTest {
         }
         assertThrows(RunnerResponseIntegrityException::class.java) {
             runBlocking {
-                RunnerApiClient("http://127.0.0.1:8080", oversizedEngine).getSourceScan("job-1")
+                RunnerApiClient("http://127.0.0.1:8080", oversizedEngine, allowDevelopmentHttp = true).getSourceScan("job-1")
             }
         }
     }
@@ -275,7 +290,7 @@ class RunnerApiClientTest {
             respond(content = "", status = HttpStatusCode.NoContent)
         }
 
-        RunnerApiClient("http://127.0.0.1:8080", engine).continueSourceScan(
+        RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentHttp = true).continueSourceScan(
             "job-1",
             ContinueSourceScanRequest("a".repeat(64), riskAcknowledged = true),
         )
@@ -316,7 +331,7 @@ class RunnerApiClientTest {
                 }
             }
         }
-        val client = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true)
+        val client = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true, allowDevelopmentHttp = true)
 
         assertEquals(runnerId, client.getV2Capabilities().runnerId)
         assertEquals("1", client.getV2StorageSummary().areas.first().usedBytes)
@@ -336,7 +351,7 @@ class RunnerApiClientTest {
                 jsonHeaders,
             )
         }
-        val response = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true).createV2RetentionHold(
+        val response = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true, allowDevelopmentHttp = true).createV2RetentionHold(
             V2RetentionHoldRequest(
                 V2ResourceRequest("ARTIFACT", "00000000-0000-4000-8000-000000000001"),
                 "CURRENT_COMPARISON",
@@ -368,7 +383,7 @@ class RunnerApiClientTest {
             )
         }
 
-        val response = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true)
+        val response = RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true, allowDevelopmentHttp = true)
             .cancelToolchainInstallation(installationId, key)
 
         assertEquals(ToolchainInstallationState.CANCEL_REQUESTED, response.state)
@@ -383,7 +398,7 @@ class RunnerApiClientTest {
             val engine = MockEngine { respond(body, HttpStatusCode.OK, jsonHeaders) }
             assertThrows(RunnerResponseIntegrityException::class.java) {
                 runBlocking {
-                    RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true)
+                    RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true, allowDevelopmentHttp = true)
                         .getV2Capabilities()
                 }
             }
@@ -394,7 +409,7 @@ class RunnerApiClientTest {
     fun `v2 is disabled without the loopback development gate`() {
         val engine = MockEngine { respond("{}", HttpStatusCode.OK, jsonHeaders) }
         assertThrows(RunnerConfigurationException::class.java) {
-            runBlocking { RunnerApiClient("http://127.0.0.1:8080", engine).getV2Capabilities() }
+            runBlocking { RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentHttp = true).getV2Capabilities() }
         }
         assertThrows(RunnerConfigurationException::class.java) {
             runBlocking {
@@ -417,7 +432,7 @@ class RunnerApiClientTest {
         }
         assertThrows(RunnerApiException::class.java) {
             runBlocking {
-                RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true)
+                RunnerApiClient("http://127.0.0.1:8080", engine, allowDevelopmentV2 = true, allowDevelopmentHttp = true)
                     .getV2Capabilities()
             }
         }
