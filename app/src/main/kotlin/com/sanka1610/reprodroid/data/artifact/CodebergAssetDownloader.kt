@@ -1,6 +1,8 @@
 package com.sanka1610.reprodroid.data.artifact
 
+import com.sanka1610.reprodroid.data.provider.CodebergRepository
 import com.sanka1610.reprodroid.data.provider.ReleaseAssetSelector
+import com.sanka1610.reprodroid.data.provider.isExactCodebergReleaseDownloadUrl
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.android.Android
@@ -17,20 +19,14 @@ import java.io.FileOutputStream
 import java.net.URI
 import java.security.MessageDigest
 
-class ReferenceAssetDownloadException(
-    val code: String,
-    override val message: String,
-) : RuntimeException(message)
-
-data class ReferenceAssetDownloadResult(
-    val bytesWritten: Long,
-    val computedSha256: String,
-    val responseEtag: String?,
-    val finalHost: String,
-    val downloadContentType: String? = null,
+/** The release identity which must be bound to the initial download URL. */
+data class CodebergAssetDownloadPolicy(
+    val repository: CodebergRepository,
+    val tagName: String,
+    val assetName: String,
 )
 
-class GitHubAssetDownloader(engine: HttpClientEngine? = null) {
+class CodebergAssetDownloader(engine: HttpClientEngine? = null) {
     private val client = if (engine == null) HttpClient(Android) { configure() } else HttpClient(engine) { configure() }
 
     suspend fun download(
@@ -38,28 +34,22 @@ class GitHubAssetDownloader(engine: HttpClientEngine? = null) {
         expectedSizeBytes: Long,
         expectedProviderSha256: String?,
         destinationPart: File,
+        policy: CodebergAssetDownloadPolicy,
     ): ReferenceAssetDownloadResult {
         if (expectedSizeBytes !in 1..ReleaseAssetSelector.MAX_ASSET_SIZE_BYTES) {
             fail("INVALID_EXPECTED_SIZE", "Release metadata size is outside the supported range.")
         }
-        var currentUri = validateUri(stableAssetUrl, initial = true)
-        repeat(MAX_REDIRECTS + 1) { requestIndex ->
-            val response = client.get(currentUri.toASCIIString())
-            if (response.status in REDIRECT_STATUSES) {
-                response.bodyAsChannel().cancel()
-                if (requestIndex == MAX_REDIRECTS) fail("TOO_MANY_REDIRECTS", "Asset download exceeded 5 redirects.")
-                val location = response.headers[HttpHeaders.Location]
-                    ?: fail("INVALID_REDIRECT", "Asset redirect did not provide a Location header.")
-                currentUri = validateUri(currentUri.resolve(location).toASCIIString(), initial = false)
-                return@repeat
-            }
-            if (response.status.value !in 200..299) {
-                response.bodyAsChannel().cancel()
-                fail("DOWNLOAD_HTTP_${response.status.value}", "Asset download failed with HTTP ${response.status.value}.")
-            }
-            return streamResponse(response, currentUri, expectedSizeBytes, expectedProviderSha256, destinationPart)
+        val currentUri = validateUri(stableAssetUrl, policy)
+        val response = client.get(currentUri.toASCIIString())
+        if (response.status.value in 300..399) {
+            response.bodyAsChannel().cancel()
+            fail("REDIRECT_NOT_ALLOWED", "Codeberg asset downloads must not follow redirects.")
         }
-        fail("TOO_MANY_REDIRECTS", "Asset download exceeded 5 redirects.")
+        if (response.status.value !in 200..299) {
+            response.bodyAsChannel().cancel()
+            fail("DOWNLOAD_HTTP_${response.status.value}", "Asset download failed with HTTP ${response.status.value}.")
+        }
+        return streamResponse(response, currentUri, expectedSizeBytes, expectedProviderSha256, destinationPart)
     }
 
     private suspend fun streamResponse(
@@ -69,17 +59,19 @@ class GitHubAssetDownloader(engine: HttpClientEngine? = null) {
         expectedProviderSha256: String?,
         destinationPart: File,
     ): ReferenceAssetDownloadResult {
-        val contentLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-            ?: fail("MISSING_CONTENT_LENGTH", "Asset response did not provide a valid Content-Length.")
-        if (contentLength != expectedSizeBytes) {
-            fail("CONTENT_LENGTH_MISMATCH", "Asset Content-Length differs from GitHub release metadata.")
+        response.headers[HttpHeaders.ContentLength]?.let { rawContentLength ->
+            val contentLength = rawContentLength.toLongOrNull()
+                ?: fail("INVALID_CONTENT_LENGTH", "Asset response did not provide a valid Content-Length.")
+            if (contentLength != expectedSizeBytes) {
+                fail("CONTENT_LENGTH_MISMATCH", "Asset Content-Length differs from Codeberg release metadata.")
+            }
         }
         val contentType = response.headers[HttpHeaders.ContentType]
             ?.substringBefore(';')
             ?.trim()
             ?.lowercase()
-        if (!contentType.equals(APK_CONTENT_TYPE, ignoreCase = true)) {
-            fail("UNEXPECTED_CONTENT_TYPE", "Asset response is not an Android package MIME type.")
+        if (contentType !in ALLOWED_CONTENT_TYPES) {
+            fail("UNEXPECTED_CONTENT_TYPE", "Asset response does not have an allowed APK MIME type.")
         }
         destinationPart.parentFile?.let { parent ->
             if ((!parent.exists() && !parent.mkdirs()) || !parent.isDirectory) {
@@ -107,11 +99,11 @@ class GitHubAssetDownloader(engine: HttpClientEngine? = null) {
             output.fd.sync()
         }
         if (bytesWritten != expectedSizeBytes) {
-            fail("RECEIVED_SIZE_MISMATCH", "Received asset size differs from GitHub release metadata.")
+            fail("RECEIVED_SIZE_MISMATCH", "Received asset size differs from Codeberg release metadata.")
         }
         val computedSha256 = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
         if (expectedProviderSha256 != null && !computedSha256.equals(expectedProviderSha256, ignoreCase = true)) {
-            fail("PROVIDER_DIGEST_MISMATCH", "Downloaded asset SHA-256 differs from GitHub's digest.")
+            fail("PROVIDER_DIGEST_MISMATCH", "Downloaded asset SHA-256 differs from Codeberg's digest.")
         }
         return ReferenceAssetDownloadResult(
             bytesWritten = bytesWritten,
@@ -122,20 +114,19 @@ class GitHubAssetDownloader(engine: HttpClientEngine? = null) {
         )
     }
 
-    private fun validateUri(value: String, initial: Boolean): URI {
+    private fun validateUri(value: String, policy: CodebergAssetDownloadPolicy): URI {
         val uri = runCatching { URI(value) }.getOrNull()
             ?: fail("INVALID_DOWNLOAD_URL", "Asset URL is invalid.")
         val host = uri.host?.lowercase()
-        val allowedHosts = if (initial) INITIAL_HOSTS else REDIRECT_HOSTS
         if (
-            uri.scheme?.lowercase() != "https" ||
-            host !in allowedHosts ||
-            uri.userInfo != null ||
-            uri.port != -1 ||
-            uri.fragment != null ||
-            (initial && uri.query != null)
+            !isExactCodebergReleaseDownloadUrl(
+                policy.repository,
+                policy.tagName,
+                policy.assetName,
+                uri.toASCIIString(),
+            )
         ) {
-            fail("UNSAFE_DOWNLOAD_URL", "Asset URL or redirect violates the HTTPS host policy.")
+            fail("UNSAFE_DOWNLOAD_URL", "Asset URL is not bound to the verified Codeberg release asset identity.")
         }
         return uri
     }
@@ -153,17 +144,11 @@ class GitHubAssetDownloader(engine: HttpClientEngine? = null) {
     private fun fail(code: String, message: String): Nothing = throw ReferenceAssetDownloadException(code, message)
 
     private companion object {
-        const val MAX_REDIRECTS = 5
         const val BUFFER_SIZE = 64 * 1024
-        const val APK_CONTENT_TYPE = "application/vnd.android.package-archive"
-        val INITIAL_HOSTS = setOf("github.com")
-        val REDIRECT_HOSTS = setOf("github.com", "release-assets.githubusercontent.com")
-        val REDIRECT_STATUSES = setOf(
-            HttpStatusCode.MovedPermanently,
-            HttpStatusCode.Found,
-            HttpStatusCode.SeeOther,
-            HttpStatusCode.TemporaryRedirect,
-            HttpStatusCode.PermanentRedirect,
+        const val HOST = "codeberg.org"
+        val ALLOWED_CONTENT_TYPES = setOf(
+            "application/vnd.android.package-archive",
+            "application/octet-stream",
         )
     }
 }

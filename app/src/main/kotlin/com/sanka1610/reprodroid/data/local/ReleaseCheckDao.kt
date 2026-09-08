@@ -68,6 +68,9 @@ interface ReleaseCheckDao {
     @Query("SELECT * FROM provider_cooldowns WHERE provider = :provider AND instance = :instance")
     suspend fun getCooldown(provider: String, instance: String): ProviderCooldownEntity?
 
+    @Query("SELECT * FROM provider_cooldowns ORDER BY provider, instance")
+    suspend fun getCooldowns(): List<ProviderCooldownEntity>
+
     @Query(
         "SELECT * FROM provider_representations WHERE provider = :provider AND instance = :instance " +
             "AND providerRepositoryId = :providerRepositoryId ORDER BY endpointKey",

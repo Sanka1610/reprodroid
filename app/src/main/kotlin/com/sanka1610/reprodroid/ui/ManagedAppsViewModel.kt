@@ -202,7 +202,11 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
             )
             try {
                 val resolved = repository.previewRepository(request.requestedUrl)
-                val existing = repository.findPrimaryRegistration(resolved.identity.providerRepositoryId)
+                val existing = repository.findPrimaryRegistration(
+                    provider = resolved.identity.provider,
+                    instance = resolved.identity.instance,
+                    providerRepositoryId = resolved.identity.providerRepositoryId,
+                )
                 if (previewGeneration.isCurrent(request) && _preview.value.requestedUrl == request.requestedUrl) {
                     _preview.value = RepositoryPreviewState(
                         repository = resolved,
@@ -312,8 +316,20 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         registeredAppId: String,
         releaseSnapshotId: String,
         providerAssetId: String,
+        saveExactFilenameCondition: Boolean,
     ) = runAppAction(registeredAppId) {
-        repository.selectReleaseAsset(registeredAppId, releaseSnapshotId, providerAssetId)
+        repository.selectReleaseAsset(
+            registeredAppId,
+            releaseSnapshotId,
+            providerAssetId,
+            saveExactFilenameCondition,
+        )
+        releaseCheckRepository.reevaluateCandidates(registeredAppId)
+    }
+
+    fun clearSavedAssetSelection(registeredAppId: String) = runAppAction(registeredAppId) {
+        repository.clearSavedAssetSelection(registeredAppId)
+        releaseCheckRepository.reevaluateCandidates(registeredAppId)
     }
 
     fun updatePreferences(

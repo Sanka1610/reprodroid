@@ -23,6 +23,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayOutputStream
+import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
@@ -31,36 +32,9 @@ import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
-sealed interface GitHubMetadataResult : ProviderMetadataResult {
-
-    data class Release(
-        val resolved: ResolvedProviderRelease,
-        val representationNotModified: Boolean,
-        override val requestCount: Int,
-        override val receivedBytes: Long,
-        override val representations: List<ProviderRepresentationEntity>,
-    ) : GitHubMetadataResult
-
-    data class NoPublishedRelease(
-        override val requestCount: Int,
-        override val receivedBytes: Long,
-        override val representations: List<ProviderRepresentationEntity>,
-    ) : GitHubMetadataResult
-}
-
-class ReleaseMetadataException(
-    val code: String,
-    val statusCode: Int? = null,
-    val retryNotBefore: Instant? = null,
-    val rateLimitRemaining: Long? = null,
-    val rateLimitResetAt: Instant? = null,
-    override val message: String,
-    cause: Throwable? = null,
-) : RuntimeException(message, cause)
-
-class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderReleaseMetadataClient {
-    override val providerName: String = "GITHUB"
-    override val providerInstance: String = "github.com"
+class CodebergReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderReleaseMetadataClient {
+    override val providerName: String = PROVIDER
+    override val providerInstance: String = INSTANCE
     private val client = if (engine == null) HttpClient(Android) { configure() } else HttpClient(engine) { configure() }
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
@@ -70,9 +44,9 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
         channel: ReleaseCheckChannel,
         cachedRepresentations: List<ProviderRepresentationEntity>,
         now: Instant,
-    ): GitHubMetadataResult = try {
+    ): ProviderMetadataResult = try {
         withTimeout(APP_TIMEOUT_MILLIS) {
-            val repository = GitHubRepositoryParser.parse(repositoryUrl)
+            val repository = CodebergRepositoryParser.parse(repositoryUrl)
             canonicalProviderId(providerRepositoryId)
             val budget = RequestBudget()
             val cache = cachedRepresentations.associateBy { it.endpointKey }
@@ -81,10 +55,17 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
             val releases = when (channel) {
                 ReleaseCheckChannel.STABLE_ONLY -> {
                     val endpoint = endpointKey(repository, "releases/latest")
-                    val fetched = fetchRepresentation(repository, listOf("releases", "latest"), endpoint, cache[endpoint], budget, now)
+                    val fetched = fetchRepresentation(
+                        repository,
+                        listOf("releases", "latest"),
+                        endpoint,
+                        cache[endpoint],
+                        budget,
+                        now,
+                    )
                     if (fetched.status == HttpStatusCode.NotFound) {
-                        confirmPublicRepository(repository, providerRepositoryId, budget)
-                        return@withTimeout GitHubMetadataResult.NoPublishedRelease(
+                        confirmPublicRepository(repository, providerRepositoryId, budget, now)
+                        return@withTimeout ProviderMetadataResult.NoPublishedRelease(
                             requestCount = budget.requestCount,
                             receivedBytes = budget.receivedBytes,
                             representations = emptyList(),
@@ -93,12 +74,13 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
                     val body = fetched.requireRepresentationBody()
                     representationNotModified = fetched.notModified
                     updated[endpoint] = representation(endpoint, providerRepositoryId, fetched, body, now)
-                    listOf(decode<GitHubRelease>(body))
+                    listOf(decode<CodebergRelease>(body))
                 }
                 ReleaseCheckChannel.INCLUDE_PRERELEASE -> {
                     buildList {
+                        var complete = false
                         for (page in 1..MAX_RELEASE_PAGES) {
-                            val query = "per_page=$RELEASES_PER_PAGE&page=$page"
+                            val query = "limit=$RELEASES_PER_PAGE&page=$page"
                             val endpoint = endpointKey(repository, "releases?$query")
                             val fetched = fetchRepresentation(
                                 repository = repository,
@@ -107,41 +89,53 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
                                 cached = cache[endpoint],
                                 budget = budget,
                                 now = now,
-                                query = mapOf("per_page" to RELEASES_PER_PAGE.toString(), "page" to page.toString()),
+                                query = mapOf(
+                                    "limit" to RELEASES_PER_PAGE.toString(),
+                                    "page" to page.toString(),
+                                ),
                             )
                             val body = fetched.requireRepresentationBody()
                             representationNotModified = representationNotModified || fetched.notModified
                             updated[endpoint] = representation(endpoint, providerRepositoryId, fetched, body, now)
-                            val pageReleases = decode<List<GitHubRelease>>(body)
-                            check(pageReleases.size <= RELEASES_PER_PAGE) { "GitHub returned too many releases in one page." }
+                            val pageReleases = decode<List<CodebergRelease>>(body)
+                            check(pageReleases.size <= RELEASES_PER_PAGE) {
+                                "Codeberg returned too many releases in one page."
+                            }
                             addAll(pageReleases)
-                            if (pageReleases.size < RELEASES_PER_PAGE) break
+                            if (pageReleases.size < RELEASES_PER_PAGE) {
+                                complete = true
+                                break
+                            }
                         }
+                        check(complete) { "Codeberg release pagination exceeded the configured page bound." }
                     }
                 }
             }
             val selected = releases
                 .asSequence()
                 .filter { release ->
-                    !release.draft &&
-                        release.publishedAt != null &&
-                        (channel == ReleaseCheckChannel.INCLUDE_PRERELEASE || !release.prerelease)
+                    !release.draft && (channel == ReleaseCheckChannel.INCLUDE_PRERELEASE || !release.prerelease)
                 }
                 .onEach(::validateRelease)
                 .maxWithOrNull { left, right -> compareReleases(left, right) }
-                ?: return@withTimeout GitHubMetadataResult.NoPublishedRelease(
+                ?: return@withTimeout ProviderMetadataResult.NoPublishedRelease(
                     requestCount = budget.requestCount,
                     receivedBytes = budget.receivedBytes,
                     representations = updated.values.toList(),
                 )
-            val resolvedSha = resolveTagCommit(repository, selected.tagName, budget)
+            val resolvedSha = resolveTagCommit(repository, selected.tagName, budget, now)
             val candidates = try {
-                ReleaseAssetSelector.candidates(selected.assets)
+                ReleaseAssetSelector.providerCandidates(
+                    assets = selected.assets,
+                    stableHosts = setOf(INSTANCE),
+                    isSupportedAttachment = { it.providerAssetType == "attachment" },
+                    stableUrlPredicate = { asset -> isStableDownloadUrl(repository, selected, asset) },
+                )
             } catch (failure: ReleaseAssetSelectionException) {
                 if (failure.code == "NO_APK_ASSET") emptyList() else throw failure
             }
-            GitHubMetadataResult.Release(
-                resolved = ResolvedGitHubRelease(
+            ProviderMetadataResult.Release(
+                resolved = ResolvedCodebergRelease(
                     repository = repository,
                     release = selected,
                     resolvedCommitSha = resolvedSha,
@@ -156,23 +150,30 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
             )
         }
     } catch (timeout: TimeoutCancellationException) {
-        throw ReleaseMetadataException("NETWORK_ERROR", message = "GitHub metadata check exceeded 45 seconds.", cause = timeout)
+        throw ReleaseMetadataException("NETWORK_ERROR", message = "Codeberg metadata check exceeded 45 seconds.", cause = timeout)
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failure: ReleaseMetadataException) {
         throw failure
+    } catch (failure: CodebergProviderException) {
+        throw ReleaseMetadataException(
+            code = normalizeFailureCode(failure.code),
+            statusCode = failure.statusCode,
+            message = failure.message,
+            cause = failure,
+        )
     } catch (failure: ReleaseAssetSelectionException) {
         throw ReleaseMetadataException("INVALID_METADATA", message = failure.message, cause = failure)
     } catch (failure: IllegalArgumentException) {
-        throw ReleaseMetadataException("INVALID_METADATA", message = failure.message ?: "GitHub metadata is invalid.", cause = failure)
+        throw ReleaseMetadataException("INVALID_METADATA", message = failure.message ?: "Codeberg metadata is invalid.", cause = failure)
     } catch (failure: IllegalStateException) {
-        throw ReleaseMetadataException("LIMIT_EXCEEDED", message = failure.message ?: "GitHub metadata exceeded a safety bound.", cause = failure)
+        throw ReleaseMetadataException("LIMIT_EXCEEDED", message = failure.message ?: "Codeberg metadata exceeded a safety bound.", cause = failure)
     } catch (failure: Throwable) {
-        throw ReleaseMetadataException("NETWORK_ERROR", message = failure.message ?: "GitHub metadata request failed.", cause = failure)
+        throw ReleaseMetadataException("NETWORK_ERROR", message = failure.message ?: "Codeberg metadata request failed.", cause = failure)
     }
 
     private suspend fun fetchRepresentation(
-        repository: GitHubRepository,
+        repository: CodebergRepository,
         segments: List<String>,
         endpoint: String,
         cached: ProviderRepresentationEntity?,
@@ -190,7 +191,7 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
     }
 
     private suspend fun request(
-        repository: GitHubRepository,
+        repository: CodebergRepository,
         segments: List<String>,
         query: Map<String, String>,
         etag: String?,
@@ -199,114 +200,121 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
     ): FetchResult {
         budget.beforeRequest()
         val response = client.get(apiUrl(repository, segments, query)) {
-            githubHeaders()
+            codebergHeaders()
             etag?.let { header(HttpHeaders.IfNoneMatch, it) }
         }
-        val responseBody = if (response.status == HttpStatusCode.NotModified) "" else response.boundedUtf8Body(budget)
+        val body = if (response.status == HttpStatusCode.NotModified) "" else response.boundedUtf8Body(budget)
         if (response.status.value !in 200..299 && response.status != HttpStatusCode.NotModified && response.status != HttpStatusCode.NotFound) {
-            throw response.toFailure(responseBody, now)
+            throw response.toFailure(body, now)
         }
-        val remaining = response.headers[HEADER_RATE_REMAINING]?.toLongOrNull()
-        if (response.status.value in 200..299 && remaining == 0L) {
-            val reset = response.headers[HEADER_RATE_RESET]?.toLongOrNull()?.let { epoch ->
-                runCatching { Instant.ofEpochSecond(epoch) }.getOrNull()
-            }
+        val rateLimit = codebergRateLimitEvidence(response.headers, now)
+        if (response.status.value in 200..299 && rateLimit.exhausted) {
             throw ReleaseMetadataException(
                 code = "PROVIDER_RATE_LIMITED",
                 statusCode = response.status.value,
-                retryNotBefore = reset,
-                rateLimitRemaining = remaining,
-                rateLimitResetAt = reset,
-                message = "GitHub reported that the provider request quota is exhausted.",
+                retryNotBefore = rateLimit.retryNotBefore,
+                rateLimitRemaining = rateLimit.remaining,
+                rateLimitResetAt = rateLimit.retryNotBefore,
+                message = "Codeberg reported that the provider request quota is exhausted.",
             )
         }
         return FetchResult(
             status = response.status,
-            body = responseBody,
+            body = body,
             etag = response.headers[HttpHeaders.ETag],
             notModified = false,
         )
     }
 
     private suspend fun confirmPublicRepository(
-        repository: GitHubRepository,
+        repository: CodebergRepository,
         expectedProviderRepositoryId: String,
         budget: RequestBudget,
+        now: Instant,
     ) {
         budget.beforeRequest()
-        val response = client.get(apiUrl(repository, emptyList(), emptyMap())) { githubHeaders() }
+        val response = client.get(apiUrl(repository, emptyList(), emptyMap())) { codebergHeaders() }
         val body = response.boundedUtf8Body(budget)
         if (response.status.value in 200..299) {
-            val identity = decode<GitHubApiRepositoryIdentity>(body)
+            val identity = decode<CodebergApiRepositoryIdentity>(body)
             require(identity.id == expectedProviderRepositoryId) {
-                "The public GitHub repository identity no longer matches the registered repository."
+                "The public Codeberg repository identity no longer matches the registered repository."
             }
             return
         }
-        throw response.toFailure(body, Instant.now())
+        throw response.toFailure(body, now)
     }
 
     private suspend fun resolveTagCommit(
-        repository: GitHubRepository,
+        repository: CodebergRepository,
         tagName: String,
         budget: RequestBudget,
+        now: Instant,
     ): String {
-        val ref = getJson<GitHubRefResponse>(repository, listOf("git", "ref", "tags", tagName), budget)
-        var gitObject = ref.`object`
+            val refs = getJson<List<CodebergMetadataClientRefResponse>>(repository, listOf("git", "refs", "tags", tagName), budget, now)
+        val ref = refs.singleOrNull { it.ref == "refs/tags/$tagName" }
+            ?: throw ReleaseMetadataException("INVALID_METADATA", message = "Codeberg returned zero or multiple matching tag refs.")
+        var gitObject = ref.gitObject
         repeat(MAX_TAG_PEEL_DEPTH) {
             when (gitObject.type) {
                 "commit" -> return validateFullSha(gitObject.sha)
                 "tag" -> {
-                    gitObject = getJson<GitHubTagResponse>(
+                    gitObject = getJson<CodebergMetadataClientTagResponse>(
                         repository,
                         listOf("git", "tags", validateFullSha(gitObject.sha)),
                         budget,
-                    ).`object`
+                        now,
+                    ).gitObject
                 }
                 else -> throw ReleaseMetadataException(
                     "INVALID_METADATA",
-                    message = "The release tag does not ultimately reference a commit.",
+                    message = "The Codeberg release tag does not ultimately reference a commit.",
                 )
             }
         }
-        throw ReleaseMetadataException("LIMIT_EXCEEDED", message = "The release tag nesting exceeds 8 levels.")
+        throw ReleaseMetadataException("LIMIT_EXCEEDED", message = "The Codeberg release tag nesting exceeds 8 levels.")
     }
 
     private suspend inline fun <reified T> getJson(
-        repository: GitHubRepository,
+        repository: CodebergRepository,
         segments: List<String>,
         budget: RequestBudget,
+        now: Instant,
     ): T {
-        val fetched = request(repository, segments, emptyMap(), null, budget, Instant.now())
+        val fetched = request(repository, segments, emptyMap(), null, budget, now)
         return decode(fetched.requireRepresentationBody())
     }
 
     private inline fun <reified T> decode(body: String): T {
-        strictAudit(body)
+        StrictJsonAuditor(body, maximumDepth = MAX_JSON_DEPTH, maximumStringBytes = MAX_STRING_BYTES).audit()
         return json.decodeFromString(body)
     }
 
-    private fun strictAudit(body: String) {
-        StrictJsonAuditor(body, maximumDepth = MAX_JSON_DEPTH, maximumStringBytes = MAX_STRING_BYTES).audit()
-    }
-
-    private fun validateRelease(release: GitHubRelease) {
+    private fun validateRelease(release: CodebergRelease) {
         canonicalProviderId(release.id)
         require(release.tagName.isNotBlank() && release.tagName.length <= MAX_TAG_LENGTH) { "Release tag is invalid." }
         require(release.assets.size <= MAX_ASSETS) { "Release contains more than 256 assets." }
-        require(release.publishedAt != null) { "Published release is missing published_at." }
-        Instant.parse(release.publishedAt)
         Instant.parse(release.createdAt)
+        release.publishedAt?.let(Instant::parse)
         release.assets.forEach { asset ->
             canonicalProviderId(asset.id)
             require(asset.name.length <= MAX_ASSET_NAME_LENGTH) { "Asset name is too long." }
             require(asset.size >= 0) { "Asset size is negative." }
+            asset.providerCreatedAt?.let(Instant::parse)
         }
     }
 
-    private fun compareReleases(left: GitHubRelease, right: GitHubRelease): Int {
-        val time = Instant.parse(requireNotNull(left.publishedAt)).compareTo(Instant.parse(requireNotNull(right.publishedAt)))
-        if (time != 0) return time
+    private fun isStableDownloadUrl(
+        repository: CodebergRepository,
+        release: CodebergRelease,
+        asset: ProviderReleaseAsset,
+    ): Boolean {
+        return isExactCodebergReleaseDownloadUrl(repository, release.tagName, asset.name, asset.browserDownloadUrl)
+    }
+
+    private fun compareReleases(left: CodebergRelease, right: CodebergRelease): Int {
+        val created = Instant.parse(left.createdAt).compareTo(Instant.parse(right.createdAt))
+        if (created != 0) return created
         val length = left.id.length.compareTo(right.id.length)
         return if (length != 0) length else left.id.compareTo(right.id)
     }
@@ -328,13 +336,14 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
     )
 
     private fun HttpResponse.toFailure(body: String, now: Instant): ReleaseMetadataException {
-        val remaining = headers[HEADER_RATE_REMAINING]?.toLongOrNull()
-        val reset = headers[HEADER_RATE_RESET]?.toLongOrNull()?.let { epoch ->
-            runCatching { Instant.ofEpochSecond(epoch) }.getOrNull()
+        val rateLimit = codebergRateLimitEvidence(headers, now)
+        val retry = if (status.value == 429 || status.value == 503) {
+            parseRetryAfter(headers[HttpHeaders.RetryAfter], now)
+        } else {
+            null
         }
-        val retry = parseRetryAfter(headers[HttpHeaders.RetryAfter], now)
         val rateLimited = status == HttpStatusCode.TooManyRequests ||
-            (status == HttpStatusCode.Forbidden && (retry != null || remaining == 0L))
+            (status == HttpStatusCode.Forbidden && rateLimit.exhausted)
         val code = when {
             rateLimited -> "PROVIDER_RATE_LIMITED"
             status == HttpStatusCode.Forbidden -> "ACCESS_DENIED"
@@ -342,16 +351,13 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
             status.value in 500..599 -> "PROVIDER_UNAVAILABLE"
             else -> "INVALID_METADATA"
         }
-        val message = runCatching {
-            strictAudit(body)
-            json.decodeFromString<GitHubApiError>(body).message
-        }.getOrNull() ?: status.description
+            val message = runCatching { decode<CodebergMetadataClientApiError>(body).message }.getOrNull() ?: status.description
         return ReleaseMetadataException(
             code = code,
             statusCode = status.value,
-            retryNotBefore = retry ?: reset,
-            rateLimitRemaining = remaining,
-            rateLimitResetAt = reset,
+            retryNotBefore = if (rateLimited) retry ?: rateLimit.retryNotBefore else retry,
+            rateLimitRemaining = rateLimit.remaining,
+            rateLimitResetAt = rateLimit.retryNotBefore,
             message = message,
         )
     }
@@ -370,15 +376,13 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
 
     private suspend fun HttpResponse.boundedUtf8Body(budget: RequestBudget): String {
         headers[HttpHeaders.ContentEncoding]?.let { encoding ->
-            require(encoding.equals("identity", ignoreCase = true)) {
-                "Compressed GitHub metadata is not accepted."
-            }
+            require(encoding.equals("identity", ignoreCase = true)) { "Compressed Codeberg metadata is not accepted." }
         }
         headers[HttpHeaders.ContentLength]?.let { rawLength ->
             val length = rawLength.toLongOrNull()
-                ?: throw IllegalArgumentException("GitHub returned an invalid Content-Length.")
-            require(length >= 0) { "GitHub returned an invalid Content-Length." }
-            check(length <= MAX_RESPONSE_BYTES) { "A GitHub response exceeds 2 MiB." }
+                ?: throw IllegalArgumentException("Codeberg returned an invalid Content-Length.")
+            require(length >= 0) { "Codeberg returned an invalid Content-Length." }
+            check(length <= MAX_RESPONSE_BYTES) { "A Codeberg response exceeds 2 MiB." }
         }
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(RESPONSE_BUFFER_BYTES)
@@ -387,7 +391,7 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
             val read = channel.readAvailable(buffer, 0, buffer.size)
             if (read == -1) break
             if (read == 0) continue
-            check(output.size().toLong() + read <= MAX_RESPONSE_BYTES) { "A GitHub response exceeds 2 MiB." }
+            check(output.size().toLong() + read <= MAX_RESPONSE_BYTES) { "A Codeberg response exceeds 2 MiB." }
             budget.recordBytes(read)
             output.write(buffer, 0, read)
         }
@@ -398,32 +402,40 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
                 .decode(ByteBuffer.wrap(output.toByteArray()))
                 .toString()
         } catch (failure: Exception) {
-            throw IllegalArgumentException("GitHub returned invalid UTF-8 metadata.", failure)
+            throw IllegalArgumentException("Codeberg returned invalid UTF-8 metadata.", failure)
         }
     }
 
     private fun validateFullSha(value: String): String {
         if (!FULL_SHA.matches(value)) {
-            throw ReleaseMetadataException("INVALID_METADATA", message = "GitHub returned a non-full Git object SHA.")
+            throw ReleaseMetadataException("INVALID_METADATA", message = "Codeberg returned a non-full SHA-1 Git object ID.")
         }
         return value.lowercase()
     }
 
-    private fun endpointKey(repository: GitHubRepository, suffix: String): String =
+    private fun normalizeFailureCode(code: String): String = when (code) {
+        "CODEBERG_RATE_LIMITED", "RATE_LIMITED" -> "PROVIDER_RATE_LIMITED"
+        "CODEBERG_RESOURCE_NOT_FOUND" -> "NOT_FOUND_OR_NOT_PUBLIC"
+        "NETWORK_ERROR" -> "NETWORK_ERROR"
+        else -> code
+    }
+
+    private fun endpointKey(repository: CodebergRepository, suffix: String): String =
         "$INSTANCE/${repository.owner.lowercase()}/${repository.name.lowercase()}/$suffix"
 
     private fun apiUrl(
-        repository: GitHubRepository,
+        repository: CodebergRepository,
         segments: List<String>,
         query: Map<String, String>,
     ): String = URLBuilder(API_ORIGIN).apply {
-        appendPathSegments(listOf("repos", repository.owner, repository.name) + segments)
+        appendPathSegments("repos", repository.owner, repository.name)
+        segments.forEach { appendPathSegments(it, encodeSlash = true) }
         query.toSortedMap().forEach { (key, value) -> parameters.append(key, value) }
     }.buildString()
 
-    private fun HttpRequestBuilder.githubHeaders() {
-        header(HttpHeaders.Accept, GITHUB_JSON_MEDIA_TYPE)
-        header(GITHUB_API_VERSION_HEADER, GITHUB_API_VERSION)
+    private fun HttpRequestBuilder.codebergHeaders() {
+        header(HttpHeaders.Accept, "application/json")
+        header(HttpHeaders.AcceptEncoding, "identity")
         header(HttpHeaders.UserAgent, USER_AGENT)
     }
 
@@ -451,7 +463,7 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
                     message = status.description,
                 )
             }
-            require(body.isNotEmpty()) { "GitHub returned an empty representation." }
+            require(body.isNotEmpty()) { "Codeberg returned an empty representation." }
             return body
         }
     }
@@ -463,26 +475,21 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
             private set
 
         fun beforeRequest() {
-            check(requestCount < MAX_REQUESTS) { "GitHub request count exceeds 12 per app." }
+            check(requestCount < MAX_REQUESTS) { "Codeberg request count exceeds 12 per app." }
             requestCount++
         }
 
         fun recordBytes(bytes: Int) {
             receivedBytes += bytes.toLong()
-            check(receivedBytes <= MAX_APP_BYTES) { "GitHub responses exceed 4 MiB per app." }
+            check(receivedBytes <= MAX_APP_BYTES) { "Codeberg responses exceed 4 MiB per app." }
         }
     }
 
     private companion object {
-        const val PROVIDER = "GITHUB"
-        const val INSTANCE = "github.com"
-        const val API_ORIGIN = "https://api.github.com"
-        const val GITHUB_JSON_MEDIA_TYPE = "application/vnd.github+json"
-        const val GITHUB_API_VERSION_HEADER = "X-GitHub-Api-Version"
-        const val GITHUB_API_VERSION = "2022-11-28"
+        const val PROVIDER = "CODEBERG"
+        const val INSTANCE = "codeberg.org"
+        const val API_ORIGIN = "https://codeberg.org/api/v1"
         const val USER_AGENT = "ReproDroid-Android/0.1"
-        const val HEADER_RATE_REMAINING = "X-RateLimit-Remaining"
-        const val HEADER_RATE_RESET = "X-RateLimit-Reset"
         const val RELEASES_PER_PAGE = 20
         const val MAX_RELEASE_PAGES = 2
         const val MAX_ASSETS = 256
@@ -499,3 +506,20 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
         val FULL_SHA = Regex("[0-9A-Fa-f]{40}")
     }
 }
+
+@kotlinx.serialization.Serializable
+private data class CodebergMetadataGitObject(val type: String, val sha: String)
+
+@kotlinx.serialization.Serializable
+private data class CodebergMetadataClientRefResponse(
+    val ref: String,
+    @kotlinx.serialization.SerialName("object") val gitObject: CodebergMetadataGitObject,
+)
+
+@kotlinx.serialization.Serializable
+private data class CodebergMetadataClientTagResponse(
+    @kotlinx.serialization.SerialName("object") val gitObject: CodebergMetadataGitObject,
+)
+
+@kotlinx.serialization.Serializable
+private data class CodebergMetadataClientApiError(val message: String? = null)

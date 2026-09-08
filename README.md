@@ -2,6 +2,8 @@
 
 **Phase 4.6実装・受入完了（2026-09-08）:** manual pairing、Runner root pin付きHTTPS、PC承認、Android生成Bearer、Keystore AES-GCM credential、全通常API認証、失効、接続管理UI、Room21を実装しました。Android debug／release JVM 322件、lint／assemble、API 36 instrumentation 12件、Room process-death復旧、ADB reverseの実pairing／再起動／自己失効／local-delete、task-key署名releaseでのpairing／root切替／失効がPASSです。Android 16 opt-inではADB reverseなしのemulator private-host endpoint `10.0.2.2:8443`を使用し、未許可deny、許可後pairing／認証、後付けrevoke、re-grant後の明示再試行を確認しました。RC46は44 PASS／0 PARTIAL／0 NOT_RUNです。QR生成／scanは工程未割当の将来候補のまま実装していません。詳細は[実装記録](../reprodroid-project/reports/2026/09/2026-09-08-phase-4-6-implementation.md)を参照してください。
 
+**Phase 4.7実装（2026-09-08）:** public `codeberg.org`をGitHubと並ぶ閉じたproviderとして追加し、provider ID付き登録、SHA-1 object format確認、上限付きsource discovery、release／attachment metadata、厳密なdownload URL・MIME・size・SHA-256・signed standalone APK検査、明示的な複数APK選択、version付き保存条件、Room22のprovider-nullabilityとdownloaded-content履歴fork、Codeberg metadata-only定期確認を実装しました。Codeberg generic buildはRunnerの`generic-build@1`／`apk-comparison@1`／`codeberg-source@1`をJob作成前に必須とします。scheduled checkはAPK取得、Runner、toolchain、build、comparison、trust、installを開始しません。自動検証と製品経路の実施結果は[Phase 4.7実装記録](../reprodroid-project/reports/2026/09/2026-09-08-phase-4-7-implementation.md)を正本とし、未実施の製品E2Eは自動testの成功から昇格させません。
+
 **Phase 4.5実装（2026-09-06）:** Android Room20、provider IDのlossless TEXT migration、public GitHub metadata-only確認、Roomを正本とするschedule／cooldown／retry、candidate／notification outbox／dedup、明示的な通知permission操作、全体／app別設定UIを実装しました。scheduled／manual metadata checkはAPK・source archiveを取得せず、toolchain、Runner Job、build／comparison／trust／installを開始しません。debug／release JVM testは各147件（skip／failure／error 0）、lintDebugはerror 0（warning 32、hint 1）、debug／release assembleとdebug AndroidTest APK compileがPASSです。端末がないためinstrumentation実行、Android 16の実public GitHub／scheduled／background／notification製品受入は`NOT_RUN`であり、製品経路の完了を意味しません。正本は[Phase 4.5契約](../reprodroid-project/docs/design/phase-4-release-check-contract.md)、[ADR-0023](../reprodroid-project/docs/adr/0023-phase-4-scheduled-release-discovery-and-notifications.md)、[実装記録](../reprodroid-project/reports/2026/09/2026-09-06-phase-4-5-implementation.md)です。
 
 **UI-R現在地（2026-09-06）:** Phase 4.4と4.5の間の特殊工程として、Room19、typed route、Apps／Add／Settingsとapp内Information／Edit／Settings／Remove、単一所属group、追跡解除／再開、Settingsからの完全local deletion、System／Light／Dark＋Dynamic Color、英語base／日本語resource、将来Phaseのdisabled接続点を実装しました。Phase 4.5〜4.8のbackend機能は先行実装していません。debug／release JVM testは各127件、lint、debug／release assembleがPASSです。接続端末を確認できず、Room migration、TalkBack、font scale、uninstall／deletion、Android 16製品経路は`NOT_RUN`です。詳細は[UI-R実装記録](../reprodroid-project/reports/2026/09/2026-09-06-ui-r-implementation.md)を参照してください。
@@ -47,7 +49,7 @@ Storage画面はAndroidと互換Runnerのused／reserved／budget／usable space
 - Android 14以降のPackageInstaller status PendingIntentに必要なcreator-side BAL opt-in
 - callbackを失ってsessionも消失した非terminal install attemptの起動時回収
 - fresh Runnerから`JOB_NOT_FOUND`となった古い非terminal Jobの`INTERRUPTED`化
-- public GitHub repository URLの登録とlatest stable release取得
+- public GitHub／Codeberg repository URLのprovider ID付き登録とlatest stable release取得
 - release tagのGit refをannotated tagを含めてfull commit SHAへ解決
 - uploaded APKが1件またはvariant／ABI設定で一意に絞れる場合だけ採用し、複数候補はrelease単位の明示選択まで停止するfail-closed選択
 - HTTPS／許可host／最大5 redirect／512 MiB／Content-Length／SHA-256を検査する参照APK取得
@@ -124,7 +126,7 @@ Phase 2では、公式APKまたは開発者公開APKをAndroidアプリ側で取
 
 `package name`は比較対象の同一性と更新対象の特定に使用し、`longVersionCode`は端末内アプリとの新旧判定、`versionName`は表示・補助情報に使用します。signing certificateは更新可否と標準`PackageInstaller`の結果に関わる情報として、比較結果とは別に扱います。versionが新しいことやsignerが一致することだけで`Reproducible`とは判定しません。
 
-Phase 2Aの初期providerはpublic GitHub Releasesに限定します。`tag_name`からGit refを解決し、annotated tagをcommitまでpeelしたfull SHAを保存します。`target_commitish`は証跡として保存しますが、checkout対象にはしません。uploaded APKが1件ならそのまま採用します。複数の場合はアプリ別設定（既定`Release`／`arm64-v8a`）でfile nameを絞り、厳密に1件となる場合だけ採用します。`Preview`／`Debug`は明示tokenを要求し、`Release`は`preview`／`debug`でないassetとして扱います。
+Phase 4.7時点のrelease providerはpublic GitHub Releasesとpublic `codeberg.org`の閉集合です。`tag_name`からproviderのGit refを解決し、annotated tagをcommitまでpeelしたfull SHA-1を保存します。`target_commitish`は証跡として保存しますが、checkout対象にはしません。適格APKが1件なら採用し、複数の場合は明示的に保存したABI／variant／exact filename条件が厳密に1件へ一致した場合だけ自動選択します。既定のABI／variant設定は保存条件ではなく、曖昧な場合はdownload前に明示選択へ停止します。
 
 比較不能は`INCOMPARABLE`として`Different`から分離します。Phase 2BはMicroG-RE `6.1.4`だけを許可し、Runnerがtagを独立解決した後、保存済みfull SHAと一致した場合だけ利用者がbuildを確認できます。Androidは取得したRunner artifactを再検査し、対象同一性確認後にDEX／native libraryだけを比較します。`MATCH`はこの限定範囲の一致であり、APK全体やsourceの安全性を証明しません。設計判断は[ADR-0009](../reprodroid-project/docs/adr/0009-phase-2-reference-apk-and-update-boundary.md)と[ADR-0010](../reprodroid-project/docs/adr/0010-phase-2b-executable-apk-content-comparison.md)に記録しています。
 
@@ -275,11 +277,13 @@ export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROI
 
 Phase 1Dでは`build`を実行し、Debug/Releaseのassemble、単体テスト、Lint、Room schema v3生成、artifact streaming clientを検証します。Room schemaは`app/schemas/`でバージョン管理します。Phase 1E完了時に`./gradlew testDebugUnitTest lintDebug build --rerun-tasks -Preprodroid.runnerBaseUrl=http://127.0.0.1:18080`を実行し、113 actionable tasksすべてexecuted、`BUILD SUCCESSFUL`を確認しました。標準installerの各callbackとRoom復元はWindows Android Emulator上のE2Eで確認しています。
 
-## Phase 4.6実装準備時点の状態・対象外
+## Phase 4.7実装時点の状態・対象外
 
 Phase 3Eの固定profile、Phase 4.0基礎契約、4.1登録、4.2 history／storage、4.3 trusted toolchain、4.4 generic build／comparison client、特殊工程UI-R、4.5 scheduled release metadata discoveryを実装しています。4.5はRoom20に設定、app override、schedule state、check run、candidate、provider cooldown、notification outbox／dedup／representationを追加し、既存provider release／asset IDをcanonical decimal TEXTへ移行します。one-time unique WorkManager dispatchはRoomのnext eligibleを参照し、public GitHub metadataとtag full SHAだけを確認します。APK bytes、Runner、toolchain、build、comparison、trust、installへ副作用を接続していません。自動検証はdebug／release JVM test各147件、lintDebug、debug／release assemble、debug AndroidTest APK compileがPASSです。Room19→20 migration／WorkManager等のinstrumentationはcompile-onlyで、接続端末上の実行とAndroid 16製品経路は`NOT_RUN`です。[Phase 4 roadmap](../reprodroid-project/docs/design/phase-4-roadmap.md)、[4.5実装契約](../reprodroid-project/docs/design/phase-4-release-check-contract.md)、[ADR-0023](../reprodroid-project/docs/adr/0023-phase-4-scheduled-release-discovery-and-notifications.md)、[実装記録](../reprodroid-project/reports/2026/09/2026-09-06-phase-4-5-implementation.md)を正本とします。4.1の実public GitHub製品経路と4.2の追加証跡3件は独立して残る。Android + Docker公開source二projectのBuild A／B・比較E2Eは利用者指示により`NOT_RUN`であり、製品経路の成功・raw outcome・Reproducibleの証拠ではない。
 
 4.6は[実装契約](../reprodroid-project/docs/design/phase-4-runner-connectivity-contract.md)に従ってRoom21へ実装しました。Roomは非秘密のRunner接続metadataとnullableなJobのRunner参照だけを保存し、tokenはAndroid Keystore鍵で暗号化した`noBackupFilesDir`のprivate fileに分離します。paired modeはHTTPS、debugの無認証HTTPは明示的loopback development modeだけに限定し、releaseはHTTPを拒否します。QR／CAMERA permission／QR解析依存／Google Play servicesは追加していません。実際の自動・製品テスト結果と44 PASS／0 PARTIAL／0 NOT_RUNの受入台帳は[4.6実装記録](../reprodroid-project/reports/2026/09/2026-09-08-phase-4-6-implementation.md)を正本とします。
+
+4.7は[provider契約](../reprodroid-project/docs/design/phase-4-codeberg-provider-contract.md)に従い、AndroidをRoom22、RunnerをSQLite12のまま`codeberg-source@1`対応へ進めました。GitHub／Codebergのwire DTO・API／rate limit・download policyはprovider別に閉じ、共通domain model、metadata observation schema 2、saved selection condition、downloaded-content forkだけを共有します。Codebergの実public API確認とrepository／release fixtureは自動検証と分離し、APK取得以降の製品経路、Room migration端末実行、Build A／B／raw comparisonは実際の結果に応じてPASS／PARTIAL／NOT_RUNを記録します。
 
 計画範囲はpublic GitHub／Codebergのsource-onlyを含むGradle登録、汎用build／comparison、不足toolchain導入、history／手動cleanup／監査export、定期確認・通知、release HTTPS／pairing、暗号化backup／migration、Android／Runnerのlog export、署名releaseとlicense・privacy対応です。GitLabは将来候補。Play Store／F-Droid配布・適合性評価、Google Play services、共有用診断・自動送信は対象外です。
 

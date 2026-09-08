@@ -25,11 +25,14 @@ import java.nio.charset.StandardCharsets
 import java.util.ArrayDeque
 
 data class GitHubRepositoryIdentity(
-    val repository: GitHubRepository,
-    val providerRepositoryId: String,
-    val displayName: String,
-    val defaultBranch: String,
-)
+    override val repository: GitHubRepository,
+    override val providerRepositoryId: String,
+    override val displayName: String,
+    override val defaultBranch: String,
+) : ProviderRepositoryIdentity {
+    override val provider: String = "GITHUB"
+    override val instance: String = "github.com"
+}
 
 data class StaticGradleCandidate(
     val relativePath: String,
@@ -59,16 +62,20 @@ data class StaticDiscoveryResult(
 
 data class RepositoryRegistrationPreview(
     val normalizedInputUrl: String,
-    val identity: GitHubRepositoryIdentity,
+    val identity: ProviderRepositoryIdentity,
     val discovery: StaticDiscoveryResult,
 )
 
 class GitHubRepositoryDiscoveryClient(
     engine: HttpClientEngine? = null,
     private val nanoTime: () -> Long = System::nanoTime,
-) {
+) : ProviderRepositoryDiscoveryClient {
+    override val providerName: String = "GITHUB"
+    override val providerInstance: String = "github.com"
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private val client = if (engine == null) HttpClient(Android) { configure() } else HttpClient(engine) { configure() }
+
+    override suspend fun preview(repositoryUrl: String): RepositoryRegistrationPreview = preview(repositoryUrl, {})
 
     suspend fun preview(
         repositoryUrl: String,

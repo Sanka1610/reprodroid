@@ -110,6 +110,12 @@ interface ManagedAppDao {
 
     @Query(
         "SELECT * FROM release_snapshots WHERE registeredAppId = :registeredAppId " +
+            "ORDER BY lastObservedAt DESC, releaseSnapshotId DESC LIMIT 1",
+    )
+    suspend fun getLatestReleaseSnapshot(registeredAppId: String): ReleaseSnapshotEntity?
+
+    @Query(
+        "SELECT * FROM release_snapshots WHERE registeredAppId = :registeredAppId " +
             "AND providerReleaseId = :providerReleaseId " +
             "ORDER BY lastObservedAt DESC, releaseSnapshotId DESC LIMIT 1",
     )
@@ -125,6 +131,20 @@ interface ManagedAppDao {
     suspend fun getReleaseSnapshotByObservationHash(
         registeredAppId: String,
         observationSha256: String,
+    ): ReleaseSnapshotEntity?
+
+    @Query(
+        "SELECT s.* FROM release_snapshots s " +
+            "LEFT JOIN release_assets a ON a.releaseSnapshotId = s.releaseSnapshotId " +
+            "AND a.providerAssetId = s.selectedProviderAssetId " +
+            "WHERE s.registeredAppId = :registeredAppId " +
+            "AND s.metadataObservationSha256 = :metadataObservationSha256 " +
+            "ORDER BY CASE WHEN a.downloadStatus = 'VERIFIED' AND a.computedRawSha256 IS NOT NULL THEN 1 ELSE 0 END DESC, " +
+            "s.lastObservedAt DESC, s.releaseSnapshotId DESC LIMIT 1",
+    )
+    suspend fun getLatestReleaseSnapshotByMetadataHash(
+        registeredAppId: String,
+        metadataObservationSha256: String,
     ): ReleaseSnapshotEntity?
 
     @Query("SELECT * FROM release_assets WHERE releaseAssetId = :releaseAssetId")
@@ -207,6 +227,18 @@ interface ManagedAppDao {
 
     @Upsert
     suspend fun upsertReleaseAsset(asset: ReleaseAssetEntity)
+
+    @Query(
+        "UPDATE release_assets SET downloadStatus = 'FAILED', downloadErrorCode = :errorCode, " +
+            "downloadErrorMessage = :errorMessage " +
+            "WHERE releaseAssetId = :releaseAssetId AND computedRawSha256 IS NULL " +
+            "AND downloadStatus = 'DOWNLOADING'",
+    )
+    suspend fun failUnverifiedReleaseDownload(
+        releaseAssetId: String,
+        errorCode: String,
+        errorMessage: String,
+    ): Int
 
     @Upsert
     suspend fun upsertComparisonRun(comparisonRun: ComparisonRunEntity)

@@ -12,6 +12,7 @@ import com.sanka1610.reprodroid.data.artifact.AdvancedApkComparator
 import com.sanka1610.reprodroid.data.artifact.AdvancedApkComparison
 import com.sanka1610.reprodroid.data.artifact.ExpectedApkFile
 import com.sanka1610.reprodroid.data.artifact.GitHubAssetDownloader
+import com.sanka1610.reprodroid.data.artifact.CodebergAssetDownloader
 import com.sanka1610.reprodroid.data.artifact.ReleaseApkInstaller
 import com.sanka1610.reprodroid.data.artifact.ReferenceAssetDownloadException
 import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
@@ -51,6 +52,8 @@ import com.sanka1610.reprodroid.data.local.ResourceAvailabilityEntity
 import com.sanka1610.reprodroid.data.local.ReleaseObservationHasher
 import com.sanka1610.reprodroid.data.local.ReleaseObservationCandidate
 import com.sanka1610.reprodroid.data.local.ReleaseObservationInput
+import com.sanka1610.reprodroid.data.local.ReleaseMetadataObservationCandidate
+import com.sanka1610.reprodroid.data.local.ReleaseMetadataObservationInput
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.local.SemanticDifferenceEvidenceEntity
 import com.sanka1610.reprodroid.data.local.SourceDiscoveryEntity
@@ -58,13 +61,26 @@ import com.sanka1610.reprodroid.data.local.GradleCandidateEntity
 import com.sanka1610.reprodroid.data.local.ThemeMode
 import com.sanka1610.reprodroid.data.local.UpdateStatus
 import com.sanka1610.reprodroid.data.provider.GitHubProviderException
+import com.sanka1610.reprodroid.data.provider.CodebergProviderException
 import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
+import com.sanka1610.reprodroid.data.provider.CodebergRepositoryParser
 import com.sanka1610.reprodroid.data.provider.GitHubRepositoryDiscoveryClient
+import com.sanka1610.reprodroid.data.provider.CodebergRepositoryDiscoveryClient
 import com.sanka1610.reprodroid.data.provider.GitHubReleasesClient
+import com.sanka1610.reprodroid.data.provider.CodebergReleasesClient
 import com.sanka1610.reprodroid.data.provider.ReleaseAssetCandidate
 import com.sanka1610.reprodroid.data.provider.RepositoryRegistrationPreview
 import com.sanka1610.reprodroid.data.provider.ResolvedGitHubRelease
+import com.sanka1610.reprodroid.data.provider.ResolvedProviderRelease
+import com.sanka1610.reprodroid.data.provider.ProviderAssetCandidate
+import com.sanka1610.reprodroid.data.provider.ProviderSelectedAsset
+import com.sanka1610.reprodroid.data.provider.ProviderReleaseClient
+import com.sanka1610.reprodroid.data.provider.ProviderRepositoryDiscoveryClient
 import com.sanka1610.reprodroid.data.provider.ReleaseAssetSelectionException
+import com.sanka1610.reprodroid.data.provider.SavedAssetSelection
+import com.sanka1610.reprodroid.data.provider.SavedAssetSelectionCondition
+import com.sanka1610.reprodroid.data.artifact.CodebergAssetDownloadPolicy
+import com.sanka1610.reprodroid.data.provider.CodebergRepository
 import com.sanka1610.reprodroid.data.network.JobState
 import com.sanka1610.reprodroid.data.storage.AndroidStorageManager
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupManager
@@ -79,9 +95,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -127,6 +146,9 @@ class ManagedAppRepository(
     private val provider: GitHubReleasesClient = GitHubReleasesClient(),
     private val repositoryDiscoveryClient: GitHubRepositoryDiscoveryClient = GitHubRepositoryDiscoveryClient(),
     private val downloader: GitHubAssetDownloader = GitHubAssetDownloader(),
+    private val codebergProvider: ProviderReleaseClient = CodebergReleasesClient(),
+    private val codebergRepositoryDiscoveryClient: ProviderRepositoryDiscoveryClient = CodebergRepositoryDiscoveryClient(),
+    private val codebergDownloader: CodebergAssetDownloader = CodebergAssetDownloader(),
     private val comparator: ApkContentComparator = ApkContentComparator(),
     private val advancedComparator: AdvancedApkComparator = AdvancedApkComparator(),
     private val storageManager: AndroidStorageManager = AndroidStorageManager(context, database),
@@ -139,6 +161,7 @@ class ManagedAppRepository(
     private val packageInstaller = context.packageManager.packageInstaller
     private val referenceDirectory = File(context.filesDir, "reference-apks")
     private val iconDirectory = File(context.filesDir, "reference-icons")
+    private val referenceDownloadMutex = Mutex()
 
     fun observeApps(): Flow<List<RegisteredAppRecord>> = dao.observeRegisteredApps()
 
@@ -163,20 +186,18 @@ class ManagedAppRepository(
     fun observeApp(registeredAppId: String): Flow<RegisteredAppRecord?> =
         dao.observeRegisteredApp(registeredAppId)
 
-    suspend fun previewLatest(repositoryUrl: String): ResolvedGitHubRelease {
+    suspend fun previewLatest(repositoryUrl: String): ResolvedProviderRelease {
         val settings = currentSettings()
-        return provider.resolveLatestRelease(
-            repositoryUrl = repositoryUrl,
-            preferredAbi = enumValueOrDefault(settings.defaultPreferredAbi, PreferredAbi.ARM64_V8A),
-            preferredVariant = enumValueOrDefault(
-                settings.defaultReleaseVariantPreference,
-                ReleaseVariantPreference.RELEASE,
-            ),
+        return releaseClient(repositoryUrl).resolveLatestRelease(
+            repositoryUrl,
+            null,
+            enumValueOrDefault(settings.defaultPreferredAbi, PreferredAbi.ARM64_V8A),
+            enumValueOrDefault(settings.defaultReleaseVariantPreference, ReleaseVariantPreference.RELEASE),
         )
     }
 
     suspend fun previewRepository(repositoryUrl: String): RepositoryRegistrationPreview =
-        repositoryDiscoveryClient.preview(repositoryUrl)
+        discoveryProvider(repositoryUrl).preview(repositoryUrl)
 
     suspend fun findPrimaryRegistration(providerRepositoryId: String): ExistingPrimaryRegistration? {
         val binding = dao.getRepositoryBinding(
@@ -191,6 +212,53 @@ class ManagedAppRepository(
             displayName = app.resolvedDisplayName,
             trackingState = app.trackingState,
         )
+    }
+
+    suspend fun findPrimaryRegistration(
+        provider: String,
+        instance: String,
+        providerRepositoryId: String,
+    ): ExistingPrimaryRegistration? {
+        val binding = dao.getRepositoryBinding(
+            provider = provider,
+            instance = instance,
+            providerRepositoryId = providerRepositoryId,
+            registrationSlot = PRIMARY_REGISTRATION_SLOT,
+        ) ?: return null
+        val app = dao.getRegisteredApp(binding.registeredAppId) ?: return null
+        return ExistingPrimaryRegistration(app.registeredAppId, app.resolvedDisplayName, app.trackingState)
+    }
+
+    private fun releaseClient(repositoryUrl: String): ProviderReleaseClient {
+        val host = runCatching { URI(repositoryUrl.trim()).host?.lowercase() }.getOrNull()
+        return when (host) {
+            "github.com" -> provider
+            "codeberg.org" -> codebergProvider
+            else -> throw IllegalArgumentException("Only public GitHub and Codeberg repositories are supported.")
+        }
+    }
+
+    private fun releaseClient(providerName: String, instance: String): ProviderReleaseClient? = when {
+        providerName == provider.providerName && instance == provider.providerInstance -> provider
+        providerName == codebergProvider.providerName && instance == codebergProvider.providerInstance -> codebergProvider
+        else -> null
+    }
+
+    private fun discoveryProvider(repositoryUrl: String): ProviderRepositoryDiscoveryClient {
+        val host = runCatching { URI(repositoryUrl.trim()).host?.lowercase() }.getOrNull()
+        return when (host) {
+            "github.com" -> repositoryDiscoveryClient
+            "codeberg.org" -> codebergRepositoryDiscoveryClient
+            else -> throw IllegalArgumentException("Only public GitHub and Codeberg repositories are supported.")
+        }
+    }
+
+    private fun discoveryProvider(providerName: String, instance: String): ProviderRepositoryDiscoveryClient? = when {
+        providerName == repositoryDiscoveryClient.providerName && instance == repositoryDiscoveryClient.providerInstance ->
+            repositoryDiscoveryClient
+        providerName == codebergRepositoryDiscoveryClient.providerName && instance == codebergRepositoryDiscoveryClient.providerInstance ->
+            codebergRepositoryDiscoveryClient
+        else -> null
     }
 
     suspend fun createGroup(displayName: String): AppGroupEntity {
@@ -325,8 +393,8 @@ class ManagedAppRepository(
         check(app.updatedAt == expectedUpdatedAt) { "The app changed; reload before changing its source." }
         val binding = dao.getRepositoryBinding(registeredAppId)
             ?: throw IllegalStateException("Repository identity is not available.")
-        check(binding.provider == PROVIDER_GITHUB && binding.instance == GITHUB_INSTANCE) {
-            "The current repository provider cannot be edited by the GitHub source editor."
+        check(binding.provider == preview.identity.provider && binding.instance == preview.identity.instance) {
+            "The current repository provider cannot be edited by this source editor."
         }
         check(binding.providerRepositoryId == preview.identity.providerRepositoryId) {
             "The new URL identifies a different repository. Register it as a separate app."
@@ -548,13 +616,13 @@ class ManagedAppRepository(
         val identity = preview.identity
         val slot = if (separateManagementTarget) UUID.randomUUID().toString() else PRIMARY_REGISTRATION_SLOT
         val existingBinding = dao.getRepositoryBinding(
-            provider = PROVIDER_GITHUB,
-            instance = GITHUB_INSTANCE,
+            provider = identity.provider,
+            instance = identity.instance,
             providerRepositoryId = identity.providerRepositoryId,
             registrationSlot = PRIMARY_REGISTRATION_SLOT,
         )
         if (!separateManagementTarget && existingBinding != null) {
-            throw IllegalStateException("This GitHub repository is already registered as the primary management target.")
+            throw IllegalStateException("This repository is already registered as the primary management target.")
         }
         val settings = currentSettings()
         val now = Instant.now().toString()
@@ -571,7 +639,7 @@ class ManagedAppRepository(
             displayName = identity.displayName,
             repositoryUrl = identity.repository.canonicalUrl,
             canonicalRepositoryUrl = identity.repository.canonicalUrl,
-            provider = PROVIDER_GITHUB,
+            provider = releaseProviderName(identity.provider),
             managementMode = mode.name,
             installationSource = installationSource.name,
             releaseVariantPreference = settings.defaultReleaseVariantPreference,
@@ -596,8 +664,8 @@ class ManagedAppRepository(
         )
         database.withTransaction {
             val collision = dao.getRepositoryBinding(
-                PROVIDER_GITHUB,
-                GITHUB_INSTANCE,
+                identity.provider,
+                identity.instance,
                 identity.providerRepositoryId,
                 slot,
             )
@@ -606,8 +674,8 @@ class ManagedAppRepository(
             dao.upsertRepositoryBinding(
                 AppRepositoryBindingEntity(
                     registeredAppId = appId,
-                    provider = PROVIDER_GITHUB,
-                    instance = GITHUB_INSTANCE,
+                    provider = identity.provider,
+                    instance = identity.instance,
                     providerRepositoryId = identity.providerRepositoryId,
                     identityStatus = RepositoryIdentityStatus.VERIFIED.name,
                     registrationSlot = slot,
@@ -634,6 +702,8 @@ class ManagedAppRepository(
             ?: throw IllegalArgumentException("Registered app was not found.")
         val binding = dao.getRepositoryBinding(registeredAppId)
             ?: throw IllegalStateException("Repository identity is not available.")
+        val discoveryClient = discoveryProvider(binding.provider, binding.instance)
+            ?: throw IllegalStateException("The registered repository provider is not supported.")
         val expectedProviderId = binding.providerRepositoryId
             ?: throw IllegalStateException("Legacy repository identity must be explicitly verified first.")
         val discoveryId = UUID.randomUUID().toString()
@@ -643,8 +713,8 @@ class ManagedAppRepository(
         val resolving = SourceDiscoveryEntity(
             discoveryId = discoveryId,
             registeredAppId = registeredAppId,
-            repositoryProvider = PROVIDER_GITHUB,
-            repositoryInstance = GITHUB_INSTANCE,
+            repositoryProvider = binding.provider,
+            repositoryInstance = binding.instance,
             providerRepositoryId = expectedProviderId,
             requestedBranch = previousDiscovery?.requestedBranch.orEmpty(),
             resolvedCommitSha = null,
@@ -678,19 +748,12 @@ class ManagedAppRepository(
             )
         }
         try {
-            val preview = repositoryDiscoveryClient.preview(app.canonicalRepositoryUrl) { identity ->
-                check(identity.providerRepositoryId == expectedProviderId) {
-                    "GitHub returned a different repository identity; explicit re-binding is required."
-                }
-                dao.upsertSourceDiscovery(
-                    resolving.copy(
-                        requestedBranch = identity.defaultBranch,
-                        state = "SCANNING_TREE",
-                    ),
-                )
-            }
+            val preview = discoveryClient.preview(app.canonicalRepositoryUrl)
             check(preview.identity.providerRepositoryId == expectedProviderId) {
-                "GitHub returned a different repository identity; explicit re-binding is required."
+                "The provider returned a different repository identity; explicit re-binding is required."
+            }
+            check(preview.identity.provider == binding.provider && preview.identity.instance == binding.instance) {
+                "The provider returned a different repository identity; explicit re-binding is required."
             }
             val finishedAt = Instant.now().toString()
             val discovery = preview.toDiscovery(registeredAppId, discoveryId, finishedAt).copy(startedAt = startedAt)
@@ -854,10 +917,17 @@ class ManagedAppRepository(
         val selectedAsset = requireNotNull(preview.selectedAsset) {
             "This release has multiple eligible APKs. Register the repository and explicitly select one APK."
         }
+        val registrationPreview = repositoryDiscoveryClient.preview(preview.repository.canonicalUrl)
+        validateRegistrationPreview(registrationPreview)
+        check(
+            registrationPreview.identity.provider == PROVIDER_GITHUB &&
+                registrationPreview.identity.instance == GITHUB_INSTANCE &&
+                registrationPreview.normalizedInputUrl == preview.repository.canonicalUrl,
+        ) { "The verified repository identity does not match the release preview." }
         val settings = currentSettings()
         val now = Instant.now().toString()
         val appId = UUID.randomUUID().toString()
-        val observationHash = preview.observationSha256(preview.repository.canonicalUrl)
+        val observationHash = preview.legacyObservationSha256(preview.repository.canonicalUrl)
         val snapshotId = stableId("$appId/release-observation/$observationHash")
         val assetId = stableId("$snapshotId/asset/${selectedAsset.asset.id}")
         val app = RegisteredAppEntity(
@@ -880,10 +950,24 @@ class ManagedAppRepository(
             createdAt = now,
             updatedAt = now,
         )
-        val snapshot = preview.toSnapshot(appId, snapshotId, observationHash, now)
-        val asset = preview.toAssets(snapshotId).single()
+        val snapshot = preview.toSnapshot(appId, snapshotId, observationHash, now, preview.selectedAsset).copy(
+            observationSchemaVersion = 1,
+            metadataObservationSha256 = null,
+        )
+        val asset = preview.toAssets(snapshotId, preview.selectedAsset).single()
         database.withTransaction {
             dao.upsertRegisteredApp(app)
+            dao.upsertRepositoryBinding(
+                AppRepositoryBindingEntity(
+                    registeredAppId = appId,
+                    provider = registrationPreview.identity.provider,
+                    instance = registrationPreview.identity.instance,
+                    providerRepositoryId = registrationPreview.identity.providerRepositoryId,
+                    identityStatus = RepositoryIdentityStatus.VERIFIED.name,
+                    registrationSlot = PRIMARY_REGISTRATION_SLOT,
+                    verifiedAt = now,
+                ),
+            )
             dao.upsertReleaseSnapshot(snapshot)
             dao.upsertReleaseAsset(asset)
         }
@@ -946,8 +1030,15 @@ class ManagedAppRepository(
             ),
         )
         try {
+            val activeBinding = binding
+                ?: throw IllegalStateException("Repository identity is not available.")
+            check(activeBinding.identityStatus == RepositoryIdentityStatus.VERIFIED.name) {
+                "Repository identity must be verified before release refresh."
+            }
+            val activeReleaseClient = releaseClient(activeBinding.provider, activeBinding.instance)
+                ?: throw IllegalStateException("The registered release provider is not supported.")
             val latest = try {
-                provider.resolveLatestRelease(
+                activeReleaseClient.resolveLatestRelease(
                     repositoryUrl = app.canonicalRepositoryUrl,
                     previousEtag = app.releaseMetadataEtag,
                     preferredAbi = effectivePreferredAbi(app, settings),
@@ -960,8 +1051,8 @@ class ManagedAppRepository(
                         ReleaseVariantPreference.RELEASE,
                     ),
                 )
-            } catch (notModified: GitHubProviderException) {
-                if (notModified.code != "NOT_MODIFIED") throw notModified
+            } catch (notModified: Throwable) {
+                if (!notModified.isProviderNotModified()) throw notModified
                 val now = Instant.now().toString()
                 val awaitingSelection = dao.getRegisteredAppRecord(registeredAppId)
                     ?.latestRelease
@@ -985,25 +1076,32 @@ class ManagedAppRepository(
                 return
             }
             val now = Instant.now().toString()
-            val providerRepositoryId = binding?.providerRepositoryId ?: app.canonicalRepositoryUrl
-            val observationHash = latest.observationSha256(providerRepositoryId)
-            val existingSnapshot = dao.getReleaseSnapshotByObservationHash(registeredAppId, observationHash)
+            val providerRepositoryId = activeBinding.providerRepositoryId
+                ?: throw IllegalStateException("Repository identity is not available.")
+            val observationHash = latest.metadataObservationSha256(
+                activeReleaseClient.providerName,
+                activeReleaseClient.providerInstance,
+                providerRepositoryId,
+            )
+            val existingSnapshot = dao.getLatestReleaseSnapshotByMetadataHash(registeredAppId, observationHash)
+                ?: dao.getReleaseSnapshotByObservationHash(registeredAppId, observationHash)
             val snapshotId = existingSnapshot?.releaseSnapshotId
                 ?: stableId("$registeredAppId/release-observation/$observationHash")
-            val discoveredAssets = latest.toAssets(snapshotId)
+            val conditionSelection = SavedAssetSelection.select(latest.candidates, app.savedAssetSelectionJson)
+            val discoveredAssets = latest.toAssets(snapshotId, conditionSelection)
             val existingAssets = existingSnapshot?.let {
                 discoveredAssets.associate { asset ->
                     asset.providerAssetId to dao.getReleaseAsset(snapshotId, asset.providerAssetId)
                 }
             }.orEmpty()
             val selectedProviderAssetId =
-                existingSnapshot?.selectedProviderAssetId ?: latest.selectedAsset?.asset?.id
+                existingSnapshot?.selectedProviderAssetId ?: conditionSelection?.asset?.id
             val selectedAsset = selectedProviderAssetId?.let { providerAssetId ->
                 existingAssets[providerAssetId]
                     ?: discoveredAssets.singleOrNull { it.providerAssetId == providerAssetId }
                     ?: error("The immutable release observation lost its selected asset.")
             }
-            val downloadSelectedAsset = selectedAsset?.takeIf { existingAssets[it.providerAssetId] == null }
+            val downloadSelectedAsset = selectedAsset
             val releaseStatus = if (selectedProviderAssetId == null) {
                 ReleaseDiscoveryStatus.AWAITING_ASSET_SELECTION.name
             } else {
@@ -1011,12 +1109,30 @@ class ManagedAppRepository(
             }
             database.withTransaction {
                 dao.upsertReleaseSnapshot(
-                    existingSnapshot?.copy(lastObservedAt = now)
-                        ?: latest.toSnapshot(registeredAppId, snapshotId, observationHash, now),
+                    existingSnapshot?.copy(
+                        lastObservedAt = now,
+                        selectedProviderAssetId = selectedProviderAssetId,
+                    )
+                        ?: latest.toSnapshot(
+                            registeredAppId,
+                            snapshotId,
+                            observationHash,
+                            now,
+                            conditionSelection,
+                        ),
                 )
                 discoveredAssets
                     .filter { existingAssets[it.providerAssetId] == null }
                     .forEach { asset -> dao.upsertReleaseAsset(asset) }
+                if (existingSnapshot?.selectedProviderAssetId == null && conditionSelection != null) {
+                    existingAssets[conditionSelection.asset.id]?.let { existingAsset ->
+                        dao.upsertReleaseAsset(
+                            existingAsset.copy(
+                                selectionReason = conditionSelection.reason,
+                            ),
+                        )
+                    }
+                }
                 dao.upsertRegisteredApp(
                     app.copy(
                         releaseDiscoveryStatus = releaseStatus,
@@ -1049,6 +1165,7 @@ class ManagedAppRepository(
         registeredAppId: String,
         releaseSnapshotId: String,
         providerAssetId: String,
+        saveExactFilenameCondition: Boolean = false,
     ) {
         val record = dao.getRegisteredAppRecord(registeredAppId)
             ?: throw IllegalArgumentException("Registered app was not found.")
@@ -1086,6 +1203,11 @@ class ManagedAppRepository(
             val now = Instant.now().toString()
             dao.upsertRegisteredApp(
                 app.copy(
+                    savedAssetSelectionJson = if (saveExactFilenameCondition) {
+                        SavedAssetSelection.encode(SavedAssetSelectionCondition(exactFilename = candidate.assetName))
+                    } else {
+                        app.savedAssetSelectionJson
+                    },
                     releaseDiscoveryStatus = ReleaseDiscoveryStatus.AVAILABLE.name,
                     releaseDiscoveryErrorCode = null,
                     releaseDiscoveryErrorMessage = null,
@@ -1100,7 +1222,18 @@ class ManagedAppRepository(
         refreshInstalledStateForApp(registeredAppId)
     }
 
-    suspend fun recoverInterruptedDownloads() {
+    suspend fun clearSavedAssetSelection(registeredAppId: String) {
+        val app = dao.getRegisteredApp(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        dao.upsertRegisteredApp(app.copy(savedAssetSelectionJson = null, updatedAt = Instant.now().toString()))
+    }
+
+    suspend fun recoverInterruptedDownloads() = referenceDownloadMutex.withLock {
+        withContext(Dispatchers.IO) {
+            referenceDirectory.listFiles()
+                ?.filter { it.isFile && it.name.startsWith(".download-") && it.name.endsWith(".part") }
+                ?.forEach { Files.deleteIfExists(it.toPath()) }
+        }
         dao.getInterruptedDownloads().forEach { asset ->
             partFile(asset.releaseAssetId).delete()
             dao.upsertReleaseAsset(
@@ -2475,12 +2608,19 @@ class ManagedAppRepository(
 
     private data class ComparisonProfile(val recipeId: String, val variantName: String)
 
-    private suspend fun downloadReference(assetId: String) {
+    private suspend fun downloadReference(assetId: String) = referenceDownloadMutex.withLock {
+        downloadReferenceLocked(assetId)
+    }
+
+    private suspend fun downloadReferenceLocked(assetId: String) {
         val asset = dao.getReleaseAsset(assetId) ?: error("Release asset was not found.")
         val snapshot = dao.getReleaseSnapshot(asset.releaseSnapshotId)
             ?: error("Release snapshot was not found.")
         val app = dao.getRegisteredApp(snapshot.registeredAppId)
             ?: error("Registered app was not found.")
+        val binding = dao.getRepositoryBinding(app.registeredAppId)
+            ?: error("Repository identity is not available.")
+        requireCurrentDownloadSelection(app, binding, snapshot, asset)
         val settings = currentSettings()
         val configuredLimit = if (app.useGlobalMaxApkSize) {
             settings.defaultMaxApkSizeBytes
@@ -2492,8 +2632,7 @@ class ManagedAppRepository(
             snapshot.tagName,
             effectiveReleaseVariant(app, settings),
         )
-        val genericComparisonEligible = dao.getRepositoryBinding(app.registeredAppId)
-            ?.identityStatus == RepositoryIdentityStatus.VERIFIED.name
+        val genericComparisonEligible = binding.identityStatus == RepositoryIdentityStatus.VERIFIED.name
         val comparisonEligible = comparisonProfile != null || genericComparisonEligible
         if (asset.providerSizeBytes > configuredLimit) {
             throw ReferenceAssetDownloadException(
@@ -2501,38 +2640,160 @@ class ManagedAppRepository(
                 "The selected APK exceeds the configured ${configuredLimit / (1024L * 1024L)} MiB limit.",
             )
         }
+        val immutableExisting = asset.computedRawSha256 != null
         val downloading = asset.copy(
             downloadStatus = ReferenceDownloadStatus.DOWNLOADING.name,
             downloadErrorCode = null,
             downloadErrorMessage = null,
         )
-        val reservation = storageManager.reserveDownload("REFERENCE_APK", assetId, asset.providerSizeBytes)
-        val partFile = partFile(assetId)
-        val finalFile = finalFile(assetId)
+        val attemptId = UUID.randomUUID().toString()
+        val reservation = storageManager.reserveDownload("REFERENCE_APK", attemptId, asset.providerSizeBytes)
+        val attemptFile = File(referenceDirectory, ".download-$attemptId.part")
+        var publishedFile: File? = null
+        var persistedAssetId: String? = null
         try {
-            dao.upsertReleaseAsset(downloading)
-            partFile.delete()
-            val downloaded = downloader.download(
-                stableAssetUrl = asset.stableAssetUrl,
-                expectedSizeBytes = asset.providerSizeBytes,
-                expectedProviderSha256 = asset.providerDigestSha256,
-                destinationPart = partFile,
-            )
-            val inspection = inspector.inspect(partFile)
-            inspection.iconPng?.let { icon -> saveIcon(assetId, icon) }
+            if (!immutableExisting) dao.upsertReleaseAsset(downloading)
+            Files.deleteIfExists(attemptFile.toPath())
+            val downloaded = when (binding.provider) {
+                PROVIDER_GITHUB -> downloader.download(
+                    stableAssetUrl = asset.stableAssetUrl,
+                    expectedSizeBytes = asset.providerSizeBytes,
+                    expectedProviderSha256 = asset.providerDigestSha256,
+                    destinationPart = attemptFile,
+                )
+                PROVIDER_CODEBERG -> codebergDownloader.download(
+                    stableAssetUrl = asset.stableAssetUrl,
+                    expectedSizeBytes = asset.providerSizeBytes,
+                    expectedProviderSha256 = asset.providerDigestSha256,
+                    destinationPart = attemptFile,
+                    policy = CodebergAssetDownloadPolicy(
+                        repository = CodebergRepositoryParser.parse(app.canonicalRepositoryUrl),
+                        tagName = snapshot.tagName,
+                        assetName = asset.assetName,
+                    ),
+                )
+                else -> throw IllegalStateException("The registered release provider is not supported.")
+            }
+            val inspection = inspector.inspect(attemptFile)
+
+            if (immutableExisting && asset.computedRawSha256 == downloaded.computedSha256) {
+                requireCurrentDownloadSelection(app, binding, snapshot, asset)
+                val existingFile = finalFile(asset.releaseAssetId)
+                if (!existingFile.isFile) {
+                    Files.move(attemptFile.toPath(), existingFile.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                    publishedFile = existingFile
+                } else {
+                    Files.deleteIfExists(attemptFile.toPath())
+                }
+                database.withTransaction {
+                    requireCurrentDownloadSelection(app, binding, snapshot, asset)
+                }
+                persistedAssetId = asset.releaseAssetId
+                storageManager.recordPresentAndConsume(
+                    reservation.copy(resourceId = asset.releaseAssetId),
+                    downloaded.bytesWritten,
+                    downloaded.computedSha256,
+                )
+                return
+            }
+
+            val targetSnapshot: ReleaseSnapshotEntity
+            val targetAsset: ReleaseAssetEntity
+            if (immutableExisting) {
+                val metadataHash = snapshot.metadataObservationSha256
+                    ?: throw IllegalStateException("Legacy release observations cannot be replaced in place.")
+                val contentHash = ReleaseObservationHasher.downloadedContentSha256(
+                    metadataHash,
+                    asset.providerAssetId,
+                    downloaded.computedSha256,
+                )
+                val existingFork = dao.getReleaseSnapshotByObservationHash(app.registeredAppId, contentHash)
+                val existingForkAsset = existingFork?.let {
+                    dao.getReleaseAsset(it.releaseSnapshotId, asset.providerAssetId)
+                }
+                if (
+                    existingFork != null &&
+                    existingForkAsset?.downloadStatus == ReferenceDownloadStatus.VERIFIED.name &&
+                    existingForkAsset.computedRawSha256 == downloaded.computedSha256
+                ) {
+                    requireCurrentDownloadSelection(app, binding, snapshot, asset)
+                    val forkFile = finalFile(existingForkAsset.releaseAssetId)
+                    if (!forkFile.isFile) {
+                        Files.move(attemptFile.toPath(), forkFile.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                        publishedFile = forkFile
+                    } else {
+                        Files.deleteIfExists(attemptFile.toPath())
+                    }
+                    database.withTransaction {
+                        requireCurrentDownloadSelection(app, binding, snapshot, asset)
+                        dao.upsertReleaseSnapshot(existingFork.copy(lastObservedAt = Instant.now().toString()))
+                    }
+                    persistedAssetId = existingForkAsset.releaseAssetId
+                    storageManager.recordPresentAndConsume(
+                        reservation.copy(resourceId = existingForkAsset.releaseAssetId),
+                        downloaded.bytesWritten,
+                        downloaded.computedSha256,
+                    )
+                    return
+                }
+                val forkSnapshotId = stableId("${app.registeredAppId}/downloaded-content/$contentHash")
+                val forkAssetId = stableId("$forkSnapshotId/asset/${asset.providerAssetId}")
+                targetSnapshot = snapshot.copy(
+                    releaseSnapshotId = forkSnapshotId,
+                    observationSha256 = contentHash,
+                    observationSchemaVersion = 2,
+                    metadataObservationSha256 = metadataHash,
+                    fetchedAt = Instant.now().toString(),
+                    lastObservedAt = Instant.now().toString(),
+                    selectedProviderAssetId = asset.providerAssetId,
+                )
+                targetAsset = asset.copy(
+                    releaseAssetId = forkAssetId,
+                    releaseSnapshotId = forkSnapshotId,
+                    downloadStatus = ReferenceDownloadStatus.DOWNLOADING.name,
+                    downloadErrorCode = null,
+                    downloadErrorMessage = null,
+                    localContentPath = null,
+                    downloadedSizeBytes = null,
+                    computedRawSha256 = null,
+                    responseEtag = null,
+                    downloadContentType = null,
+                    finalDownloadHost = null,
+                    packageName = null,
+                    versionName = null,
+                    versionCode = null,
+                    signingCertificateSha256 = null,
+                    currentSignerSha256 = null,
+                    existingInstallStatus = null,
+                    installedVersionName = null,
+                    installedVersionCode = null,
+                    updateStatus = UpdateStatus.NOT_EVALUATED.name,
+                    updateEvaluatedAt = null,
+                    comparisonEligibility = ComparisonEligibility.NOT_EVALUATED.name,
+                    incomparableReason = null,
+                    downloadedAt = null,
+                )
+            } else {
+                targetSnapshot = snapshot
+                targetAsset = downloading
+            }
+
+            val targetFile = finalFile(targetAsset.releaseAssetId)
+            requireCurrentDownloadSelection(app, binding, snapshot, asset)
             Files.move(
-                partFile.toPath(),
-                finalFile.toPath(),
+                attemptFile.toPath(),
+                targetFile.toPath(),
                 StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING,
             )
-            dao.upsertReleaseAsset(
-                downloading.copy(
+            publishedFile = targetFile
+            inspection.iconPng?.let { icon -> saveIcon(targetAsset.releaseAssetId, icon) }
+            val verified = targetAsset.copy(
                     downloadStatus = ReferenceDownloadStatus.VERIFIED.name,
-                    localContentPath = finalFile.absolutePath,
+                    localContentPath = targetFile.absolutePath,
                     downloadedSizeBytes = downloaded.bytesWritten,
                     computedRawSha256 = downloaded.computedSha256,
                     responseEtag = downloaded.responseEtag,
+                    downloadContentType = downloaded.downloadContentType,
                     finalDownloadHost = downloaded.finalHost,
                     packageName = inspection.packageName,
                     versionName = inspection.versionName,
@@ -2555,44 +2816,106 @@ class ManagedAppRepository(
                         COMPARISON_PROFILE_NOT_SUPPORTED_REASON
                     },
                     downloadedAt = Instant.now().toString(),
-                ),
+                )
+            database.withTransaction {
+                requireCurrentDownloadSelection(app, binding, snapshot, asset)
+                if (targetSnapshot.releaseSnapshotId != snapshot.releaseSnapshotId) {
+                    dao.upsertReleaseSnapshot(targetSnapshot)
+                }
+                dao.upsertReleaseAsset(verified)
+            }
+            persistedAssetId = verified.releaseAssetId
+            storageManager.recordPresentAndConsume(
+                reservation.copy(resourceId = verified.releaseAssetId),
+                downloaded.bytesWritten,
+                downloaded.computedSha256,
             )
-            storageManager.recordPresentAndConsume(reservation, downloaded.bytesWritten, downloaded.computedSha256)
         } catch (failure: Throwable) {
             val partCleanupFailure = runCatching {
-                withContext(NonCancellable + Dispatchers.IO) { Files.deleteIfExists(partFile.toPath()) }
+                withContext(NonCancellable + Dispatchers.IO) { Files.deleteIfExists(attemptFile.toPath()) }
             }.exceptionOrNull()
             val finalBytesMayExist = runCatching {
                 withContext(NonCancellable + Dispatchers.IO) {
-                    Files.exists(finalFile.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    publishedFile?.let { Files.exists(it.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) } == true
                 }
             }.getOrDefault(true)
-            val metadataFailure = runCatching {
+            val unpublishedFile = publishedFile?.takeIf { persistedAssetId == null }
+            val publishedCleanupFailure = if (unpublishedFile != null) runCatching {
+                withContext(NonCancellable + Dispatchers.IO) { Files.deleteIfExists(unpublishedFile.toPath()) }
+            }.exceptionOrNull() else null
+            val metadataFailure = if (!immutableExisting && persistedAssetId == null) runCatching {
                 withContext(NonCancellable) {
-                    dao.upsertReleaseAsset(
-                        downloading.copy(
-                            downloadStatus = ReferenceDownloadStatus.FAILED.name,
-                            downloadErrorCode = failure.errorCode(),
-                            downloadErrorMessage = failure.message ?: "Reference APK verification failed.",
-                        ),
+                    dao.failUnverifiedReleaseDownload(
+                        releaseAssetId = downloading.releaseAssetId,
+                        errorCode = failure.errorCode(),
+                        errorMessage = failure.message ?: "Reference APK verification failed.",
                     )
                 }
-            }.exceptionOrNull()
+            }.exceptionOrNull() else null
             val reservationFailure = runCatching {
                 withContext(NonCancellable) {
                     storageManager.recordDownloadFailure(reservation, finalBytesMayExist)
                 }
             }.exceptionOrNull()
-            listOfNotNull(partCleanupFailure, metadataFailure, reservationFailure).forEach(failure::addSuppressed)
+            listOfNotNull(partCleanupFailure, publishedCleanupFailure, metadataFailure, reservationFailure)
+                .forEach(failure::addSuppressed)
             throw failure
         }
     }
 
-    private fun ResolvedGitHubRelease.toSnapshot(
+    private suspend fun requireCurrentDownloadSelection(
+        expectedApp: RegisteredAppEntity,
+        expectedBinding: AppRepositoryBindingEntity,
+        expectedSnapshot: ReleaseSnapshotEntity,
+        expectedAsset: ReleaseAssetEntity,
+    ) {
+        val currentApp = dao.getRegisteredApp(expectedApp.registeredAppId)
+        check(
+            currentApp != null &&
+                currentApp.trackingState == AppTrackingState.ACTIVE.name &&
+                currentApp.canonicalRepositoryUrl == expectedApp.canonicalRepositoryUrl,
+        ) { "The registered repository changed or tracking stopped during download." }
+
+        val currentBinding = dao.getRepositoryBinding(expectedApp.registeredAppId)
+        check(
+            currentBinding != null &&
+                currentBinding.identityStatus == RepositoryIdentityStatus.VERIFIED.name &&
+                currentBinding.provider == expectedBinding.provider &&
+                currentBinding.instance == expectedBinding.instance &&
+                currentBinding.providerRepositoryId == expectedBinding.providerRepositoryId,
+        ) { "The verified repository identity changed during download." }
+
+        val currentSnapshot = dao.getReleaseSnapshot(expectedSnapshot.releaseSnapshotId)
+        val latestSnapshot = dao.getLatestReleaseSnapshot(expectedApp.registeredAppId)
+        check(
+            currentSnapshot != null &&
+                latestSnapshot?.releaseSnapshotId == expectedSnapshot.releaseSnapshotId &&
+                currentSnapshot.observationSha256 == expectedSnapshot.observationSha256 &&
+                currentSnapshot.metadataObservationSha256 == expectedSnapshot.metadataObservationSha256 &&
+                currentSnapshot.selectedProviderAssetId == expectedAsset.providerAssetId,
+        ) { "The selected release observation changed during download." }
+
+        val currentAsset = dao.getReleaseAsset(expectedAsset.releaseAssetId)
+        check(
+            currentAsset != null &&
+                currentAsset.releaseSnapshotId == expectedAsset.releaseSnapshotId &&
+                currentAsset.providerAssetId == expectedAsset.providerAssetId &&
+                currentAsset.assetName == expectedAsset.assetName &&
+                currentAsset.stableAssetUrl == expectedAsset.stableAssetUrl &&
+                currentAsset.contentType == expectedAsset.contentType &&
+                currentAsset.providerSizeBytes == expectedAsset.providerSizeBytes &&
+                currentAsset.providerDigestSha256 == expectedAsset.providerDigestSha256 &&
+                currentAsset.providerCreatedAt == expectedAsset.providerCreatedAt &&
+                currentAsset.computedRawSha256 == expectedAsset.computedRawSha256,
+        ) { "The selected release asset changed during download." }
+    }
+
+    private fun ResolvedProviderRelease.toSnapshot(
         appId: String,
         snapshotId: String,
         observationSha256: String,
         now: String,
+        selection: ProviderSelectedAsset?,
     ) =
         ReleaseSnapshotEntity(
             releaseSnapshotId = snapshotId,
@@ -2607,14 +2930,51 @@ class ManagedAppRepository(
             isPrerelease = release.prerelease,
             isImmutable = release.immutable,
             releaseCreatedAt = release.createdAt,
-            publishedAt = requireNotNull(release.publishedAt),
+            publishedAt = release.publishedAt,
             fetchedAt = now,
             observationSha256 = observationSha256,
             lastObservedAt = now,
-            selectedProviderAssetId = selectedAsset?.asset?.id,
+            observationSchemaVersion = 2,
+            metadataObservationSha256 = observationSha256,
+            selectedProviderAssetId = selection?.asset?.id,
         )
 
-    private fun ResolvedGitHubRelease.observationSha256(providerRepositoryId: String): String =
+    private fun ResolvedProviderRelease.metadataObservationSha256(
+        providerName: String,
+        providerInstance: String,
+        providerRepositoryId: String,
+    ): String =
+        ReleaseObservationHasher.metadataSha256(
+            ReleaseMetadataObservationInput(
+                provider = providerName,
+                instance = providerInstance,
+                providerRepositoryId = providerRepositoryId,
+                providerReleaseId = release.id,
+                tagName = release.tagName,
+                resolvedCommitSha = resolvedCommitSha,
+                targetCommitishRaw = release.targetCommitish,
+                releaseName = release.name ?: release.tagName,
+                releaseUrl = release.htmlUrl,
+                isDraft = release.draft,
+                isPrerelease = release.prerelease,
+                isImmutable = release.immutable,
+                releaseCreatedAt = release.createdAt,
+                publishedAt = release.publishedAt,
+                candidates = candidates.map { candidate ->
+                    ReleaseMetadataObservationCandidate(
+                        providerAssetId = candidate.asset.id,
+                        assetName = candidate.asset.name,
+                        stableAssetUrl = candidate.asset.browserDownloadUrl,
+                        contentType = candidate.asset.contentType,
+                        providerSizeBytes = candidate.asset.size,
+                        providerDigestSha256 = candidate.providerSha256,
+                        providerCreatedAt = candidate.asset.providerCreatedAt,
+                    )
+                },
+            ),
+        )
+
+    private fun ResolvedGitHubRelease.legacyObservationSha256(providerRepositoryId: String): String =
         ReleaseObservationHasher.sha256(
             ReleaseObservationInput(
                 provider = PROVIDER_GITHUB,
@@ -2655,10 +3015,12 @@ class ManagedAppRepository(
             ),
         )
 
-    private fun ResolvedGitHubRelease.toAssets(snapshotId: String): List<ReleaseAssetEntity> {
-        val automaticSelection = selectedAsset
+    private fun ResolvedProviderRelease.toAssets(
+        snapshotId: String,
+        automaticSelection: ProviderSelectedAsset?,
+    ): List<ReleaseAssetEntity> {
         val assets = automaticSelection?.let { selected ->
-            listOf(ReleaseAssetCandidate(selected.asset, selected.providerSha256))
+            listOf(selected)
         } ?: candidates
         return assets.map { candidate ->
             ReleaseAssetEntity(
@@ -2674,9 +3036,14 @@ class ManagedAppRepository(
                 contentType = candidate.asset.contentType,
                 providerSizeBytes = candidate.asset.size,
                 providerDigestSha256 = candidate.providerSha256,
+                providerCreatedAt = candidate.asset.providerCreatedAt,
             )
         }
     }
+
+    private fun Throwable.isProviderNotModified(): Boolean =
+        (this is GitHubProviderException && code == "NOT_MODIFIED") ||
+            (this is CodebergProviderException && code == "NOT_MODIFIED")
 
     private fun RepositoryRegistrationPreview.toDiscovery(
         appId: String,
@@ -2685,8 +3052,8 @@ class ManagedAppRepository(
     ) = SourceDiscoveryEntity(
         discoveryId = discoveryId,
         registeredAppId = appId,
-        repositoryProvider = PROVIDER_GITHUB,
-        repositoryInstance = GITHUB_INSTANCE,
+        repositoryProvider = identity.provider,
+        repositoryInstance = identity.instance,
         providerRepositoryId = identity.providerRepositoryId,
         requestedBranch = discovery.requestedBranch,
         resolvedCommitSha = discovery.resolvedCommitSha,
@@ -2836,6 +3203,7 @@ class ManagedAppRepository(
 
     private fun Throwable.errorCode(): String = when (this) {
         is GitHubProviderException -> code
+        is CodebergProviderException -> code
         is ReleaseAssetSelectionException -> code
         is com.sanka1610.reprodroid.data.artifact.ReferenceAssetDownloadException -> code
         else -> "REFERENCE_APK_FAILED"
@@ -2843,13 +3211,24 @@ class ManagedAppRepository(
 
     private fun Throwable.sourceDiscoveryFailureReason(): String = when (this) {
         is GitHubProviderException -> code
+        is CodebergProviderException -> code
         is IllegalStateException -> "INVALID_METADATA"
         is IllegalArgumentException -> "INVALID_METADATA"
         else -> "INVALID_METADATA"
     }
 
+    private fun releaseProviderName(provider: String): String = when (provider) {
+        PROVIDER_GITHUB -> PROVIDER_GITHUB_RELEASES
+        PROVIDER_CODEBERG -> PROVIDER_CODEBERG_RELEASES
+        else -> provider
+    }
+
     private fun validateRegistrationPreview(preview: RepositoryRegistrationPreview) {
-        val normalizedInput = GitHubRepositoryParser.parse(preview.normalizedInputUrl).canonicalUrl
+        val normalizedInput = when (preview.identity.provider) {
+            PROVIDER_GITHUB -> GitHubRepositoryParser.parse(preview.normalizedInputUrl).canonicalUrl
+            PROVIDER_CODEBERG -> CodebergRepositoryParser.parse(preview.normalizedInputUrl).canonicalUrl
+            else -> throw IllegalArgumentException("The repository provider is not supported.")
+        }
         check(normalizedInput == preview.identity.repository.canonicalUrl) {
             "Repository preview URL and identity do not match."
         }
@@ -2889,7 +3268,9 @@ class ManagedAppRepository(
 
     private companion object {
         const val PROVIDER_GITHUB_RELEASES = "PUBLIC_GITHUB_RELEASES"
+        const val PROVIDER_CODEBERG_RELEASES = "PUBLIC_CODEBERG_RELEASES"
         const val PROVIDER_GITHUB = "GITHUB"
+        const val PROVIDER_CODEBERG = "CODEBERG"
         const val GITHUB_INSTANCE = "github.com"
         const val PRIMARY_REGISTRATION_SLOT = "PRIMARY"
         const val COMPARISON_PROFILE_NOT_SUPPORTED_REASON = "COMPARISON_PROFILE_NOT_SUPPORTED"

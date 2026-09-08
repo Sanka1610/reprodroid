@@ -52,7 +52,7 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         ProviderRepresentationEntity::class,
         RunnerConnectionEntity::class,
     ],
-    version = 21,
+    version = 22,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -94,6 +94,243 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_runner_connections_active ON runner_connections(active)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_runner_connections_pairingState ON runner_connections(pairingState)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_runner_connections_updatedAt ON runner_connections(updatedAt)")
+            }
+        }
+
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // SQLite cannot alter NOT NULL constraints in place.  Room runs this
+                // migration in a transaction, so foreign_keys=OFF is not a safe way
+                // to drop a parent table: a cascade can still remove comparison and
+                // install history before the rebuilt table is renamed.  Keep the
+                // proven 19->20 backup ordering and defer the checks until all parent
+                // rows have been restored.
+                db.execSQL("PRAGMA defer_foreign_keys = ON")
+                val dependentTables = listOf(
+                    "comparison_runs",
+                    "release_install_attempts",
+                    "comparison_entries",
+                    "advanced_comparison_entries",
+                    "apk_entry_evidence",
+                    "advanced_comparison_summaries",
+                    "semantic_difference_evidence",
+                    "notification_outbox",
+                )
+                dependentTables.forEach { table ->
+                    db.execSQL("CREATE TEMP TABLE migration22_backup_$table AS SELECT * FROM $table")
+                }
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS release_snapshots_new (
+                        releaseSnapshotId TEXT NOT NULL,
+                        registeredAppId TEXT NOT NULL,
+                        providerReleaseId TEXT NOT NULL,
+                        tagName TEXT NOT NULL,
+                        resolvedCommitSha TEXT NOT NULL,
+                        releaseName TEXT NOT NULL,
+                        releaseUrl TEXT NOT NULL,
+                        targetCommitishRaw TEXT NOT NULL,
+                        isDraft INTEGER NOT NULL,
+                        isPrerelease INTEGER NOT NULL,
+                        isImmutable INTEGER NOT NULL,
+                        releaseCreatedAt TEXT NOT NULL,
+                        publishedAt TEXT,
+                        fetchedAt TEXT NOT NULL,
+                        observationSha256 TEXT NOT NULL DEFAULT '',
+                        lastObservedAt TEXT NOT NULL DEFAULT '',
+                        observationSchemaVersion INTEGER NOT NULL DEFAULT 1,
+                        metadataObservationSha256 TEXT,
+                        selectedProviderAssetId TEXT,
+                        PRIMARY KEY(releaseSnapshotId),
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO release_snapshots_new (
+                        releaseSnapshotId, registeredAppId, providerReleaseId, tagName,
+                        resolvedCommitSha, releaseName, releaseUrl, targetCommitishRaw,
+                        isDraft, isPrerelease, isImmutable, releaseCreatedAt, publishedAt,
+                        fetchedAt, observationSha256, lastObservedAt,
+                        observationSchemaVersion, metadataObservationSha256,
+                        selectedProviderAssetId
+                    )
+                    SELECT releaseSnapshotId, registeredAppId, providerReleaseId, tagName,
+                        resolvedCommitSha, releaseName, releaseUrl, targetCommitishRaw,
+                        isDraft, isPrerelease, isImmutable, releaseCreatedAt, publishedAt,
+                        fetchedAt, observationSha256, lastObservedAt, 1, NULL,
+                        selectedProviderAssetId
+                    FROM release_snapshots
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS release_assets_new (
+                        releaseAssetId TEXT NOT NULL,
+                        releaseSnapshotId TEXT NOT NULL,
+                        providerAssetId TEXT NOT NULL,
+                        assetName TEXT NOT NULL,
+                        stableAssetUrl TEXT NOT NULL,
+                        selectionReason TEXT NOT NULL,
+                        contentType TEXT,
+                        providerSizeBytes INTEGER NOT NULL,
+                        providerDigestSha256 TEXT,
+                        providerCreatedAt TEXT,
+                        downloadStatus TEXT NOT NULL,
+                        downloadErrorCode TEXT,
+                        downloadErrorMessage TEXT,
+                        localContentPath TEXT,
+                        downloadedSizeBytes INTEGER,
+                        computedRawSha256 TEXT,
+                        responseEtag TEXT,
+                        downloadContentType TEXT,
+                        finalDownloadHost TEXT,
+                        packageName TEXT,
+                        versionName TEXT,
+                        versionCode INTEGER,
+                        signingCertificateSha256 TEXT,
+                        currentSignerSha256 TEXT,
+                        existingInstallStatus TEXT,
+                        installedVersionName TEXT,
+                        installedVersionCode INTEGER,
+                        updateStatus TEXT NOT NULL DEFAULT 'NOT_EVALUATED',
+                        updateEvaluatedAt TEXT,
+                        comparisonEligibility TEXT NOT NULL,
+                        incomparableReason TEXT,
+                        downloadedAt TEXT,
+                        PRIMARY KEY(releaseAssetId),
+                        FOREIGN KEY(releaseSnapshotId) REFERENCES release_snapshots_new(releaseSnapshotId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO release_assets_new (
+                        releaseAssetId, releaseSnapshotId, providerAssetId, assetName,
+                        stableAssetUrl, selectionReason, contentType, providerSizeBytes,
+                        providerDigestSha256, providerCreatedAt, downloadStatus,
+                        downloadErrorCode, downloadErrorMessage, localContentPath,
+                        downloadedSizeBytes, computedRawSha256, responseEtag,
+                        downloadContentType, finalDownloadHost, packageName, versionName,
+                        versionCode, signingCertificateSha256, currentSignerSha256,
+                        existingInstallStatus, installedVersionName, installedVersionCode,
+                        updateStatus, updateEvaluatedAt, comparisonEligibility,
+                        incomparableReason, downloadedAt
+                    )
+                    SELECT releaseAssetId, releaseSnapshotId, providerAssetId, assetName,
+                        stableAssetUrl, selectionReason, contentType, providerSizeBytes,
+                        providerDigestSha256, NULL, downloadStatus, downloadErrorCode,
+                        downloadErrorMessage, localContentPath, downloadedSizeBytes,
+                        computedRawSha256, responseEtag, NULL, finalDownloadHost,
+                        packageName, versionName, versionCode, signingCertificateSha256,
+                        currentSignerSha256, existingInstallStatus, installedVersionName,
+                        installedVersionCode, updateStatus, updateEvaluatedAt,
+                        comparisonEligibility, incomparableReason, downloadedAt
+                    FROM release_assets
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS release_candidates_new (
+                        candidateId TEXT NOT NULL,
+                        registeredAppId TEXT NOT NULL,
+                        provider TEXT NOT NULL,
+                        instance TEXT NOT NULL,
+                        providerRepositoryId TEXT NOT NULL,
+                        providerReleaseId TEXT NOT NULL,
+                        tagName TEXT NOT NULL,
+                        resolvedCommitSha TEXT NOT NULL,
+                        releaseName TEXT NOT NULL,
+                        releaseUrl TEXT NOT NULL,
+                        targetCommitishRaw TEXT NOT NULL,
+                        isPrerelease INTEGER NOT NULL,
+                        isImmutable INTEGER NOT NULL,
+                        releaseCreatedAt TEXT NOT NULL,
+                        publishedAt TEXT,
+                        assetsJson TEXT NOT NULL,
+                        observationSha256 TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        unseen INTEGER NOT NULL,
+                        firstSeenAt TEXT NOT NULL,
+                        lastSeenAt TEXT NOT NULL,
+                        PRIMARY KEY(candidateId),
+                        FOREIGN KEY(registeredAppId) REFERENCES registered_apps(registeredAppId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO release_candidates_new (
+                        candidateId, registeredAppId, provider, instance,
+                        providerRepositoryId, providerReleaseId, tagName,
+                        resolvedCommitSha, releaseName, releaseUrl, targetCommitishRaw,
+                        isPrerelease, isImmutable, releaseCreatedAt, publishedAt,
+                        assetsJson, observationSha256, state, unseen, firstSeenAt,
+                        lastSeenAt
+                    )
+                    SELECT candidateId, registeredAppId, provider, instance,
+                        providerRepositoryId, providerReleaseId, tagName,
+                        resolvedCommitSha, releaseName, releaseUrl, targetCommitishRaw,
+                        isPrerelease, isImmutable, releaseCreatedAt, publishedAt,
+                        assetsJson, observationSha256, state, unseen, firstSeenAt,
+                        lastSeenAt
+                    FROM release_candidates
+                    """.trimIndent(),
+                )
+
+                // Drop children before their parents.  Cascaded rows are restored
+                // from the transaction-local backups below, so no historical FK
+                // record depends on SQLite's drop-table behavior.
+                db.execSQL("DROP TABLE release_assets")
+                db.execSQL("DROP TABLE release_snapshots")
+                db.execSQL("DROP TABLE release_candidates")
+                db.execSQL("ALTER TABLE release_snapshots_new RENAME TO release_snapshots")
+                db.execSQL("ALTER TABLE release_assets_new RENAME TO release_assets")
+                db.execSQL("ALTER TABLE release_candidates_new RENAME TO release_candidates")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_release_snapshots_registeredAppId " +
+                        "ON release_snapshots(registeredAppId)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_release_snapshots_registeredAppId_observationSha256 " +
+                        "ON release_snapshots(registeredAppId, observationSha256)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_release_snapshots_registeredAppId_metadataObservationSha256 " +
+                        "ON release_snapshots(registeredAppId, metadataObservationSha256)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_release_assets_releaseSnapshotId " +
+                        "ON release_assets(releaseSnapshotId)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_release_assets_releaseSnapshotId_providerAssetId " +
+                        "ON release_assets(releaseSnapshotId, providerAssetId)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_release_candidates_registeredAppId " +
+                        "ON release_candidates(registeredAppId)",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_release_candidates_state ON release_candidates(state)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_release_candidates_lastSeenAt ON release_candidates(lastSeenAt)")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_release_candidates_registeredAppId_observationSha256 " +
+                        "ON release_candidates(registeredAppId, observationSha256)",
+                )
+                db.execSQL("ALTER TABLE registered_apps ADD COLUMN savedAssetSelectionJson TEXT")
+                dependentTables.forEach { table ->
+                    db.execSQL("INSERT OR REPLACE INTO $table SELECT * FROM migration22_backup_$table")
+                }
+                dependentTables.asReversed().forEach { table ->
+                    db.execSQL("DROP TABLE migration22_backup_$table")
+                }
+                db.query("PRAGMA foreign_key_check").use { cursor ->
+                    check(!cursor.moveToFirst()) { "Room22 migration produced an invalid foreign-key reference." }
+                }
             }
         }
 

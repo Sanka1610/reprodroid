@@ -275,12 +275,16 @@ internal fun LegacyReproDroidApp(managedViewModel: ManagedAppsViewModel, jobView
                                     onBack = { selectedAppId = null },
                                     onSettings = { settingsAppId = app.app.registeredAppId },
                                     onRefresh = { managedViewModel.refresh(app.app.registeredAppId) },
-                                    onSelectReleaseAsset = { releaseSnapshotId, providerAssetId ->
+                                    onSelectReleaseAsset = { releaseSnapshotId, providerAssetId, saveCondition ->
                                         managedViewModel.selectReleaseAsset(
                                             app.app.registeredAppId,
                                             releaseSnapshotId,
                                             providerAssetId,
+                                            saveCondition,
                                         )
+                                    },
+                                    onClearSavedAssetSelection = {
+                                        managedViewModel.clearSavedAssetSelection(app.app.registeredAppId)
                                     },
                                     onInstall = { confirmed ->
                                         managedViewModel.install(app.app.registeredAppId, confirmed)
@@ -638,7 +642,8 @@ internal fun AppDetailScreen(
     onBack: () -> Unit,
     onSettings: () -> Unit,
     onRefresh: () -> Unit,
-    onSelectReleaseAsset: (String, String) -> Unit,
+    onSelectReleaseAsset: (String, String, Boolean) -> Unit,
+    onClearSavedAssetSelection: () -> Unit,
     onInstall: (Boolean) -> Unit,
     onStartComparison: () -> Unit,
     onRefreshComparison: (String) -> Unit,
@@ -661,6 +666,10 @@ internal fun AppDetailScreen(
         record.app.registeredAppId,
         latest?.snapshot?.releaseSnapshotId,
     ) { mutableStateOf<String?>(null) }
+    var saveExactFilenameCondition by rememberSaveable(
+        record.app.registeredAppId,
+        latest?.snapshot?.releaseSnapshotId,
+    ) { mutableStateOf(false) }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var installRiskConfirmed by rememberSaveable(record.app.registeredAppId) { mutableStateOf(false) }
@@ -757,6 +766,15 @@ internal fun AppDetailScreen(
                     DetailValue(stringResource(R.string.technical_release_variant), effectiveVariant(record, globalSettings).displayName())
                     DetailValue(stringResource(R.string.settings_abi), effectiveAbi(record, globalSettings).displayName())
                     DetailValue(stringResource(R.string.technical_apk_limit), "${effectiveLimit(record, globalSettings) / MIB} MiB")
+                    if (record.app.savedAssetSelectionJson != null) {
+                        DetailValue(
+                            stringResource(R.string.technical_saved_selection),
+                            stringResource(R.string.technical_saved_selection_active),
+                        )
+                        TextButton(enabled = !active, onClick = onClearSavedAssetSelection) {
+                            Text(stringResource(R.string.technical_clear_saved_selection))
+                        }
+                    }
                 }
             }
             latest?.let { release ->
@@ -766,7 +784,7 @@ internal fun AppDetailScreen(
                         DetailValue(stringResource(R.string.technical_tag), release.snapshot.tagName)
                         DetailValue(stringResource(R.string.technical_resolved_commit), release.snapshot.resolvedCommitSha, true)
                         DetailValue(stringResource(R.string.technical_target_commitish), release.snapshot.targetCommitishRaw)
-                        DetailValue(stringResource(R.string.technical_published), release.snapshot.publishedAt)
+                        DetailValue(stringResource(R.string.technical_published), release.snapshot.publishedAt ?: "Not supplied")
                     }
                 }
             }
@@ -807,7 +825,11 @@ internal fun AppDetailScreen(
                                     Column(modifier = Modifier.padding(start = 8.dp)) {
                                         DetailValue(stringResource(R.string.technical_file), candidate.assetName)
                                         DetailValue(stringResource(R.string.technical_provider_size), formatBytes(candidate.providerSizeBytes))
-                                        DetailValue(stringResource(R.string.technical_content_type), candidate.contentType)
+                                        DetailValue(
+                                            stringResource(R.string.technical_provider_created),
+                                            candidate.providerCreatedAt ?: stringResource(R.string.value_not_available),
+                                        )
+                                        DetailValue(stringResource(R.string.technical_content_type), candidate.contentType ?: "Not supplied")
                                         DetailValue(stringResource(R.string.technical_filename_hints), releaseCandidateHints(candidate.assetName))
                                         DetailValue(
                                             "Provider SHA-256",
@@ -817,11 +839,26 @@ internal fun AppDetailScreen(
                                     }
                                 }
                             }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = saveExactFilenameCondition,
+                                onCheckedChange = { saveExactFilenameCondition = it },
+                                enabled = !active,
+                            )
+                            Text(
+                                stringResource(R.string.technical_remember_exact_filename),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                         Button(
                             enabled = !active && selectedReleaseAssetId != null,
                             onClick = {
                                 selectedReleaseAssetId?.let { providerAssetId ->
-                                    onSelectReleaseAsset(latest.snapshot.releaseSnapshotId, providerAssetId)
+                                    onSelectReleaseAsset(
+                                        latest.snapshot.releaseSnapshotId,
+                                        providerAssetId,
+                                        saveExactFilenameCondition,
+                                    )
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
@@ -834,6 +871,14 @@ internal fun AppDetailScreen(
                     DetailCard(stringResource(R.string.technical_official_apk)) {
                         DetailValue(stringResource(R.string.technical_asset), current.assetName)
                         DetailValue(stringResource(R.string.technical_selection), current.selectionReason)
+                        DetailValue(
+                            stringResource(R.string.technical_provider_created),
+                            current.providerCreatedAt ?: stringResource(R.string.value_not_available),
+                        )
+                        DetailValue(
+                            stringResource(R.string.technical_download_content_type),
+                            current.downloadContentType ?: stringResource(R.string.value_not_available),
+                        )
                         DetailValue(stringResource(R.string.technical_provider_sha256), current.providerDigestSha256 ?: stringResource(R.string.value_not_available), true)
                         DetailValue(stringResource(R.string.technical_computed_sha256), current.computedRawSha256 ?: stringResource(R.string.value_not_available), true)
                         DetailValue(stringResource(R.string.label_package), current.packageName ?: stringResource(R.string.value_unknown))

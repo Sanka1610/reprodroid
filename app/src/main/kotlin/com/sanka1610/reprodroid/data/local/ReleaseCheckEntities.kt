@@ -209,7 +209,7 @@ data class ReleaseCandidateEntity(
     val isPrerelease: Boolean,
     val isImmutable: Boolean,
     val releaseCreatedAt: String,
-    val publishedAt: String,
+    val publishedAt: String?,
     val assetsJson: String,
     val observationSha256: String,
     val state: String,

@@ -600,8 +600,16 @@ fun ReproDroidApp(
                                 onBack = { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
                                 onSettings = { navigate(ReproDroidRoute.AppSettings(record.app.registeredAppId)) },
                                 onRefresh = { managedViewModel.refresh(record.app.registeredAppId) },
-                                onSelectReleaseAsset = { snapshotId, assetId ->
-                                    managedViewModel.selectReleaseAsset(record.app.registeredAppId, snapshotId, assetId)
+                                onSelectReleaseAsset = { snapshotId, assetId, saveCondition ->
+                                    managedViewModel.selectReleaseAsset(
+                                        record.app.registeredAppId,
+                                        snapshotId,
+                                        assetId,
+                                        saveCondition,
+                                    )
+                                },
+                                onClearSavedAssetSelection = {
+                                    managedViewModel.clearSavedAssetSelection(record.app.registeredAppId)
                                 },
                                 onInstall = { confirmed -> managedViewModel.install(record.app.registeredAppId, confirmed) },
                                 onStartComparison = { managedViewModel.startComparison(record.app.registeredAppId) },
@@ -1030,7 +1038,6 @@ private fun UiRAddFlowScreen(
     val resolved = preview.repository
     val existing = preview.existingPrimaryRegistration
     val canCreatePrimary = existing == null || separateManagementTarget
-    val codebergUnavailableDescription = stringResource(R.string.future_feature_content_description, "4.7")
     val content: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             AddPhaseHeader(route)
@@ -1042,7 +1049,7 @@ private fun UiRAddFlowScreen(
                     onValueChange = onRepositoryUrlChange,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.add_repository_url)) },
-                    supportingText = { Text(stringResource(R.string.add_github_only)) },
+                    supportingText = { Text(stringResource(R.string.add_supported_providers)) },
                     singleLine = true,
                     enabled = !preview.isLoading,
                 )
@@ -1058,13 +1065,6 @@ private fun UiRAddFlowScreen(
                         Text(stringResource(R.string.action_cancel))
                     }
                 }
-                OutlinedButton(
-                    enabled = false,
-                    onClick = {},
-                    modifier = Modifier.fillMaxWidth().semantics {
-                        contentDescription = codebergUnavailableDescription
-                    },
-                ) { Text(stringResource(R.string.add_codeberg_phase)) }
                 OutlinedButton(
                     onClick = { onNavigate(ReproDroidRoute.GitHubStarsImport) },
                     modifier = Modifier.fillMaxWidth(),
@@ -1818,7 +1818,7 @@ private fun UiRSettingsScreen(
         item {
             AccordionSection(stringResource(R.string.settings_integrations), integrationsExpanded, { integrationsExpanded = !integrationsExpanded }) {
                 SettingsLink(stringResource(R.string.settings_runner)) { onNavigate(ReproDroidRoute.RunnerSettings) }
-                DisabledSetting(stringResource(R.string.planned_codeberg), "4.7")
+                Text(stringResource(R.string.codeberg_provider_available), style = MaterialTheme.typography.bodySmall)
             }
         }
         item {

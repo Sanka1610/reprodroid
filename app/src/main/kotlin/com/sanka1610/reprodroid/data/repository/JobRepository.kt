@@ -44,6 +44,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.URI
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -131,8 +132,10 @@ class JobRepository(
     ): String {
         val runnerId = runnerApi.activeRunnerId()
         val capabilities = runnerApi.getV2Capabilities().capabilities.associate { it.id to it.contractVersion }
-        check(capabilities["generic-build"] == 1 && capabilities["apk-comparison"] == 1) {
-            "Runner does not advertise the complete Phase 4.4 generic build and comparison contract."
+        val missing = requiredGenericBuildCapabilities(repositoryUrl)
+            .filterNot { capability -> capabilities[capability] == 1 }
+        check(missing.isEmpty()) {
+            "Runner does not advertise the required generic build contracts: ${missing.joinToString { "$it@1" }}."
         }
         val snapshot = GenericBuildSnapshot(
             comparisonId = comparisonId,
@@ -852,6 +855,17 @@ class JobRepository(
     }
 
     private fun runnerBinding(job: JobEntity): String = job.runnerId ?: "local-development"
+
+}
+
+internal fun requiredGenericBuildCapabilities(repositoryUrl: String): Set<String> {
+    val host = runCatching { URI(repositoryUrl.trim()).host?.lowercase() }.getOrNull()
+        ?: throw IllegalArgumentException("The generic build repository URL is invalid.")
+    return when (host) {
+        "github.com" -> linkedSetOf("generic-build", "apk-comparison")
+        "codeberg.org" -> linkedSetOf("generic-build", "apk-comparison", "codeberg-source")
+        else -> throw IllegalArgumentException("The generic build repository provider is not supported.")
+    }
 }
 
 internal fun JobResponse.toJobEntity(existing: JobEntity?, logCursor: Long): JobEntity = JobEntity(

@@ -14,8 +14,9 @@ import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonUnquotedLiteral
 
-data class GitHubRepository(val owner: String, val name: String) {
-    val canonicalUrl: String = "https://github.com/${owner.lowercase()}/${name.lowercase()}"
+data class GitHubRepository(override val owner: String, override val name: String) : ProviderRepositoryLocator {
+    override val host: String = "github.com"
+    override val canonicalUrl: String = "https://github.com/${owner.lowercase()}/${name.lowercase()}"
 }
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -48,30 +49,32 @@ private val CANONICAL_PROVIDER_ID = Regex("[1-9][0-9]{0,39}")
 @Serializable
 data class GitHubRelease(
     @Serializable(with = CanonicalProviderIdSerializer::class)
-    val id: String,
-    @SerialName("tag_name") val tagName: String,
-    @SerialName("target_commitish") val targetCommitish: String,
-    val name: String? = null,
-    @SerialName("html_url") val htmlUrl: String,
-    val draft: Boolean,
-    val prerelease: Boolean,
-    val immutable: Boolean = false,
-    @SerialName("created_at") val createdAt: String,
-    @SerialName("published_at") val publishedAt: String? = null,
-    val assets: List<GitHubReleaseAsset>,
-)
+    override val id: String,
+    @SerialName("tag_name") override val tagName: String,
+    @SerialName("target_commitish") override val targetCommitish: String,
+    override val name: String? = null,
+    @SerialName("html_url") override val htmlUrl: String,
+    override val draft: Boolean,
+    override val prerelease: Boolean,
+    override val immutable: Boolean = false,
+    @SerialName("created_at") override val createdAt: String,
+    @SerialName("published_at") override val publishedAt: String? = null,
+    override val assets: List<GitHubReleaseAsset>,
+) : ProviderRelease
 
 @Serializable
 data class GitHubReleaseAsset(
     @Serializable(with = CanonicalProviderIdSerializer::class)
-    val id: String,
-    val name: String,
+    override val id: String,
+    override val name: String,
     val state: String,
-    @SerialName("content_type") val contentType: String,
-    val size: Long,
-    val digest: String? = null,
-    @SerialName("browser_download_url") val browserDownloadUrl: String,
-)
+    @SerialName("content_type") override val contentType: String? = null,
+    override val size: Long,
+    override val digest: String? = null,
+    @SerialName("browser_download_url") override val browserDownloadUrl: String,
+    @SerialName("created_at") override val providerCreatedAt: String? = null,
+    @SerialName("type") override val providerAssetType: String? = null,
+) : ProviderReleaseAsset
 
 @Serializable
 internal data class GitHubGitObject(val type: String, val sha: String, val url: String)
@@ -92,21 +95,21 @@ internal data class GitHubApiRepositoryIdentity(
 )
 
 data class ResolvedGitHubRelease(
-    val repository: GitHubRepository,
-    val release: GitHubRelease,
-    val resolvedCommitSha: String,
-    val responseEtag: String?,
-    val candidates: List<ReleaseAssetCandidate>,
-    val selectedAsset: SelectedReleaseAsset?,
-)
+    override val repository: GitHubRepository,
+    override val release: GitHubRelease,
+    override val resolvedCommitSha: String,
+    override val responseEtag: String?,
+    override val candidates: List<ReleaseAssetCandidate>,
+    override val selectedAsset: SelectedReleaseAsset?,
+) : ResolvedProviderRelease
 
 data class ReleaseAssetCandidate(
-    val asset: GitHubReleaseAsset,
-    val providerSha256: String?,
-)
+    override val asset: GitHubReleaseAsset,
+    override val providerSha256: String?,
+) : ProviderAssetCandidate
 
 data class SelectedReleaseAsset(
-    val asset: GitHubReleaseAsset,
-    val reason: String,
-    val providerSha256: String?,
-)
+    override val asset: GitHubReleaseAsset,
+    override val reason: String,
+    override val providerSha256: String?,
+) : ProviderSelectedAsset

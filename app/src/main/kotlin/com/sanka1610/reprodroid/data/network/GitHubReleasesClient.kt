@@ -25,14 +25,16 @@ class GitHubProviderException(
     override val message: String,
 ) : RuntimeException(message)
 
-class GitHubReleasesClient(engine: HttpClientEngine? = null) {
+class GitHubReleasesClient(engine: HttpClientEngine? = null) : ProviderReleaseClient {
+    override val providerName: String = "GITHUB"
+    override val providerInstance: String = "github.com"
     private val client = if (engine == null) HttpClient(Android) { configure() } else HttpClient(engine) { configure() }
 
-    suspend fun resolveLatestRelease(
+    override suspend fun resolveLatestRelease(
         repositoryUrl: String,
-        previousEtag: String? = null,
-        preferredAbi: PreferredAbi = PreferredAbi.ARM64_V8A,
-        preferredVariant: ReleaseVariantPreference = ReleaseVariantPreference.RELEASE,
+        previousEtag: String?,
+        preferredAbi: PreferredAbi,
+        preferredVariant: ReleaseVariantPreference,
     ): ResolvedGitHubRelease {
         val repository = GitHubRepositoryParser.parse(repositoryUrl)
         val response = client.get(apiUrl(repository, "releases", "latest")) {
@@ -51,10 +53,12 @@ class GitHubReleasesClient(engine: HttpClientEngine? = null) {
             )
         }
         val candidates = ReleaseAssetSelector.candidates(release.assets)
-        val selectedAsset = try {
-            ReleaseAssetSelector.selectValidatedCandidates(candidates, preferredAbi, preferredVariant)
-        } catch (failure: ReleaseAssetSelectionException) {
-            if (failure.code == "AMBIGUOUS_APK_ASSETS") null else throw failure
+        val selectedAsset = candidates.singleOrNull()?.let {
+            SelectedReleaseAsset(
+                it.asset,
+                com.sanka1610.reprodroid.data.local.AssetSelectionReason.SINGLE_APK.name,
+                it.providerSha256,
+            )
         }
         return ResolvedGitHubRelease(
             repository = repository,
@@ -65,6 +69,25 @@ class GitHubReleasesClient(engine: HttpClientEngine? = null) {
             selectedAsset = selectedAsset,
         )
     }
+
+    /** Compatibility overload retained for the pre-provider-neutral callers. */
+    suspend fun resolveLatestRelease(
+        repositoryUrl: String,
+        previousEtag: String?,
+    ): ResolvedGitHubRelease = resolveLatestRelease(
+        repositoryUrl = repositoryUrl,
+        previousEtag = previousEtag,
+        preferredAbi = PreferredAbi.ARM64_V8A,
+        preferredVariant = ReleaseVariantPreference.RELEASE,
+    )
+
+    suspend fun resolveLatestRelease(repositoryUrl: String): ResolvedGitHubRelease =
+        resolveLatestRelease(
+            repositoryUrl = repositoryUrl,
+            previousEtag = null,
+            preferredAbi = PreferredAbi.ARM64_V8A,
+            preferredVariant = ReleaseVariantPreference.RELEASE,
+        )
 
     private suspend fun resolveTagCommit(repository: GitHubRepository, tagName: String): String {
         val ref = client.get(apiUrl(repository, "git", "ref", "tags", tagName)) {

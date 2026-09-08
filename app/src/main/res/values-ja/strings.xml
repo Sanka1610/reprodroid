@@ -92,6 +92,10 @@
     <string name="technical_select_apk_body">対象Releaseに複数の適格なAPKがあります。明示的に1件選択してください。選択前にAPKをダウンロードしません。</string>
     <string name="technical_select_apk_unknown_body">パッケージと署名者は、ダウンロード後のAPK検査で確定するまで表示しません。</string>
     <string name="technical_select_download">Official APKを選択して取得</string>
+    <string name="technical_remember_exact_filename">今後のreleaseでも、同名APKが1件だけ一致した場合に使用する</string>
+    <string name="technical_saved_selection">保存済みAPK選択</string>
+    <string name="technical_saved_selection_active">明示的なversion付きファイル名条件が有効です</string>
+    <string name="technical_clear_saved_selection">保存済みAPK選択を解除</string>
     <string name="technical_official_apk">Official APK</string>
     <string name="technical_history">履歴</string>
     <string name="technical_history_body">Release観測は不変です。保持バイトを削除しても、比較・署名者・インストール履歴は削除しません。</string>
@@ -118,6 +122,8 @@
     <string name="technical_published">公開日時</string>
     <string name="technical_file">ファイル</string>
     <string name="technical_provider_size">Provider報告size</string>
+    <string name="technical_provider_created">Provider上のasset作成日時</string>
+    <string name="technical_download_content_type">Download応答MIME</string>
     <string name="technical_content_type">Content-Type</string>
     <string name="technical_filename_hints">ファイル名の判定材料</string>
     <string name="technical_asset">Asset</string>
@@ -414,7 +420,6 @@
     <string name="planned_unavailable">UI-Rでは利用できません</string>
     <string name="planned_updates_body">定期metadata確認、Release channel、実行条件、通知をここへ接続します。</string>
     <string name="planned_backup_body">暗号化バックアップ、復元、ログエクスポートをここへ接続します。監査エクスポートは別機能です。</string>
-    <string name="planned_codeberg">Codeberg・Phase 4.7で実装予定</string>
     <string name="github_stars_title">GitHub Starsからインポート</string>
     <string name="github_stars_body">Repository選択とインポートは、Phase 4.5のprovider queue・rate limit基盤完成後に接続します。</string>
     <string name="future_update_schedule">定期確認を有効化</string>
@@ -422,7 +427,7 @@
     <string name="future_update_constraints">ネットワークとバッテリー条件</string>
     <string name="future_update_notifications">更新通知とミュート</string>
     <string name="release_check_global_settings">Releaseの定期確認</string>
-    <string name="release_check_scope_body">public GitHubのmetadataだけを確認します。APK取得、Runner接続、build、比較、installは開始しません。</string>
+    <string name="release_check_scope_body">公開providerのmetadataだけを確認します。APK取得、Runner接続、build、比較、installは開始しません。</string>
     <string name="release_check_schedule_mode">スケジュール方式</string>
     <string name="release_check_interval_mode">間隔</string>
     <string name="release_check_daily_mode">毎日のローカル時刻</string>
@@ -470,11 +475,11 @@
     <string name="add_confirm_phase">4. 確認</string>
     <string name="add_known_facts">検証できたリポジトリIDと上限付きのGradle候補だけを表示します。Android module、package、ビルド成功は推測しません。</string>
     <string name="add_source_help">公開ソースリポジトリを入力します。解析だけでは登録もビルドも開始しません。</string>
-    <string name="add_repository_url">GitHubリポジトリURL</string>
-    <string name="add_github_only">対応形式：https://github.com/{owner}/{repository}</string>
+    <string name="add_repository_url">公開リポジトリURL</string>
+    <string name="add_supported_providers">対応形式：https://github.com/{owner}/{repository} または https://codeberg.org/{owner}/{repository}</string>
     <string name="add_inspect_repository">リポジトリを解析</string>
     <string name="add_inspecting">リポジトリIDを確認し、範囲を制限してソースツリーを解析しています…</string>
-    <string name="add_codeberg_phase">Codeberg・Phase 4.7まで利用不可</string>
+    <string name="codeberg_provider_available">Codebergリポジトリは「ソースから追加」から利用できます。</string>
     <string name="add_repository_verified">検証済みのリポジトリ情報</string>
     <string name="add_repository_id">不変リポジトリID</string>
     <string name="add_discovery_state">ソース解析状態</string>

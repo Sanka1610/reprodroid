@@ -92,6 +92,10 @@
     <string name="technical_select_apk_body">This release has multiple eligible APK assets. Select one explicitly; no APK is downloaded before selection.</string>
     <string name="technical_select_apk_unknown_body">Package and signer are not shown because they are not established until download and APK inspection.</string>
     <string name="technical_select_download">Select and download official APK</string>
+    <string name="technical_remember_exact_filename">Use this exact filename for future releases when it matches exactly one APK</string>
+    <string name="technical_saved_selection">Saved APK selection</string>
+    <string name="technical_saved_selection_active">An explicit versioned filename condition is active</string>
+    <string name="technical_clear_saved_selection">Clear saved APK selection</string>
     <string name="technical_official_apk">Official APK</string>
     <string name="technical_history">History</string>
     <string name="technical_history_body">Release observations are immutable. Deleting retained bytes does not remove comparison, signer, or install history.</string>
@@ -118,6 +122,8 @@
     <string name="technical_published">Published</string>
     <string name="technical_file">File</string>
     <string name="technical_provider_size">Provider size</string>
+    <string name="technical_provider_created">Provider asset created</string>
+    <string name="technical_download_content_type">Download response MIME</string>
     <string name="technical_content_type">Content type</string>
     <string name="technical_filename_hints">Filename hints</string>
     <string name="technical_asset">Asset</string>
@@ -414,7 +420,6 @@
     <string name="planned_unavailable">Not available in UI-R</string>
     <string name="planned_updates_body">Scheduled metadata checks, release channels, constraints, and notifications will connect here.</string>
     <string name="planned_backup_body">Encrypted backup, restore, and log export will connect here. Audit export remains a separate function.</string>
-    <string name="planned_codeberg">Codeberg · planned for Phase 4.7</string>
     <string name="github_stars_title">Import GitHub Stars</string>
     <string name="github_stars_body">Repository selection and import will connect after the Phase 4.5 provider queue and rate-limit foundation.</string>
     <string name="future_update_schedule">Enable scheduled checks</string>
@@ -422,7 +427,7 @@
     <string name="future_update_constraints">Network and battery constraints</string>
     <string name="future_update_notifications">Update notifications and mute</string>
     <string name="release_check_global_settings">Scheduled release checks</string>
-    <string name="release_check_scope_body">Checks public GitHub metadata only. They never download an APK, contact Runner, build, compare, or install.</string>
+    <string name="release_check_scope_body">Checks public provider metadata only. They never download an APK, contact Runner, build, compare, or install.</string>
     <string name="release_check_schedule_mode">Schedule mode</string>
     <string name="release_check_interval_mode">Interval</string>
     <string name="release_check_daily_mode">Daily local time</string>
@@ -471,11 +476,11 @@
     <string name="add_confirm_phase">4. Confirm</string>
     <string name="add_known_facts">Only verified repository identity and bounded static Gradle candidates are shown. Android modules, packages, and build success are not inferred.</string>
     <string name="add_source_help">Enter a public source repository. Inspection does not register the app or start a build.</string>
-    <string name="add_repository_url">GitHub repository URL</string>
-    <string name="add_github_only">Supported: https://github.com/{owner}/{repository}</string>
+    <string name="add_repository_url">Public repository URL</string>
+    <string name="add_supported_providers">Supported: https://github.com/{owner}/{repository} or https://codeberg.org/{owner}/{repository}</string>
     <string name="add_inspect_repository">Inspect repository</string>
     <string name="add_inspecting">Resolving repository identity and inspecting the bounded source tree…</string>
-    <string name="add_codeberg_phase">Codeberg · unavailable until Phase 4.7</string>
+    <string name="codeberg_provider_available">Codeberg repositories are available from Add Source.</string>
     <string name="add_repository_verified">Verified repository facts</string>
     <string name="add_repository_id">Immutable repository ID</string>
     <string name="add_discovery_state">Source discovery</string>

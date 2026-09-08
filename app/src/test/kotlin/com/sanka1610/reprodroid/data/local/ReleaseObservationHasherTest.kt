@@ -65,6 +65,56 @@ class ReleaseObservationHasherTest {
         )
     }
 
+    @Test
+    fun `schema two metadata hash is selection independent and keeps nullable provider claims`() {
+        val candidate = ReleaseMetadataObservationCandidate(
+            providerAssetId = "9",
+            assetName = "app.apk",
+            stableAssetUrl = "https://codeberg.org/example/app/releases/download/v1/app.apk",
+            contentType = null,
+            providerSizeBytes = 123,
+            providerDigestSha256 = null,
+            providerCreatedAt = "2026-09-01T00:00:00Z",
+        )
+        val input = ReleaseMetadataObservationInput(
+            provider = "CODEBERG",
+            instance = "codeberg.org",
+            providerRepositoryId = "42",
+            providerReleaseId = "7",
+            tagName = "v1",
+            resolvedCommitSha = "a".repeat(40),
+            targetCommitishRaw = "main",
+            releaseName = "Version 1",
+            releaseUrl = "https://codeberg.org/example/app/releases/tag/v1",
+            isDraft = false,
+            isPrerelease = false,
+            isImmutable = false,
+            releaseCreatedAt = "2026-09-01T00:00:00Z",
+            publishedAt = null,
+            candidates = listOf(candidate),
+        )
+        assertEquals(
+            "4cb6ec83160c58e1ac610d41a4535729ba056fb58e2aeb70474190db4da5d27c",
+            ReleaseObservationHasher.metadataSha256(input),
+        )
+        assertNotEquals(
+            ReleaseObservationHasher.metadataSha256(input),
+            ReleaseObservationHasher.metadataSha256(input.copy(candidates = listOf(candidate.copy(providerCreatedAt = null)))),
+        )
+    }
+
+    @Test
+    fun `downloaded content hash binds metadata asset and raw bytes`() {
+        assertEquals(
+            "d239ce93d822ca2e5a84b8bf17649d8991d2ba443362587bdc2ce53893b5911a",
+            ReleaseObservationHasher.downloadedContentSha256("b".repeat(64), "9", "c".repeat(64)),
+        )
+        assertNotEquals(
+            ReleaseObservationHasher.downloadedContentSha256("b".repeat(64), "9", "c".repeat(64)),
+            ReleaseObservationHasher.downloadedContentSha256("b".repeat(64), "10", "c".repeat(64)),
+        )
+    }
+
     private fun fixture() = ReleaseObservationInput(
         provider = "GITHUB",
         instance = "github.com",

@@ -118,6 +118,7 @@ enum class AssetSelectionReason {
     PREFERRED_ABI_AND_VARIANT_FILENAME,
     MANUAL_SELECTION_REQUIRED,
     MANUAL_RELEASE_ASSET,
+    SAVED_SELECTION_CONDITION,
 }
 
 @Entity(
@@ -162,6 +163,7 @@ data class RegisteredAppEntity(
     @ColumnInfo(defaultValue = "'ACTIVE'")
     val trackingState: String = AppTrackingState.ACTIVE.name,
     val trackingStoppedAt: String? = null,
+    val savedAssetSelectionJson: String? = null,
     val createdAt: String,
     val updatedAt: String,
 ) {
@@ -207,6 +209,7 @@ data class GlobalSettingsEntity(
     indices = [
         Index("registeredAppId"),
         Index(value = ["registeredAppId", "observationSha256"], unique = true),
+        Index(value = ["registeredAppId", "metadataObservationSha256"]),
     ],
 )
 data class ReleaseSnapshotEntity(
@@ -222,12 +225,15 @@ data class ReleaseSnapshotEntity(
     val isPrerelease: Boolean,
     val isImmutable: Boolean,
     val releaseCreatedAt: String,
-    val publishedAt: String,
+    val publishedAt: String?,
     val fetchedAt: String,
     @ColumnInfo(defaultValue = "''")
     val observationSha256: String,
     @ColumnInfo(defaultValue = "''")
     val lastObservedAt: String,
+    @ColumnInfo(defaultValue = "1")
+    val observationSchemaVersion: Int = 1,
+    val metadataObservationSha256: String? = null,
     val selectedProviderAssetId: String? = null,
 )
 
@@ -253,9 +259,10 @@ data class ReleaseAssetEntity(
     val assetName: String,
     val stableAssetUrl: String,
     val selectionReason: String,
-    val contentType: String,
+    val contentType: String?,
     val providerSizeBytes: Long,
     val providerDigestSha256: String?,
+    val providerCreatedAt: String? = null,
     val downloadStatus: String = ReferenceDownloadStatus.NOT_DOWNLOADED.name,
     val downloadErrorCode: String? = null,
     val downloadErrorMessage: String? = null,
@@ -263,6 +270,7 @@ data class ReleaseAssetEntity(
     val downloadedSizeBytes: Long? = null,
     val computedRawSha256: String? = null,
     val responseEtag: String? = null,
+    val downloadContentType: String? = null,
     val finalDownloadHost: String? = null,
     val packageName: String? = null,
     val versionName: String? = null,

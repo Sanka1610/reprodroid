@@ -39,14 +39,19 @@ import com.sanka1610.reprodroid.data.local.ReleaseNotificationType
 import com.sanka1610.reprodroid.data.local.ReleaseObservationCandidate
 import com.sanka1610.reprodroid.data.local.ReleaseObservationHasher
 import com.sanka1610.reprodroid.data.local.ReleaseObservationInput
+import com.sanka1610.reprodroid.data.local.ReleaseMetadataObservationCandidate
+import com.sanka1610.reprodroid.data.local.ReleaseMetadataObservationInput
 import com.sanka1610.reprodroid.data.local.ReleaseScheduleStateEntity
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.local.UpdateStatus
-import com.sanka1610.reprodroid.data.provider.GitHubMetadataResult
 import com.sanka1610.reprodroid.data.provider.GitHubReleaseMetadataClient
-import com.sanka1610.reprodroid.data.provider.ReleaseAssetCandidate
+import com.sanka1610.reprodroid.data.provider.CodebergReleaseMetadataClient
+import com.sanka1610.reprodroid.data.provider.ProviderMetadataResult
+import com.sanka1610.reprodroid.data.provider.ProviderReleaseMetadataClient
+import com.sanka1610.reprodroid.data.provider.ProviderAssetCandidate
 import com.sanka1610.reprodroid.data.provider.ReleaseMetadataException
 import com.sanka1610.reprodroid.data.provider.canonicalProviderId
+import com.sanka1610.reprodroid.data.provider.SavedAssetSelection
 import com.sanka1610.reprodroid.ui.navigation.ReproDroidRoute
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -70,9 +75,10 @@ data class ReleaseCandidateAsset(
     val providerAssetId: String,
     val name: String,
     val stableUrl: String,
-    val contentType: String,
+    val contentType: String?,
     val providerSizeBytes: Long,
     val providerDigestSha256: String?,
+    val providerCreatedAt: String? = null,
 )
 
 interface ReleaseCheckEnvironment {
@@ -100,11 +106,26 @@ class AndroidReleaseCheckEnvironment(private val context: Context) : ReleaseChec
 class ReleaseCheckRepository(
     private val context: Context,
     private val database: ReproDroidDatabase,
-    private val provider: GitHubReleaseMetadataClient = GitHubReleaseMetadataClient(),
+    private val provider: ProviderReleaseMetadataClient = GitHubReleaseMetadataClient(),
+    private val codebergProvider: ProviderReleaseMetadataClient = CodebergReleaseMetadataClient(),
     private val environment: ReleaseCheckEnvironment = AndroidReleaseCheckEnvironment(context),
     private val clock: Clock = Clock.systemUTC(),
     private val zoneId: () -> ZoneId = { ZoneId.systemDefault() },
 ) {
+    private data class ProviderMetadataContext(
+        val provider: String,
+        val instance: String,
+        val client: ProviderReleaseMetadataClient,
+    )
+
+    private fun providerContext(provider: String, instance: String): ProviderMetadataContext? = when {
+        provider == this.provider.providerName && instance == this.provider.providerInstance ->
+            ProviderMetadataContext(provider, instance, this.provider)
+        provider == codebergProvider.providerName && instance == codebergProvider.providerInstance ->
+            ProviderMetadataContext(provider, instance, codebergProvider)
+        else -> null
+    }
+
     private val releaseDao = database.releaseCheckDao()
     private val appDao = database.managedAppDao()
     private val providerQueue = Mutex()
@@ -163,6 +184,15 @@ class ReleaseCheckRepository(
         reconcileSchedules(now, forceRecalculate = true)
     }
 
+    suspend fun reevaluateCandidates(registeredAppId: String) {
+        val app = appDao.getRegisteredApp(registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        val effective = ReleaseCheckPolicy.effective(currentSettings(), releaseDao.getOverride(registeredAppId))
+        database.withTransaction {
+            reevaluateCandidates(app, effective)
+        }
+    }
+
     suspend fun checkNow(registeredAppId: String): ReleaseCheckOutcome =
         checkApp(registeredAppId, ReleaseCheckTrigger.MANUAL)
 
@@ -200,10 +230,12 @@ class ReleaseCheckRepository(
         forceRecalculate: Boolean = false,
     ) {
         val global = currentSettings()
-        val cooldown = releaseDao.getCooldown(PROVIDER, INSTANCE)
-        val cooldownNotBefore = parseInstant(cooldown?.notBefore)
-        val cooldownInvalid = cooldown != null && !isValidCooldown(cooldown)
+        val cooldowns = releaseDao.getCooldowns().associateBy { it.provider to it.instance }
         releaseDao.getActiveApps().forEach { app ->
+            val binding = appDao.getRepositoryBinding(app.registeredAppId)
+            val cooldown = binding?.let { cooldowns[it.provider to it.instance] }
+            val cooldownNotBefore = parseInstant(cooldown?.notBefore)
+            val cooldownInvalid = cooldown != null && !isValidCooldown(cooldown)
             val override = releaseDao.getOverride(app.registeredAppId)
             val current = releaseDao.getScheduleState(app.registeredAppId)
             val effective = runCatching { ReleaseCheckPolicy.effective(global, override) }.getOrNull()
@@ -263,11 +295,16 @@ class ReleaseCheckRepository(
             if (waiting == ReleaseCheckWaitingReason.INVALID_STATE) return@mapNotNull null
             parseInstant(state.nextEligibleAt)
         }.minOrNull()
-        val cooldown = releaseDao.getCooldown(PROVIDER, INSTANCE) ?: return nextAppDispatch
-        if (!isValidCooldown(cooldown)) return null
-        val cooldownNotBefore = parseInstant(cooldown.notBefore) ?: return null
-        if (!cooldownNotBefore.isAfter(clock.instant())) return nextAppDispatch
-        return nextAppDispatch?.let { maxOf(it, cooldownNotBefore) }
+        val cooldownNotBefore = releaseDao.getCooldowns()
+            .filter(::isValidCooldown)
+            .mapNotNull { parseInstant(it.notBefore) }
+            .filter { it.isAfter(clock.instant()) }
+            .maxOrNull()
+        return if (cooldownNotBefore == null || nextAppDispatch == null) {
+            nextAppDispatch
+        } else {
+            maxOf(nextAppDispatch, cooldownNotBefore)
+        }
     }
 
     suspend fun markCandidateSeen(candidateId: String) = releaseDao.markCandidateSeen(candidateId)
@@ -373,13 +410,11 @@ class ReleaseCheckRepository(
         val providerRepositoryId = binding?.providerRepositoryId?.let { id ->
             runCatching { canonicalProviderId(id) }.getOrNull()
         }
-        if (
-            binding == null ||
-            binding.provider != PROVIDER ||
-            binding.instance != INSTANCE ||
-            binding.identityStatus != RepositoryIdentityStatus.VERIFIED.name ||
-            providerRepositoryId == null
-        ) {
+        val providerContext = binding?.let { providerContext(it.provider, it.instance) } ?: run {
+            defer(app, ReleaseCheckWaitingReason.INVALID_STATE, started.plus(1, ChronoUnit.DAYS))
+            return ReleaseCheckOutcome.INVALID_METADATA
+        }
+        if (binding.identityStatus != RepositoryIdentityStatus.VERIFIED.name || providerRepositoryId == null) {
             defer(app, ReleaseCheckWaitingReason.INVALID_STATE, started.plus(1, ChronoUnit.DAYS))
             return ReleaseCheckOutcome.INVALID_METADATA
         }
@@ -391,15 +426,15 @@ class ReleaseCheckRepository(
                 queuedApp.trackingState != AppTrackingState.ACTIVE.name ||
                 queuedApp.canonicalRepositoryUrl != app.canonicalRepositoryUrl ||
                 queuedBinding == null ||
-                queuedBinding.provider != PROVIDER ||
-                queuedBinding.instance != INSTANCE ||
+                queuedBinding.provider != providerContext.provider ||
+                queuedBinding.instance != providerContext.instance ||
                 queuedBinding.identityStatus != RepositoryIdentityStatus.VERIFIED.name ||
                 queuedBinding.providerRepositoryId != providerRepositoryId
             ) {
                 defer(app, ReleaseCheckWaitingReason.INVALID_STATE, clock.instant().plus(CONSTRAINT_RETRY_MINUTES, ChronoUnit.MINUTES))
                 return@withLock ReleaseCheckOutcome.CANCELLED
             }
-            releaseDao.getCooldown(PROVIDER, INSTANCE)?.let { cooldown ->
+            releaseDao.getCooldown(providerContext.provider, providerContext.instance)?.let { cooldown ->
                 if (!isValidCooldown(cooldown)) {
                     defer(app, ReleaseCheckWaitingReason.INVALID_STATE, started.plus(1, ChronoUnit.DAYS))
                     return@withLock ReleaseCheckOutcome.INVALID_METADATA
@@ -419,12 +454,15 @@ class ReleaseCheckRepository(
                 return@withLock ReleaseCheckOutcome.CANCELLED
             }
             try {
-                val result =
-                provider.check(
+                val result = providerContext.client.check(
                     repositoryUrl = app.canonicalRepositoryUrl,
                     providerRepositoryId = providerRepositoryId,
                     channel = ReleaseCheckChannel.valueOf(effective.releaseChannel),
-                    cachedRepresentations = releaseDao.getRepresentations(PROVIDER, INSTANCE, providerRepositoryId),
+                    cachedRepresentations = releaseDao.getRepresentations(
+                        providerContext.provider,
+                        providerContext.instance,
+                        providerRepositoryId,
+                    ),
                     now = started,
                 )
                 ReleaseCheckPolicy.deferReason(effective, environment.currentState())?.let { reason ->
@@ -436,9 +474,10 @@ class ReleaseCheckRepository(
                     return@withLock ReleaseCheckOutcome.CANCELLED
                 }
                 when (result) {
-                    is GitHubMetadataResult.NoPublishedRelease -> {
+                    is ProviderMetadataResult.NoPublishedRelease -> {
                         val committed = persistTerminal(
                             app = app,
+                            provider = providerContext,
                             providerRepositoryId = providerRepositoryId,
                             trigger = trigger,
                             effective = effective,
@@ -449,31 +488,44 @@ class ReleaseCheckRepository(
                         )
                         if (committed) ReleaseCheckOutcome.NO_PUBLISHED_RELEASE else ReleaseCheckOutcome.CANCELLED
                     }
-                    is GitHubMetadataResult.Release -> persistObservation(app, providerRepositoryId, trigger, effective, result, started)
+                    is ProviderMetadataResult.Release -> persistObservation(
+                        app,
+                        providerContext,
+                        providerRepositoryId,
+                        trigger,
+                        effective,
+                        result,
+                        started,
+                    )
+                    else -> throw ReleaseMetadataException(
+                        "INVALID_METADATA",
+                        message = "The provider returned an unsupported metadata result.",
+                    )
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: ReleaseMetadataException) {
-                persistFailure(app, providerRepositoryId, trigger, effective, failure, started)
+                persistFailure(app, providerContext, providerRepositoryId, trigger, effective, failure, started)
             }
         }
     }
 
     private suspend fun persistObservation(
         app: RegisteredAppEntity,
+        provider: ProviderMetadataContext,
         providerRepositoryId: String,
         trigger: ReleaseCheckTrigger,
         effective: EffectiveReleaseCheckSettings,
-        result: GitHubMetadataResult.Release,
+        result: ProviderMetadataResult.Release,
         started: Instant,
     ): ReleaseCheckOutcome {
         val resolved = result.resolved
         val release = resolved.release
         val assets = resolved.candidates.map(::candidateAsset)
-        val observation = ReleaseObservationHasher.sha256(
-            ReleaseObservationInput(
-                provider = PROVIDER,
-                instance = INSTANCE,
+        val observation = ReleaseObservationHasher.metadataSha256(
+            ReleaseMetadataObservationInput(
+                provider = provider.provider,
+                instance = provider.instance,
                 providerRepositoryId = providerRepositoryId,
                 providerReleaseId = release.id,
                 tagName = release.tagName,
@@ -485,22 +537,16 @@ class ReleaseCheckRepository(
                 isPrerelease = release.prerelease,
                 isImmutable = release.immutable,
                 releaseCreatedAt = release.createdAt,
-                publishedAt = requireNotNull(release.publishedAt),
-                providerAssetId = null,
-                assetName = null,
-                stableAssetUrl = null,
-                contentType = null,
-                providerSizeBytes = null,
-                providerDigestSha256 = null,
-                selectionReason = null,
-                manualCandidates = assets.map {
-                    ReleaseObservationCandidate(
+                publishedAt = release.publishedAt,
+                candidates = assets.map {
+                    ReleaseMetadataObservationCandidate(
                         providerAssetId = it.providerAssetId,
                         assetName = it.name,
                         stableAssetUrl = it.stableUrl,
                         contentType = it.contentType,
                         providerSizeBytes = it.providerSizeBytes,
                         providerDigestSha256 = it.providerDigestSha256,
+                        providerCreatedAt = it.providerCreatedAt,
                     )
                 },
             ),
@@ -517,12 +563,13 @@ class ReleaseCheckRepository(
             isPrerelease = release.prerelease,
             isImmutable = release.immutable,
             releaseCreatedAt = release.createdAt,
-            publishedAt = requireNotNull(release.publishedAt),
+            publishedAt = release.publishedAt,
             assets = assets,
         )
+        val savedSelection = SavedAssetSelection.select(resolved.candidates, app.savedAssetSelectionJson)
         val state = when {
             assets.isEmpty() -> ReleaseCandidateState.NO_APK_ASSET
-            assets.size > 1 -> ReleaseCandidateState.ASSET_SELECTION_REQUIRED
+            assets.size > 1 && savedSelection == null -> ReleaseCandidateState.ASSET_SELECTION_REQUIRED
             exactVerified -> ReleaseCandidateState.VERIFIED_UPDATE_AVAILABLE
             app.managementMode == "VERIFICATION" -> ReleaseCandidateState.VERIFICATION_REQUIRED
             else -> ReleaseCandidateState.NEW_RELEASE_DISCOVERED
@@ -550,8 +597,8 @@ class ReleaseCheckRepository(
                 currentApp.trackingState != AppTrackingState.ACTIVE.name ||
                 currentApp.canonicalRepositoryUrl != app.canonicalRepositoryUrl ||
                 currentBinding == null ||
-                currentBinding.provider != PROVIDER ||
-                currentBinding.instance != INSTANCE ||
+                currentBinding.provider != provider.provider ||
+                currentBinding.instance != provider.instance ||
                 currentBinding.identityStatus != RepositoryIdentityStatus.VERIFIED.name ||
                 currentBinding.providerRepositoryId != providerRepositoryId ||
                 currentEffective == null ||
@@ -574,8 +621,8 @@ class ReleaseCheckRepository(
             val candidate = ReleaseCandidateEntity(
                 candidateId = existing?.candidateId ?: candidateId,
                 registeredAppId = app.registeredAppId,
-                provider = PROVIDER,
-                instance = INSTANCE,
+                provider = provider.provider,
+                instance = provider.instance,
                 providerRepositoryId = providerRepositoryId,
                 providerReleaseId = release.id,
                 tagName = release.tagName,
@@ -586,7 +633,7 @@ class ReleaseCheckRepository(
                 isPrerelease = release.prerelease,
                 isImmutable = release.immutable,
                 releaseCreatedAt = release.createdAt,
-                publishedAt = requireNotNull(release.publishedAt),
+                publishedAt = release.publishedAt,
                 assetsJson = json.encodeToString(assets),
                 observationSha256 = observation,
                 state = state.name,
@@ -611,6 +658,7 @@ class ReleaseCheckRepository(
 
     private suspend fun persistTerminal(
         app: RegisteredAppEntity,
+        provider: ProviderMetadataContext,
         providerRepositoryId: String,
         trigger: ReleaseCheckTrigger,
         effective: EffectiveReleaseCheckSettings,
@@ -633,8 +681,8 @@ class ReleaseCheckRepository(
                 currentApp.trackingState != AppTrackingState.ACTIVE.name ||
                 currentApp.canonicalRepositoryUrl != app.canonicalRepositoryUrl ||
                 currentBinding == null ||
-                currentBinding.provider != PROVIDER ||
-                currentBinding.instance != INSTANCE ||
+                currentBinding.provider != provider.provider ||
+                currentBinding.instance != provider.instance ||
                 currentBinding.identityStatus != RepositoryIdentityStatus.VERIFIED.name ||
                 currentBinding.providerRepositoryId != providerRepositoryId ||
                 currentEffective == null ||
@@ -663,6 +711,7 @@ class ReleaseCheckRepository(
 
     private suspend fun persistFailure(
         app: RegisteredAppEntity,
+        provider: ProviderMetadataContext,
         providerRepositoryId: String,
         trigger: ReleaseCheckTrigger,
         effective: EffectiveReleaseCheckSettings,
@@ -679,7 +728,9 @@ class ReleaseCheckRepository(
         val next = when {
             rateLimited -> failure.retryNotBefore?.takeIf { it.isAfter(finished) }
                 ?: finished.plus(1, ChronoUnit.HOURS)
-            transient && retry < RETRY_MINUTES.size -> finished.plus(RETRY_MINUTES[retry], ChronoUnit.MINUTES)
+            transient && retry < RETRY_MINUTES.size -> failure.retryNotBefore
+                ?.takeIf { it.isAfter(finished) }
+                ?: finished.plus(RETRY_MINUTES[retry], ChronoUnit.MINUTES)
             else -> ReleaseCheckPolicy.nextTerminalTime(effective, finished, zoneId())
         }
         val waiting = when {
@@ -692,8 +743,8 @@ class ReleaseCheckRepository(
             if (rateLimited) {
                 releaseDao.upsertCooldown(
                     ProviderCooldownEntity(
-                        provider = PROVIDER,
-                        instance = INSTANCE,
+                    provider = provider.provider,
+                    instance = provider.instance,
                         reason = failure.code,
                         notBefore = next.toString(),
                         rateLimitRemaining = failure.rateLimitRemaining,
@@ -713,8 +764,8 @@ class ReleaseCheckRepository(
                 currentApp.trackingState != AppTrackingState.ACTIVE.name ||
                 currentApp.canonicalRepositoryUrl != app.canonicalRepositoryUrl ||
                 currentBinding == null ||
-                currentBinding.provider != PROVIDER ||
-                currentBinding.instance != INSTANCE ||
+                currentBinding.provider != provider.provider ||
+                currentBinding.instance != provider.instance ||
                 currentBinding.identityStatus != RepositoryIdentityStatus.VERIFIED.name ||
                 currentBinding.providerRepositoryId != providerRepositoryId ||
                 currentEffective == null ||
@@ -831,7 +882,7 @@ class ReleaseCheckRepository(
         isPrerelease: Boolean,
         isImmutable: Boolean,
         releaseCreatedAt: String,
-        publishedAt: String,
+        publishedAt: String?,
         assets: List<ReleaseCandidateAsset>,
     ): Boolean {
         val snapshot = appDao.getReleaseSnapshot(registeredAppId, providerReleaseId) ?: return false
@@ -886,11 +937,15 @@ class ReleaseCheckRepository(
         releaseDao.getAllCandidates(app.registeredAppId).forEach { candidate ->
             val assets = runCatching { json.decodeFromString<List<ReleaseCandidateAsset>>(candidate.assetsJson) }
                 .getOrElse { throw IllegalStateException("Stored release candidate metadata is invalid.", it) }
+            val savedSelection = SavedAssetSelection.selectFilename(
+                assets.map(ReleaseCandidateAsset::name),
+                app.savedAssetSelectionJson,
+            )
             val state = when {
                 channel == ReleaseCheckChannel.STABLE_ONLY && candidate.isPrerelease ->
                     ReleaseCandidateState.OBSOLETE
                 assets.isEmpty() -> ReleaseCandidateState.NO_APK_ASSET
-                assets.size > 1 -> ReleaseCandidateState.ASSET_SELECTION_REQUIRED
+                assets.size > 1 && savedSelection == null -> ReleaseCandidateState.ASSET_SELECTION_REQUIRED
                 isAlreadyVerified(
                     registeredAppId = app.registeredAppId,
                     providerReleaseId = candidate.providerReleaseId,
@@ -914,13 +969,14 @@ class ReleaseCheckRepository(
         }
     }
 
-    private fun candidateAsset(candidate: ReleaseAssetCandidate) = ReleaseCandidateAsset(
+    private fun candidateAsset(candidate: ProviderAssetCandidate) = ReleaseCandidateAsset(
         providerAssetId = candidate.asset.id,
         name = candidate.asset.name,
         stableUrl = candidate.asset.browserDownloadUrl,
         contentType = candidate.asset.contentType,
         providerSizeBytes = candidate.asset.size,
         providerDigestSha256 = candidate.providerSha256,
+        providerCreatedAt = candidate.asset.providerCreatedAt,
     )
 
     private fun notificationType(state: ReleaseCandidateState): ReleaseNotificationType? = when (state) {
