@@ -165,7 +165,7 @@
     <string name="technical_source">Source</string>
     <string name="technical_latest_install_attempt">Latest install attempt</string>
     <string name="technical_installer_message">Installer message</string>
-    <string name="technical_repeat_docker_warning">This independent Job runs arbitrary Gradle code in docker-microg-v1. Bridge networking does not establish host or LAN isolation, and no hard Job disk quota is enforced. Runner-observed evidence is not a safety verdict or third-party attestation.</string>
+    <string name="technical_repeat_docker_warning">This independent Job runs arbitrary Gradle code in %1$s. Bridge networking does not establish host or LAN isolation, and no hard Job disk quota is enforced. Runner-observed evidence is not a safety verdict or third-party attestation.</string>
     <string name="technical_repeat_build_warning">Build A completed. The repeat Job independently resolved the same commit and fixed profile. Continuing runs Gradle build scripts again as arbitrary code on the Runner host.</string>
     <string name="technical_primary_build_warning">The commit and fixed release profile match. Continuing runs Gradle build scripts as arbitrary code on the Runner host.</string>
     <string name="technical_confirm_repeat">Confirm repeat build and RCE risk</string>

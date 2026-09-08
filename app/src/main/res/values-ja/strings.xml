@@ -165,7 +165,7 @@
     <string name="technical_source">インストール元</string>
     <string name="technical_latest_install_attempt">最新インストール試行</string>
     <string name="technical_installer_message">Installerメッセージ</string>
-    <string name="technical_repeat_docker_warning">この独立Jobはdocker-microg-v1内で任意のGradleコードを実行します。Bridge networkはhost／LAN isolationを保証せず、Jobの厳格なdisk quotaもありません。Runner観測証拠は安全判定でも第三者証明でもありません。</string>
+    <string name="technical_repeat_docker_warning">この独立Jobは%1$s内で任意のGradleコードを実行します。Bridge networkはhost／LAN isolationを保証せず、Jobの厳格なdisk quotaもありません。Runner観測証拠は安全判定でも第三者証明でもありません。</string>
     <string name="technical_repeat_build_warning">Build Aが完了しました。反復Jobは同じcommitと固定profileを独立に解決済みです。続行するとRunner host上でGradle build scriptを任意コードとして再実行します。</string>
     <string name="technical_primary_build_warning">commitと固定Release profileが一致しています。続行するとRunner host上でGradle build scriptを任意コードとして実行します。</string>
     <string name="technical_confirm_repeat">反復ビルドとRCEリスクを確認</string>

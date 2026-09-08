@@ -1152,7 +1152,10 @@ internal fun AppDetailScreen(
                                         sandboxWarnings[confirmationJobId] == null
                                     Text(
                                         if (confirmationJob?.sandboxMode == "DOCKER") {
-                                        stringResource(R.string.technical_repeat_docker_warning)
+                                        stringResource(
+                                            R.string.technical_repeat_docker_warning,
+                                            confirmationJob.sandboxProfileId ?: "unknown",
+                                        )
                                         } else if (comparison.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name) {
                                             stringResource(R.string.technical_repeat_build_warning)
                                         } else {

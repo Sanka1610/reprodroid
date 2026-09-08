@@ -42,6 +42,31 @@ class SandboxEvidenceTest {
         assertThrows(Exception::class.java) { validateBuildEnvironmentManifest("job", remote().copy(sandbox = dockerSelection().copy(cleanupStatus = SandboxCleanupStatus.PENDING)), manifest(), "now") }
     }
 
+    @Test fun `generic v1 evidence remains valid and v2 is accepted without profile mutation`() {
+        listOf(LEGACY_GENERIC_DOCKER_PROFILE_ID, GENERIC_DOCKER_PROFILE_ID).forEach { profileId ->
+            val evidence = genericEvidence(profileId)
+            validateSandboxEvidence(evidence)
+            assertEquals(evidence, decodeSandboxEvidence(sandboxEvidenceJson(evidence)))
+            val manifestText = sandboxManifestText(sandboxEvidenceJson(evidence))
+            assertTrue(manifestText.contains("JDK / SDK / Gradle"))
+            if (profileId == GENERIC_DOCKER_PROFILE_ID) {
+                assertTrue(manifestText.contains("/tmp 960 MiB noexec + /run/reprodroid-native 64 MiB exec (1 GiB total)"))
+            } else {
+                assertTrue(manifestText.contains("/tmp 1 GiB"))
+                assertFalse(manifestText.contains("/run/reprodroid-native"))
+            }
+            validateJobSandbox(genericSelection(profileId), ExecutionMode.REAL_TRUSTED, JobState.SUCCEEDED)
+        }
+
+        assertThrows(Exception::class.java) { validateSandboxEvidence(genericEvidence("docker-generic-v3")) }
+        assertThrows(Exception::class.java) {
+            validateSandboxRefresh(
+                remote().copy(sandbox = genericSelection(LEGACY_GENERIC_DOCKER_PROFILE_ID)).toJobEntity(null, 0),
+                remote().copy(sandbox = genericSelection(GENERIC_DOCKER_PROFILE_ID)),
+            )
+        }
+    }
+
     @Test fun `stored JSON cold start rejects unknown schema fields nulls and excessive engine text`() {
         val json = sandboxEvidenceJson(evidence())
         assertThrows(Exception::class.java) { decodeSandboxEvidence(json.dropLast(1) + ",\"unknown\":true}") }
@@ -67,9 +92,16 @@ class SandboxEvidenceTest {
     }
 
     private fun dockerSelection() = JobSandbox(BuildSandboxMode.DOCKER, SandboxOrigin.NEW_JOB, DOCKER_PROFILE_ID, SandboxCleanupStatus.COMPLETE)
+    private fun genericSelection(profileId: String) =
+        JobSandbox(BuildSandboxMode.DOCKER, SandboxOrigin.NEW_JOB, profileId, SandboxCleanupStatus.COMPLETE)
     private fun evidence() = SandboxEvidence(BuildSandboxMode.DOCKER, DOCKER_PROFILE_ID, DOCKER_IMAGE_DIGEST, "linux/amd64", "29.6.2", "BRIDGE",
         SandboxLimits(8, "0-7", 8_589_934_592, 8_589_934_592, 1024, 1_073_741_824),
         SandboxIsolation(1000, 1000, true, true, true, "DEFAULT", true, true, false, false))
+    private fun genericEvidence(profileId: String) = SandboxEvidence(
+        BuildSandboxMode.DOCKER, profileId, DOCKER_IMAGE_DIGEST, "linux/amd64", "29.6.2", "BRIDGE",
+        SandboxLimits(4, "0-3", 8_589_934_592, 8_589_934_592, 1024, 1_073_741_824),
+        SandboxIsolation(1000, 1000, true, true, true, "DEFAULT", true, true, false, false, true),
+    )
     private fun remote() = JobResponse(
         jobId = "job", executionMode = ExecutionMode.REAL_TRUSTED, repositoryUrl = "https://github.com/example/app",
         requestedRevision = RequestedRevision(RevisionType.TAG, "1.0"), resolvedCommitSha = "a".repeat(40),

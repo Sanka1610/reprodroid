@@ -37,9 +37,12 @@ data class SandboxEvidence(
 )
 
 internal const val DOCKER_PROFILE_ID = "docker-microg-v1"
-internal const val GENERIC_DOCKER_PROFILE_ID = "docker-generic-v1"
+internal const val LEGACY_GENERIC_DOCKER_PROFILE_ID = "docker-generic-v1"
+internal const val GENERIC_DOCKER_PROFILE_ID = "docker-generic-v2"
 internal const val DOCKER_IMAGE_DIGEST = "sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316"
 internal val SANDBOX_JSON = Json { ignoreUnknownKeys = false; explicitNulls = false; encodeDefaults = true }
+internal val GENERIC_DOCKER_PROFILE_IDS = setOf(LEGACY_GENERIC_DOCKER_PROFILE_ID, GENERIC_DOCKER_PROFILE_ID)
+private val SUPPORTED_DOCKER_PROFILE_IDS = setOf(DOCKER_PROFILE_ID) + GENERIC_DOCKER_PROFILE_IDS
 
 internal fun validateJobSandbox(sandbox: JobSandbox?, executionMode: ExecutionMode, state: JobState) {
     if (executionMode == ExecutionMode.SIMULATED) { require(sandbox == null); return }
@@ -47,7 +50,7 @@ internal fun validateJobSandbox(sandbox: JobSandbox?, executionMode: ExecutionMo
     when (sandbox.mode) {
         BuildSandboxMode.HOST -> require(sandbox.profileId == null && sandbox.cleanupStatus == null)
         BuildSandboxMode.DOCKER -> {
-            require(sandbox.origin == SandboxOrigin.NEW_JOB && sandbox.profileId in setOf(DOCKER_PROFILE_ID, GENERIC_DOCKER_PROFILE_ID) && sandbox.cleanupStatus != null)
+            require(sandbox.origin == SandboxOrigin.NEW_JOB && sandbox.profileId in SUPPORTED_DOCKER_PROFILE_IDS && sandbox.cleanupStatus != null)
             when (state) {
                 JobState.CREATED, JobState.RESOLVING_SOURCE, JobState.AWAITING_CONFIRMATION, JobState.QUEUED,
                 JobState.CLONING, JobState.SCANNING_SOURCE, JobState.AWAITING_SCAN_REVIEW -> require(sandbox.cleanupStatus == SandboxCleanupStatus.NOT_CREATED)
@@ -61,11 +64,11 @@ internal fun validateJobSandbox(sandbox: JobSandbox?, executionMode: ExecutionMo
 
 internal fun validateSandboxEvidence(evidence: SandboxEvidence) {
     if (evidence.mode == BuildSandboxMode.HOST) { require(evidence == SandboxEvidence(BuildSandboxMode.HOST)); return }
-    require(evidence.profileId in setOf(DOCKER_PROFILE_ID, GENERIC_DOCKER_PROFILE_ID) && evidence.imageDigest == DOCKER_IMAGE_DIGEST)
+    require(evidence.profileId in SUPPORTED_DOCKER_PROFILE_IDS && evidence.imageDigest == DOCKER_IMAGE_DIGEST)
     require(evidence.platform == "linux/amd64" && evidence.networkMode == "BRIDGE")
     val version = requireNotNull(evidence.engineVersion)
     require(version.isNotBlank() && version.toByteArray(Charsets.UTF_8).size <= 128 && version.all { it.code in 0x21..0x7e && it != '/' && it != '\\' })
-    val generic = evidence.profileId == GENERIC_DOCKER_PROFILE_ID
+    val generic = evidence.profileId in GENERIC_DOCKER_PROFILE_IDS
     val memory = requireNotNull(evidence.limits).memoryBytes
     if (generic) require(memory in setOf(8_589_934_592, 12_884_901_888))
     require(evidence.limits == if (generic) SandboxLimits(4, "0-3", memory, memory, 1024, 1_073_741_824)

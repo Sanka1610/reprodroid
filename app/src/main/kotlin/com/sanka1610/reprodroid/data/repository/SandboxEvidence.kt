@@ -61,10 +61,15 @@ fun sandboxManifestText(json: String?): String = try {
         val evidence = decodeSandboxEvidence(json)
         if (evidence.mode == BuildSandboxMode.HOST) "Execution: HOST (Runner-observed)" else {
             val limits = requireNotNull(evidence.limits)
-            val toolchains = if (evidence.profileId == GENERIC_DOCKER_PROFILE_ID) "JDK / SDK / Gradle" else "JDK / SDK"
+            val toolchains = if (evidence.profileId in GENERIC_DOCKER_PROFILE_IDS) "JDK / SDK / Gradle" else "JDK / SDK"
+            val tmpfs = if (evidence.profileId == GENERIC_DOCKER_PROFILE_ID) {
+                "/tmp 960 MiB noexec + /run/reprodroid-native 64 MiB exec (1 GiB total)"
+            } else {
+                "/tmp ${limits.tmpfsBytes / (1024L * 1024 * 1024)} GiB"
+            }
             "Execution: DOCKER ${evidence.profileId}, ${evidence.platform}, engine ${evidence.engineVersion}\n" +
                 "Image: ${evidence.imageDigest}\n" +
-                "${limits.cpuCount} CPUs (${limits.cpuset}), ${limits.memoryBytes / (1024L * 1024 * 1024)} GiB RAM / no extra swap, ${limits.pids} PIDs, /tmp ${limits.tmpfsBytes / (1024L * 1024 * 1024)} GiB\n" +
+                "${limits.cpuCount} CPUs (${limits.cpuset}), ${limits.memoryBytes / (1024L * 1024 * 1024)} GiB RAM / no extra swap, ${limits.pids} PIDs, $tmpfs\n" +
                 "UID/GID 1000; read-only root / $toolchains; cap-drop ALL; no-new-privileges; default seccomp; no Docker socket\n" +
                 "Bridge networking: host/LAN isolation is not established. No hard Job disk quota.\n" +
                 "Runner-observed evidence, not third-party attestation; raw APK comparison and trust are unchanged."
