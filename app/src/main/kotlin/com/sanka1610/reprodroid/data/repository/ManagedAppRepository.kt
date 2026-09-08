@@ -1515,14 +1515,11 @@ class ManagedAppRepository(
             "Refresh release metadata after changing variant or ABI settings."
         }
         val release = record.latestRelease ?: error("No resolved release is available.")
-        val asset = release.selectedAsset ?: error("No selected release APK is available.")
+        var asset = release.selectedAsset ?: error("No selected release APK is available.")
         check(asset.downloadStatus == ReferenceDownloadStatus.VERIFIED.name) {
             "The official reference APK must be verified before comparison."
         }
         storageManager.requirePresent("REFERENCE_APK", asset.releaseAssetId)
-        check(asset.comparisonEligibility != ComparisonEligibility.INCOMPARABLE.name) {
-            asset.incomparableReason ?: "The selected APK is not eligible for comparison."
-        }
         val sourceHead = dao.getAppSourceHead(registeredAppId)
             ?: error("Select a complete build configuration before starting a generic comparison.")
         val configurationRevision = sourceHead.selectedConfigurationRevision
@@ -1531,6 +1528,10 @@ class ManagedAppRepository(
             ?: error("The selected build configuration is missing.")
         check(storedConfiguration.validationState == com.sanka1610.reprodroid.data.local.BuildConfigurationValidationState.CONFIGURED.name) {
             "The selected build configuration is incomplete."
+        }
+        asset = restoreRetryableComparisonEligibility(asset)
+        check(asset.comparisonEligibility != ComparisonEligibility.INCOMPARABLE.name) {
+            asset.incomparableReason ?: "The selected APK is not eligible for comparison."
         }
         val configuration = BuildConfigurationValidator.decodeCanonical(
             storedConfiguration.canonicalJson,
@@ -2538,15 +2539,34 @@ class ManagedAppRepository(
                     completedAt = now,
                 ),
             )
-            dao.getReleaseAsset(run.referenceAssetId)?.let { asset ->
-                dao.upsertReleaseAsset(
-                    asset.copy(
-                        comparisonEligibility = ComparisonEligibility.INCOMPARABLE.name,
-                        incomparableReason = reason,
-                    ),
-                )
+            if (!isRetryableRunnerFailureReason(reason)) {
+                dao.getReleaseAsset(run.referenceAssetId)?.let { asset ->
+                    dao.upsertReleaseAsset(
+                        asset.copy(
+                            comparisonEligibility = ComparisonEligibility.INCOMPARABLE.name,
+                            incomparableReason = reason,
+                        ),
+                    )
+                }
             }
         }
+    }
+
+    private suspend fun restoreRetryableComparisonEligibility(
+        asset: ReleaseAssetEntity,
+    ): ReleaseAssetEntity {
+        if (asset.comparisonEligibility != ComparisonEligibility.INCOMPARABLE.name) return asset
+        val reason = asset.incomparableReason ?: return asset
+        if (!isRetryableRunnerFailureReason(reason)) return asset
+        val rawSha256 = asset.computedRawSha256 ?: return asset
+        if (!dao.hasCompletedIncomparableRun(asset.releaseAssetId, reason)) return asset
+        dao.restoreRetryableComparisonEligibility(
+            releaseAssetId = asset.releaseAssetId,
+            expectedReason = reason,
+            expectedRawSha256 = rawSha256,
+        )
+        return dao.getReleaseAsset(asset.releaseAssetId)
+            ?: error("The selected release APK disappeared while restoring comparison eligibility.")
     }
 
     private suspend fun markRepeatIncomparable(
@@ -3299,3 +3319,10 @@ class ManagedAppRepository(
         )
     }
 }
+
+internal fun isRetryableRunnerFailureReason(reason: String?): Boolean = reason in setOf(
+    "RUNNER_JOB_FAILED",
+    "RUNNER_JOB_CANCELLED",
+    "RUNNER_JOB_INTERRUPTED",
+    "RUNNER_JOB_MISSING",
+)

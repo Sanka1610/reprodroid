@@ -119,6 +119,7 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                 dependentTables.forEach { table ->
                     db.execSQL("CREATE TEMP TABLE migration22_backup_$table AS SELECT * FROM $table")
                 }
+                db.execSQL("CREATE TEMP TABLE migration22_backup_release_assets AS SELECT * FROM release_assets")
                 db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS release_snapshots_new (
@@ -163,73 +164,6 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                         fetchedAt, observationSha256, lastObservedAt, 1, NULL,
                         selectedProviderAssetId
                     FROM release_snapshots
-                    """.trimIndent(),
-                )
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS release_assets_new (
-                        releaseAssetId TEXT NOT NULL,
-                        releaseSnapshotId TEXT NOT NULL,
-                        providerAssetId TEXT NOT NULL,
-                        assetName TEXT NOT NULL,
-                        stableAssetUrl TEXT NOT NULL,
-                        selectionReason TEXT NOT NULL,
-                        contentType TEXT,
-                        providerSizeBytes INTEGER NOT NULL,
-                        providerDigestSha256 TEXT,
-                        providerCreatedAt TEXT,
-                        downloadStatus TEXT NOT NULL,
-                        downloadErrorCode TEXT,
-                        downloadErrorMessage TEXT,
-                        localContentPath TEXT,
-                        downloadedSizeBytes INTEGER,
-                        computedRawSha256 TEXT,
-                        responseEtag TEXT,
-                        downloadContentType TEXT,
-                        finalDownloadHost TEXT,
-                        packageName TEXT,
-                        versionName TEXT,
-                        versionCode INTEGER,
-                        signingCertificateSha256 TEXT,
-                        currentSignerSha256 TEXT,
-                        existingInstallStatus TEXT,
-                        installedVersionName TEXT,
-                        installedVersionCode INTEGER,
-                        updateStatus TEXT NOT NULL DEFAULT 'NOT_EVALUATED',
-                        updateEvaluatedAt TEXT,
-                        comparisonEligibility TEXT NOT NULL,
-                        incomparableReason TEXT,
-                        downloadedAt TEXT,
-                        PRIMARY KEY(releaseAssetId),
-                        FOREIGN KEY(releaseSnapshotId) REFERENCES release_snapshots_new(releaseSnapshotId)
-                            ON UPDATE NO ACTION ON DELETE CASCADE
-                    )
-                    """.trimIndent(),
-                )
-                db.execSQL(
-                    """
-                    INSERT INTO release_assets_new (
-                        releaseAssetId, releaseSnapshotId, providerAssetId, assetName,
-                        stableAssetUrl, selectionReason, contentType, providerSizeBytes,
-                        providerDigestSha256, providerCreatedAt, downloadStatus,
-                        downloadErrorCode, downloadErrorMessage, localContentPath,
-                        downloadedSizeBytes, computedRawSha256, responseEtag,
-                        downloadContentType, finalDownloadHost, packageName, versionName,
-                        versionCode, signingCertificateSha256, currentSignerSha256,
-                        existingInstallStatus, installedVersionName, installedVersionCode,
-                        updateStatus, updateEvaluatedAt, comparisonEligibility,
-                        incomparableReason, downloadedAt
-                    )
-                    SELECT releaseAssetId, releaseSnapshotId, providerAssetId, assetName,
-                        stableAssetUrl, selectionReason, contentType, providerSizeBytes,
-                        providerDigestSha256, NULL, downloadStatus, downloadErrorCode,
-                        downloadErrorMessage, localContentPath, downloadedSizeBytes,
-                        computedRawSha256, responseEtag, NULL, finalDownloadHost,
-                        packageName, versionName, versionCode, signingCertificateSha256,
-                        currentSignerSha256, existingInstallStatus, installedVersionName,
-                        installedVersionCode, updateStatus, updateEvaluatedAt,
-                        comparisonEligibility, incomparableReason, downloadedAt
-                    FROM release_assets
                     """.trimIndent(),
                 )
                 db.execSQL(
@@ -289,7 +223,75 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                 db.execSQL("DROP TABLE release_snapshots")
                 db.execSQL("DROP TABLE release_candidates")
                 db.execSQL("ALTER TABLE release_snapshots_new RENAME TO release_snapshots")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS release_assets_new (
+                        releaseAssetId TEXT NOT NULL,
+                        releaseSnapshotId TEXT NOT NULL,
+                        providerAssetId TEXT NOT NULL,
+                        assetName TEXT NOT NULL,
+                        stableAssetUrl TEXT NOT NULL,
+                        selectionReason TEXT NOT NULL,
+                        contentType TEXT,
+                        providerSizeBytes INTEGER NOT NULL,
+                        providerDigestSha256 TEXT,
+                        providerCreatedAt TEXT,
+                        downloadStatus TEXT NOT NULL,
+                        downloadErrorCode TEXT,
+                        downloadErrorMessage TEXT,
+                        localContentPath TEXT,
+                        downloadedSizeBytes INTEGER,
+                        computedRawSha256 TEXT,
+                        responseEtag TEXT,
+                        downloadContentType TEXT,
+                        finalDownloadHost TEXT,
+                        packageName TEXT,
+                        versionName TEXT,
+                        versionCode INTEGER,
+                        signingCertificateSha256 TEXT,
+                        currentSignerSha256 TEXT,
+                        existingInstallStatus TEXT,
+                        installedVersionName TEXT,
+                        installedVersionCode INTEGER,
+                        updateStatus TEXT NOT NULL DEFAULT 'NOT_EVALUATED',
+                        updateEvaluatedAt TEXT,
+                        comparisonEligibility TEXT NOT NULL,
+                        incomparableReason TEXT,
+                        downloadedAt TEXT,
+                        PRIMARY KEY(releaseAssetId),
+                        FOREIGN KEY(releaseSnapshotId) REFERENCES release_snapshots(releaseSnapshotId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO release_assets_new (
+                        releaseAssetId, releaseSnapshotId, providerAssetId, assetName,
+                        stableAssetUrl, selectionReason, contentType, providerSizeBytes,
+                        providerDigestSha256, providerCreatedAt, downloadStatus,
+                        downloadErrorCode, downloadErrorMessage, localContentPath,
+                        downloadedSizeBytes, computedRawSha256, responseEtag,
+                        downloadContentType, finalDownloadHost, packageName, versionName,
+                        versionCode, signingCertificateSha256, currentSignerSha256,
+                        existingInstallStatus, installedVersionName, installedVersionCode,
+                        updateStatus, updateEvaluatedAt, comparisonEligibility,
+                        incomparableReason, downloadedAt
+                    )
+                    SELECT releaseAssetId, releaseSnapshotId, providerAssetId, assetName,
+                        stableAssetUrl, selectionReason, contentType, providerSizeBytes,
+                        providerDigestSha256, NULL, downloadStatus, downloadErrorCode,
+                        downloadErrorMessage, localContentPath, downloadedSizeBytes,
+                        computedRawSha256, responseEtag, NULL, finalDownloadHost,
+                        packageName, versionName, versionCode, signingCertificateSha256,
+                        currentSignerSha256, existingInstallStatus, installedVersionName,
+                        installedVersionCode, updateStatus, updateEvaluatedAt,
+                        comparisonEligibility, incomparableReason, downloadedAt
+                    FROM migration22_backup_release_assets
+                    """.trimIndent(),
+                )
                 db.execSQL("ALTER TABLE release_assets_new RENAME TO release_assets")
+                db.execSQL("DROP TABLE migration22_backup_release_assets")
                 db.execSQL("ALTER TABLE release_candidates_new RENAME TO release_candidates")
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_release_snapshots_registeredAppId " +
@@ -329,7 +331,16 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                     db.execSQL("DROP TABLE migration22_backup_$table")
                 }
                 db.query("PRAGMA foreign_key_check").use { cursor ->
-                    check(!cursor.moveToFirst()) { "Room22 migration produced an invalid foreign-key reference." }
+                    if (cursor.moveToFirst()) {
+                        val table = cursor.getString(0)
+                        val rowId = cursor.getLong(1)
+                        val parent = cursor.getString(2)
+                        val foreignKeyId = cursor.getLong(3)
+                        error(
+                            "Room22 migration produced an invalid foreign-key reference: " +
+                                "table=$table rowId=$rowId parent=$parent foreignKeyId=$foreignKeyId",
+                        )
+                    }
                 }
             }
         }

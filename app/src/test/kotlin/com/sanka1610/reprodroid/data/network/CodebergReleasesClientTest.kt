@@ -6,7 +6,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -27,6 +29,31 @@ class CodebergReleasesClientTest {
             assertThrows(InvalidCodebergRepositoryException::class.java) {
                 CodebergRepositoryParser.parse(invalid)
             }
+        }
+    }
+
+    @Test
+    fun `release download URL normalizes only repository identity casing`() {
+        val repository = CodebergRepository("unifiedpush", "android-example")
+
+        assertTrue(
+            isExactCodebergReleaseDownloadUrl(
+                repository,
+                "Release-V1",
+                "Example-Main.apk",
+                "https://codeberg.org/UnifiedPush/Android-Example/releases/download/Release-V1/Example-Main.apk",
+            ),
+        )
+        listOf(
+            "https://codeberg.org/other/android-example/releases/download/Release-V1/Example-Main.apk",
+            "https://codeberg.org/UnifiedPush/other/releases/download/Release-V1/Example-Main.apk",
+            "https://codeberg.org/UnifiedPush/Android-Example/Releases/download/Release-V1/Example-Main.apk",
+            "https://codeberg.org/UnifiedPush/Android-Example/releases/Download/Release-V1/Example-Main.apk",
+            "https://codeberg.org/UnifiedPush/Android-Example/releases/download/release-v1/Example-Main.apk",
+            "https://codeberg.org/UnifiedPush/Android-Example/releases/download/Release-V1/example-main.apk",
+            "https://codeberg.org/UnifiedPush/Android-Example/releases/download/Release-V1/Example-Main.apk?download=1",
+        ).forEach { unsafe ->
+            assertFalse(unsafe, isExactCodebergReleaseDownloadUrl(repository, "Release-V1", "Example-Main.apk", unsafe))
         }
     }
 

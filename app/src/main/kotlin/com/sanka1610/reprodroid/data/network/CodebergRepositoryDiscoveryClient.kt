@@ -189,7 +189,9 @@ class CodebergRepositoryDiscoveryClient(
             )
             if (fullSha(response.sha) != treeSha) invalid("A Codeberg tree response SHA does not match the requested tree.")
             val responsePage = response.page ?: invalid("A Codeberg tree response omitted page.")
-            val responsePerPage = response.perPage ?: invalid("A Codeberg tree response omitted per_page.")
+            // Codeberg does not currently echo the requested per_page value.
+            // The client-owned request size remains the fail-closed page bound.
+            val responsePerPage = response.perPage ?: TREE_PAGE_SIZE
             val responseTotal = response.totalCount ?: invalid("A Codeberg tree response omitted total_count.")
             if (response.truncated == null) invalid("A Codeberg tree response omitted truncated.")
             if (responsePage != page || responsePerPage !in 1..TREE_PAGE_SIZE || responseTotal < 0) {
@@ -203,10 +205,14 @@ class CodebergRepositoryDiscoveryClient(
                 if (!names.add(entry.path)) invalid("A Codeberg tree contains a duplicate entry name.")
                 entries += entry
             }
+            if (entries.size > responseTotal) invalid("A Codeberg tree returned more entries than total_count.")
             if (entries.size.toLong() > MAX_ENTRIES || responseTotal.toLong() > MAX_ENTRIES) {
                 throw CodebergDiscoveryLimitException("LIMIT_ENTRIES")
             }
-            if (entries.size >= responseTotal && !response.truncated) return entries
+            // Codeberg can keep `truncated=true` on the final non-empty page even when the
+            // accumulated page entries exactly equal its stable total_count. The exact count,
+            // not that advisory flag, is therefore the bounded completion condition.
+            if (entries.size == responseTotal) return entries
             if (response.tree.isEmpty()) invalid("A Codeberg tree pagination response made no progress.")
             if (page >= MAX_TREE_PAGES) throw CodebergDiscoveryLimitException("LIMIT_PAGES")
             page++

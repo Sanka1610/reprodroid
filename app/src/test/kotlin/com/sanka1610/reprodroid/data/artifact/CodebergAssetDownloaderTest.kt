@@ -84,6 +84,42 @@ class CodebergAssetDownloaderTest {
     }
 
     @Test
+    fun `download accepts provider display casing for the verified repository identity`() = runBlocking {
+        val bytes = "apk-placeholder".toByteArray()
+        var requests = 0
+        val engine = MockEngine {
+            requests++
+            respond(
+                content = bytes,
+                status = HttpStatusCode.OK,
+                headers = headersOf(
+                    HttpHeaders.ContentType to listOf("application/vnd.android.package-archive"),
+                    HttpHeaders.ContentLength to listOf(bytes.size.toString()),
+                ),
+            )
+        }
+        val destination = Files.createTempFile("codeberg-display-case", ".part.apk").toFile()
+        try {
+            val result = CodebergAssetDownloader(engine).download(
+                stableAssetUrl = "https://codeberg.org/UnifiedPush/Android-Example/releases/download/v1/project.apk",
+                expectedSizeBytes = bytes.size.toLong(),
+                expectedProviderSha256 = null,
+                destinationPart = destination,
+                policy = CodebergAssetDownloadPolicy(
+                    repository = CodebergRepository("unifiedpush", "android-example"),
+                    tagName = "v1",
+                    assetName = "project.apk",
+                ),
+            )
+
+            assertEquals(1, requests)
+            assertEquals(bytes.size.toLong(), result.bytesWritten)
+        } finally {
+            destination.delete()
+        }
+    }
+
+    @Test
     fun `download binds the exact repository release asset path before making a request`() {
         var requests = 0
         val engine = MockEngine {

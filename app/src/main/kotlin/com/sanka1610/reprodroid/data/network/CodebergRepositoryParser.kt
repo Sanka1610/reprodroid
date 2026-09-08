@@ -81,7 +81,16 @@ internal fun isExactCodebergReleaseDownloadUrl(
 ): Boolean {
     val uri = runCatching { URI(value) }.getOrNull() ?: return false
     val segments = uri.path?.removePrefix("/")?.split('/') ?: return false
-    val expected = listOf(repository.owner, repository.name, "releases", "download", tagName, assetName)
+    val repositoryIdentityMatches = segments.size == 6 &&
+        CODEBERG_ROUTE_COMPONENT.matches(segments[0]) &&
+        CODEBERG_ROUTE_COMPONENT.matches(segments[1]) &&
+        segments[0].equals(repository.owner, ignoreCase = true) &&
+        segments[1].equals(repository.name, ignoreCase = true)
+    val releaseAssetPathMatches = segments.size == 6 &&
+        segments[2] == "releases" &&
+        segments[3] == "download" &&
+        segments[4] == tagName &&
+        segments[5] == assetName
     return uri.scheme?.lowercase() == "https" &&
         uri.host?.lowercase() == "codeberg.org" &&
         uri.userInfo == null &&
@@ -89,8 +98,11 @@ internal fun isExactCodebergReleaseDownloadUrl(
         uri.query == null &&
         uri.fragment == null &&
         !Regex("%(?:2f|5c|2e)", RegexOption.IGNORE_CASE).containsMatchIn(uri.rawPath.orEmpty()) &&
-        segments == expected &&
+        repositoryIdentityMatches &&
+        releaseAssetPathMatches &&
         segments.none { segment ->
             segment.isEmpty() || segment == "." || segment == ".." || segment.any(Char::isISOControl)
         }
 }
+
+private val CODEBERG_ROUTE_COMPONENT = Regex("[A-Za-z0-9_.-]+")

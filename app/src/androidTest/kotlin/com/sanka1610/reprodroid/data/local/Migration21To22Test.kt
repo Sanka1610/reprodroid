@@ -133,9 +133,12 @@ class Migration21To22Test {
                 """
                 INSERT INTO advanced_comparison_summaries (
                     comparisonRunId, registeredAppId, axis, inventoryOutcome,
-                    dexStructuralOutcome, manifestSemanticOutcome, resourceTableSemanticOutcome
+                    dexStructuralOutcome, manifestSemanticOutcome, resourceTableSemanticOutcome,
+                    reason, entryCount, sameCount, changedCount, addedCount, missingCount,
+                    semanticDifferenceCount
                 ) VALUES (
-                    'comparison-22', 'app-22', 'OFFICIAL_PRIMARY', 'MATCH', 'MATCH', 'MATCH', 'MATCH'
+                    'comparison-22', 'app-22', 'OFFICIAL_PRIMARY', 'MATCH', 'MATCH', 'MATCH', 'MATCH',
+                    NULL, 1, 1, 0, 0, 0, 0
                 )
                 """.trimIndent(),
             )
@@ -176,6 +179,7 @@ class Migration21To22Test {
                 )
                 """.trimIndent(),
             )
+            assertNoForeignKeyViolations(this)
             close()
         }
 
@@ -210,7 +214,15 @@ class Migration21To22Test {
                     assertTrue(cursor.isNull(0))
                 }
             migrated.query("PRAGMA foreign_key_check").use { cursor -> assertFalse(cursor.moveToFirst()) }
+            migrated.query("PRAGMA foreign_key_list(release_assets)").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("release_snapshots", cursor.getString(2))
+            }
         }
+    }
+
+    private fun assertNoForeignKeyViolations(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+        database.query("PRAGMA foreign_key_check").use { cursor -> assertFalse(cursor.moveToFirst()) }
     }
 
     private fun assertRowCount(

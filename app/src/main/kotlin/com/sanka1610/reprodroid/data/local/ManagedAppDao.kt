@@ -174,6 +174,16 @@ interface ManagedAppDao {
     @Query("SELECT * FROM comparison_runs WHERE comparisonRunId = :comparisonRunId")
     suspend fun getComparisonRun(comparisonRunId: String): ComparisonRunEntity?
 
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM comparison_runs " +
+            "WHERE referenceAssetId = :releaseAssetId AND status = 'COMPLETED' " +
+            "AND outcome = 'INCOMPARABLE' AND incomparableReason = :reason)",
+    )
+    suspend fun hasCompletedIncomparableRun(
+        releaseAssetId: String,
+        reason: String,
+    ): Boolean
+
     @Query("SELECT * FROM comparison_entries WHERE comparisonRunId = :comparisonRunId ORDER BY entryName")
     suspend fun getComparisonEntries(comparisonRunId: String): List<ComparisonEntryEntity>
 
@@ -227,6 +237,18 @@ interface ManagedAppDao {
 
     @Upsert
     suspend fun upsertReleaseAsset(asset: ReleaseAssetEntity)
+
+    @Query(
+        "UPDATE release_assets SET comparisonEligibility = 'READY_FOR_COMPARISON', incomparableReason = NULL " +
+            "WHERE releaseAssetId = :releaseAssetId AND downloadStatus = 'VERIFIED' " +
+            "AND comparisonEligibility = 'INCOMPARABLE' AND incomparableReason = :expectedReason " +
+            "AND computedRawSha256 = :expectedRawSha256",
+    )
+    suspend fun restoreRetryableComparisonEligibility(
+        releaseAssetId: String,
+        expectedReason: String,
+        expectedRawSha256: String,
+    ): Int
 
     @Query(
         "UPDATE release_assets SET downloadStatus = 'FAILED', downloadErrorCode = :errorCode, " +

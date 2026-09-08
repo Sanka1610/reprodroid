@@ -1084,6 +1084,12 @@ private fun UiRAddFlowScreen(
                             true,
                         )
                         UiRDetailValue(stringResource(R.string.add_discovery_state), resolved.discovery.state)
+                        resolved.discovery.reason?.let { reason ->
+                            UiRDetailValue(
+                                stringResource(R.string.technical_discovery_reason),
+                                listOfNotNull(reason, resolved.discovery.diagnostic).joinToString(": "),
+                            )
+                        }
                         UiRDetailValue(
                             stringResource(R.string.add_gradle_candidates),
                             resolved.discovery.candidates.size.toString(),
