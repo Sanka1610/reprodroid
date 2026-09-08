@@ -1,13 +1,23 @@
 package com.sanka1610.reprodroid.data.network
 
+import com.sanka1610.reprodroid.BuildConfig
+import com.sanka1610.reprodroid.data.connection.FixedRunnerTrustManager
+import com.sanka1610.reprodroid.data.connection.RunnerClientTransportMode
+import com.sanka1610.reprodroid.data.connection.RunnerConnectionRegistry
+import com.sanka1610.reprodroid.data.connection.RunnerTransportContext
+import com.sanka1610.reprodroid.data.connection.RunnerTransportPolicy
+import com.sanka1610.reprodroid.data.connection.SelfRevokeResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpSend
+import io.ktor.client.plugins.plugin
 import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.prepareGet
@@ -54,18 +64,43 @@ class RunnerApiClient(
     baseUrl: String,
     engine: HttpClientEngine? = null,
     private val allowDevelopmentV2: Boolean = false,
-) {
-    private val runnerBaseUrl = baseUrl.trim().trimEnd('/').also(::validateBaseUrl)
-    private val client = if (engine == null) HttpClient(CIO) { configure() } else HttpClient(engine) { configure() }
+    private val allowDevelopmentHttp: Boolean = BuildConfig.DEBUG,
+) : AutoCloseable {
+    private val registry = RunnerConnectionRegistry(baseUrl)
+    private val injectedEngine = engine
+    @Volatile private var activeSession: ClientSession? = null
+    private var removeRetirementListener = registry.onSessionRetired(::retireSession)
 
-    suspend fun createJob(request: CreateJobRequest): CreateJobResponse =
+    init {
+        validateBaseUrl(baseUrl)
+    }
+
+    constructor(
+        registry: RunnerConnectionRegistry,
+        allowDevelopmentHttp: Boolean,
+        engine: HttpClientEngine? = null,
+    ) : this("", engine, allowDevelopmentV2 = allowDevelopmentHttp, allowDevelopmentHttp = allowDevelopmentHttp) {
+        this.externalRegistry = registry
+        this.externalAllowDevelopmentHttp = allowDevelopmentHttp
+        removeRetirementListener()
+        removeRetirementListener = registry.onSessionRetired(::retireSession)
+    }
+
+    private var externalRegistry: RunnerConnectionRegistry? = null
+    private var externalAllowDevelopmentHttp: Boolean? = null
+    private val effectiveRegistry: RunnerConnectionRegistry get() = externalRegistry ?: registry
+    private val developmentHttpAllowed: Boolean get() = externalAllowDevelopmentHttp ?: allowDevelopmentHttp
+    private val client: HttpClient get() = currentSession().client
+
+    suspend fun createJob(request: CreateJobRequest, expectedRunnerId: String? = null): CreateJobResponse =
         client.post(endpoint("/v1/jobs")) {
+            bindRunner(expectedRunnerId)
             contentType(ContentType.Application.Json)
             setBody(request)
         }.successBody()
 
-    suspend fun getJob(jobId: String): JobResponse =
-        client.prepareGet(endpoint("/v1/jobs/$jobId")).execute { response ->
+    suspend fun getJob(jobId: String, expectedRunnerId: String? = null): JobResponse =
+        client.prepareGet(endpoint("/v1/jobs/$jobId")) { bindRunner(expectedRunnerId) }.execute { response ->
             val text = response.boundedUtf8Body(1_048_576, "job")
             try {
                 val node = SANDBOX_JSON.parseToJsonElement(text).jsonObject
@@ -79,16 +114,17 @@ class RunnerApiClient(
             }
         }
 
-    suspend fun getLogs(jobId: String, afterSequence: Long, limit: Int = 200): LogResponse =
+    suspend fun getLogs(jobId: String, afterSequence: Long, limit: Int = 200, expectedRunnerId: String? = null): LogResponse =
         client.get(endpoint("/v1/jobs/$jobId/logs")) {
+            bindRunner(expectedRunnerId)
             url {
                 parameters.append("afterSequence", afterSequence.toString())
                 parameters.append("limit", limit.toString())
             }
         }.successBody()
 
-    suspend fun getBuildEnvironmentManifest(jobId: String): BuildEnvironmentManifestResponse =
-        client.prepareGet(endpoint("/v1/jobs/$jobId/build-environment-manifest"))
+    suspend fun getBuildEnvironmentManifest(jobId: String, expectedRunnerId: String? = null): BuildEnvironmentManifestResponse =
+        client.prepareGet(endpoint("/v1/jobs/$jobId/build-environment-manifest")) { bindRunner(expectedRunnerId) }
             .execute { response ->
                 val jsonText = response.boundedUtf8Body(
                     maximumBytes = MAX_BUILD_MANIFEST_RESPONSE_BYTES,
@@ -105,8 +141,8 @@ class RunnerApiClient(
                 }
             }
 
-    suspend fun getSourceScan(jobId: String): SourceScanDetailResponse =
-        client.prepareGet(endpoint("/v1/jobs/$jobId/source-scan"))
+    suspend fun getSourceScan(jobId: String, expectedRunnerId: String? = null): SourceScanDetailResponse =
+        client.prepareGet(endpoint("/v1/jobs/$jobId/source-scan")) { bindRunner(expectedRunnerId) }
             .execute { response ->
                 val jsonText = response.boundedUtf8Body(
                     maximumBytes = MAX_SOURCE_SCAN_RESPONSE_BYTES,
@@ -121,35 +157,37 @@ class RunnerApiClient(
                 }
             }
 
-    suspend fun confirmJob(jobId: String, request: ConfirmJobRequest) {
+    suspend fun confirmJob(jobId: String, request: ConfirmJobRequest, expectedRunnerId: String? = null) {
         client.post(endpoint("/v1/jobs/$jobId/confirm")) {
+            bindRunner(expectedRunnerId)
             contentType(ContentType.Application.Json)
             setBody(request)
         }.ensureSuccess()
     }
 
-    suspend fun continueSourceScan(jobId: String, request: ContinueSourceScanRequest) {
+    suspend fun continueSourceScan(jobId: String, request: ContinueSourceScanRequest, expectedRunnerId: String? = null) {
         client.post(endpoint("/v1/jobs/$jobId/source-scan/continue")) {
+            bindRunner(expectedRunnerId)
             contentType(ContentType.Application.Json)
             setBody(request)
         }.ensureSuccess()
     }
 
-    suspend fun cancelJob(jobId: String) {
-        client.post(endpoint("/v1/jobs/$jobId/cancel")).ensureSuccess()
+    suspend fun cancelJob(jobId: String, expectedRunnerId: String? = null) {
+        client.post(endpoint("/v1/jobs/$jobId/cancel")) { bindRunner(expectedRunnerId) }.ensureSuccess()
     }
 
-    suspend fun retryJob(jobId: String): CreateJobResponse =
-        client.post(endpoint("/v1/jobs/$jobId/retry")).successBody()
+    suspend fun retryJob(jobId: String, expectedRunnerId: String? = null): CreateJobResponse =
+        client.post(endpoint("/v1/jobs/$jobId/retry")) { bindRunner(expectedRunnerId) }.successBody()
 
-    suspend fun createGenericBuild(request: GenericBuildCreateRequest, idempotencyKey: String): CreateJobResponse =
+    suspend fun createGenericBuild(request: GenericBuildCreateRequest, idempotencyKey: String, expectedRunnerId: String? = null): CreateJobResponse =
         v2Mutation<GenericBuildCreateRequest, CreateJobResponse>(
-            "/v2/builds", request, idempotencyKey, V2_GENERIC_BUILD_CONTRACT,
+            "/v2/builds", request, idempotencyKey, V2_GENERIC_BUILD_CONTRACT, expectedRunnerId,
         )
 
-    suspend fun getGenericBuild(jobId: String): GenericBuildResponse {
+    suspend fun getGenericBuild(jobId: String, expectedRunnerId: String? = null): GenericBuildResponse {
         requireCanonicalUuid(jobId, "jobId")
-        return client.prepareGet(endpoint("/v2/builds/$jobId")).execute { response ->
+        return client.prepareGet(endpoint("/v2/builds/$jobId")) { bindRunner(expectedRunnerId) }.execute { response ->
             response.v2Body<GenericBuildResponse>().also { generic ->
                 checkV2(generic.job.jobId == jobId && generic.job.genericBuild == generic.genericBuild)
                 validateGenericBuild(generic.genericBuild)
@@ -159,31 +197,32 @@ class RunnerApiClient(
         }
     }
 
-    suspend fun confirmGenericBuild(jobId: String, request: ConfirmJobRequest, idempotencyKey: String) {
+    suspend fun confirmGenericBuild(jobId: String, request: ConfirmJobRequest, idempotencyKey: String, expectedRunnerId: String? = null) {
         requireCanonicalUuid(jobId, "jobId")
-        v2MutationNoResponse("/v2/builds/$jobId:confirm", request, idempotencyKey, V2_GENERIC_BUILD_CONTRACT)
+        v2MutationNoResponse("/v2/builds/$jobId:confirm", request, idempotencyKey, V2_GENERIC_BUILD_CONTRACT, expectedRunnerId)
     }
 
-    suspend fun continueGenericSourceScan(jobId: String, request: ContinueSourceScanRequest, idempotencyKey: String) {
+    suspend fun continueGenericSourceScan(jobId: String, request: ContinueSourceScanRequest, idempotencyKey: String, expectedRunnerId: String? = null) {
         requireCanonicalUuid(jobId, "jobId")
-        v2MutationNoResponse("/v2/builds/$jobId:scan-continue", request, idempotencyKey, V2_GENERIC_BUILD_CONTRACT)
+        v2MutationNoResponse("/v2/builds/$jobId:scan-continue", request, idempotencyKey, V2_GENERIC_BUILD_CONTRACT, expectedRunnerId)
     }
 
-    suspend fun cancelGenericBuild(jobId: String, idempotencyKey: String) {
+    suspend fun cancelGenericBuild(jobId: String, idempotencyKey: String, expectedRunnerId: String? = null) {
         requireCanonicalUuid(jobId, "jobId")
-        v2MutationNoResponse("/v2/builds/$jobId:cancel", EmptyV2Request(), idempotencyKey, V2_GENERIC_BUILD_CONTRACT)
+        v2MutationNoResponse("/v2/builds/$jobId:cancel", EmptyV2Request(), idempotencyKey, V2_GENERIC_BUILD_CONTRACT, expectedRunnerId)
     }
 
     suspend fun createGenericComparison(
         request: CreateGenericComparisonRequest,
         idempotencyKey: String,
+        expectedRunnerId: String? = null,
     ): GenericComparisonResponse = v2Mutation<CreateGenericComparisonRequest, GenericComparisonResponse>(
-        "/v2/comparisons", request, idempotencyKey, V2_APK_COMPARISON_CONTRACT,
+        "/v2/comparisons", request, idempotencyKey, V2_APK_COMPARISON_CONTRACT, expectedRunnerId,
     ).also(::validateGenericComparison)
 
-    suspend fun getGenericComparison(comparisonId: String): GenericComparisonResponse {
+    suspend fun getGenericComparison(comparisonId: String, expectedRunnerId: String? = null): GenericComparisonResponse {
         requireCanonicalUuid(comparisonId, "comparisonId")
-        return client.prepareGet(endpoint("/v2/comparisons/$comparisonId")).execute { response ->
+        return client.prepareGet(endpoint("/v2/comparisons/$comparisonId")) { bindRunner(expectedRunnerId) }.execute { response ->
             response.v2Body<GenericComparisonResponse>().also(::validateGenericComparison)
         }
     }
@@ -191,6 +230,7 @@ class RunnerApiClient(
     suspend fun retryGenericResource(
         comparisonId: String,
         idempotencyKey: String,
+        expectedRunnerId: String? = null,
     ): GenericResourceRetryResponse {
         requireCanonicalUuid(comparisonId, "comparisonId")
         return v2Mutation<EmptyV2Request, GenericResourceRetryResponse>(
@@ -198,12 +238,24 @@ class RunnerApiClient(
             EmptyV2Request(),
             idempotencyKey,
             V2_APK_COMPARISON_CONTRACT,
+            expectedRunnerId,
         ).also(::validateGenericResourceRetry)
     }
 
     suspend fun getV2Capabilities(): V2CapabilitiesResponse =
         client.prepareGet(endpoint("/v2/capabilities")).execute { response ->
             response.v2Body<V2CapabilitiesResponse>().also(::validateCapabilities)
+        }
+
+    internal suspend fun selfRevoke(): SelfRevokeResponse =
+        client.post(endpoint("/v2/authentication/self-revoke")) {
+            contentType(ContentType.Application.Json)
+            setBody(emptyMap<String, String>())
+        }.v2Body<SelfRevokeResponse>().also { response ->
+            if (
+                response.schemaVersion != 1 || response.runnerId != activeRunnerId() ||
+                response.state != "REVOKED" || runCatching { Instant.parse(response.revokedAt) }.isFailure
+            ) throw RunnerResponseIntegrityException("Runner self-revocation response is invalid.")
         }
 
     suspend fun getV2Operation(operationId: String): V2OperationResponse {
@@ -306,8 +358,9 @@ class RunnerApiClient(
         ).also(::validateOperation)
     }
 
-    suspend fun downloadArtifact(jobId: String, artifactId: String, destination: File): ArtifactDownloadResponse =
+    suspend fun downloadArtifact(jobId: String, artifactId: String, destination: File, expectedRunnerId: String? = null): ArtifactDownloadResponse =
         client.prepareGet(endpoint("/v1/jobs/$jobId/artifacts/$artifactId/content")) {
+            bindRunner(expectedRunnerId)
             timeout {
                 requestTimeoutMillis = DOWNLOAD_REQUEST_TIMEOUT_MILLIS
                 socketTimeoutMillis = DOWNLOAD_SOCKET_TIMEOUT_MILLIS
@@ -336,7 +389,7 @@ class RunnerApiClient(
             )
         }
 
-    private fun io.ktor.client.HttpClientConfig<*>.configure() {
+    private fun io.ktor.client.HttpClientConfig<*>.configure(context: RunnerTransportContext) {
         expectSuccess = false
         followRedirects = false
         install(HttpTimeout) {
@@ -354,6 +407,40 @@ class RunnerApiClient(
         }
     }
 
+    private fun secureClient(client: HttpClient, context: RunnerTransportContext): HttpClient = client.also { created ->
+        created.plugin(HttpSend).intercept { request ->
+                if (effectiveRegistry.current() !== context) {
+                    throw RunnerConfigurationException("Runner connection changed before request dispatch.")
+                }
+                val expectedBinding = request.headers[INTERNAL_RUNNER_BINDING_HEADER]
+                request.headers.remove(INTERNAL_RUNNER_BINDING_HEADER)
+                if (
+                    expectedBinding != null &&
+                    ((expectedBinding == DEVELOPMENT_BINDING && context.mode != RunnerClientTransportMode.DEVELOPMENT_HTTP) ||
+                        (expectedBinding != DEVELOPMENT_BINDING && context.runnerId != expectedBinding))
+                ) {
+                    throw RunnerConfigurationException("Runner request does not match the stored resource binding.")
+                }
+                val configured = RunnerTransportPolicy.parseEndpoint(context.endpoint)
+                val actualPort = request.url.port
+                val expectedPort = configured.port
+                val firstPathSegment = request.url.encodedPathSegments.firstOrNull(String::isNotEmpty)
+                if (
+                    request.url.protocol.name.lowercase() != configured.scheme.lowercase() ||
+                    !request.url.host.equals(configured.host, ignoreCase = true) ||
+                    actualPort != expectedPort ||
+                    firstPathSegment !in setOf("v1", "v2")
+                ) {
+                    throw RunnerConfigurationException("Runner request origin does not match its immutable connection session.")
+                }
+                if (context.mode == RunnerClientTransportMode.PAIRED_HTTPS) {
+                    request.headers.remove(HttpHeaders.Authorization)
+                    request.headers.append(HttpHeaders.Authorization, "Bearer ${requireNotNull(context.bearerToken)}")
+                }
+            execute(request)
+        }
+    }
+
     private suspend inline fun <reified T> HttpResponse.successBody(): T {
         ensureSuccess()
         return body()
@@ -364,9 +451,11 @@ class RunnerApiClient(
         request: Request,
         idempotencyKey: String,
         contract: String = V2_STORAGE_CONTRACT,
+        expectedRunnerId: String? = null,
     ): Response {
         requireCanonicalUuid(idempotencyKey, "Idempotency-Key")
         return client.post(endpoint(path)) {
+            bindRunner(expectedRunnerId)
             contentType(ContentType.Application.Json)
             header(V2_CONTRACT_HEADER, contract)
             header(V2_IDEMPOTENCY_HEADER, idempotencyKey)
@@ -379,9 +468,11 @@ class RunnerApiClient(
         request: Request,
         idempotencyKey: String,
         contract: String,
+        expectedRunnerId: String? = null,
     ) {
         requireCanonicalUuid(idempotencyKey, "Idempotency-Key")
         client.post(endpoint(path)) {
+            bindRunner(expectedRunnerId)
             contentType(ContentType.Application.Json)
             header(V2_CONTRACT_HEADER, contract)
             header(V2_IDEMPOTENCY_HEADER, idempotencyKey)
@@ -454,18 +545,19 @@ class RunnerApiClient(
     }
 
     private fun endpoint(path: String): String {
-        if (runnerBaseUrl.isBlank()) {
-            throw RunnerConfigurationException("Runner base URL is not configured for this build.")
+        val context = effectiveRegistry.current()
+            ?: throw RunnerConfigurationException("No active Runner connection is configured.")
+        if (path.startsWith("/v2/") && context.mode == RunnerClientTransportMode.DEVELOPMENT_HTTP) {
+            requireDevelopmentV2Transport(context)
         }
-        if (path.startsWith("/v2/")) requireDevelopmentV2Transport()
-        return runnerBaseUrl + path
+        return context.endpoint + path
     }
 
-    private fun requireDevelopmentV2Transport() {
+    private fun requireDevelopmentV2Transport(context: RunnerTransportContext) {
         if (!allowDevelopmentV2) {
             throw RunnerConfigurationException("Runner API v2 development access is disabled for this build.")
         }
-        val host = URI(runnerBaseUrl).host?.lowercase()
+        val host = URI(context.endpoint).host?.lowercase()
         if (host !in setOf("127.0.0.1", "localhost", "::1")) {
             throw RunnerConfigurationException(
                 "Runner API v2 is limited to the loopback development transport before pairing is implemented.",
@@ -491,6 +583,69 @@ class RunnerApiClient(
                 "Runner base URL must contain only an HTTP(S) scheme, host, and optional port.",
             )
         }
+    }
+
+    private fun currentSession(): ClientSession {
+        val context = effectiveRegistry.current()
+            ?: throw RunnerConfigurationException("No active Runner connection is configured.")
+        try {
+            RunnerTransportPolicy.validate(context)
+        } catch (_: IllegalArgumentException) {
+            throw RunnerConfigurationException("Runner transport configuration is invalid.")
+        }
+        if (context.mode == RunnerClientTransportMode.DEVELOPMENT_HTTP && !developmentHttpAllowed) {
+            throw RunnerConfigurationException("This build refuses every HTTP Runner endpoint.")
+        }
+        activeSession?.takeIf { it.context === context }?.let { return it }
+        return synchronized(this) {
+            activeSession?.takeIf { it.context === context } ?: createSession(context).also { replacement ->
+                activeSession?.client?.close()
+                activeSession = replacement
+            }
+        }
+    }
+
+    private fun createSession(context: RunnerTransportContext): ClientSession {
+        val httpClient = if (injectedEngine != null) {
+            HttpClient(injectedEngine) { configure(context) }
+        } else {
+            HttpClient(CIO) {
+                if (context.mode == RunnerClientTransportMode.PAIRED_HTTPS) {
+                    val host = RunnerTransportPolicy.parseEndpoint(context.endpoint).host
+                    engine {
+                        https {
+                            trustManager = FixedRunnerTrustManager(
+                                endpointHost = host,
+                                rootPin = requireNotNull(context.rootSpkiSha256),
+                                expectedRootCertificateDer = requireNotNull(context.rootCertificateDer),
+                            )
+                        }
+                    }
+                }
+                configure(context)
+            }
+        }
+        return ClientSession(context, secureClient(httpClient, context))
+    }
+
+    fun activeRunnerId(): String? = effectiveRegistry.current()?.runnerId
+
+    override fun close() {
+        removeRetirementListener()
+        retireSession()
+    }
+
+    private fun retireSession() {
+        synchronized(this) {
+            activeSession?.client?.close()
+            activeSession = null
+        }
+    }
+
+    private data class ClientSession(val context: RunnerTransportContext, val client: HttpClient)
+
+    private fun HttpRequestBuilder.bindRunner(expectedRunnerId: String?) {
+        expectedRunnerId?.let { header(INTERNAL_RUNNER_BINDING_HEADER, it) }
     }
 
     private fun validateCapabilities(response: V2CapabilitiesResponse) {
@@ -685,6 +840,8 @@ class RunnerApiClient(
         const val V2_GENERIC_BUILD_CONTRACT = "generic-build@1"
         const val V2_APK_COMPARISON_CONTRACT = "apk-comparison@1"
         const val V2_IDEMPOTENCY_HEADER = "Idempotency-Key"
+        const val INTERNAL_RUNNER_BINDING_HEADER = "X-ReproDroid-Internal-Runner-Binding"
+        const val DEVELOPMENT_BINDING = "local-development"
         val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         val SHA256 = Regex("[0-9a-f]{64}")
         val DECIMAL = Regex("0|[1-9][0-9]*")

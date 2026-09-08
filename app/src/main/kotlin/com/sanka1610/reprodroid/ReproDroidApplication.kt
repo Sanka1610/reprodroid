@@ -5,6 +5,8 @@ import androidx.room.Room
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.local.DatabaseMigrationGate
 import com.sanka1610.reprodroid.data.network.RunnerApiClient
+import com.sanka1610.reprodroid.data.connection.RunnerConnectionRegistry
+import com.sanka1610.reprodroid.data.connection.RunnerConnectionRepository
 import com.sanka1610.reprodroid.data.repository.JobRepository
 import com.sanka1610.reprodroid.data.repository.ManagedAppRepository
 import com.sanka1610.reprodroid.data.repository.ReleaseCheckRepository
@@ -37,6 +39,8 @@ class ReproDroidApplication : Application() {
         private set
     lateinit var releaseCheckRepository: ReleaseCheckRepository
         private set
+    lateinit var runnerConnectionRepository: RunnerConnectionRepository
+        private set
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -45,7 +49,7 @@ class ReproDroidApplication : Application() {
         DatabaseMigrationGate.prepare(
             context = applicationContext,
             databaseName = "reprodroid.sqlite3",
-            targetVersion = 20,
+            targetVersion = 21,
         )
         val database = Room.databaseBuilder(
             applicationContext,
@@ -71,12 +75,23 @@ class ReproDroidApplication : Application() {
             ReproDroidDatabase.MIGRATION_17_18,
             ReproDroidDatabase.MIGRATION_18_19,
             ReproDroidDatabase.MIGRATION_19_20,
+            ReproDroidDatabase.MIGRATION_20_21,
         ).build()
         storageManager = AndroidStorageManager(applicationContext, database)
         cleanupManager = AndroidCleanupManager(applicationContext, database)
+        val runnerRegistry = RunnerConnectionRegistry(null)
         val runnerApi = RunnerApiClient(
-            BuildConfig.RUNNER_BASE_URL,
-            allowDevelopmentV2 = BuildConfig.DEBUG,
+            registry = runnerRegistry,
+            allowDevelopmentHttp = BuildConfig.DEBUG,
+        )
+        runnerConnectionRepository = RunnerConnectionRepository(
+            context = applicationContext,
+            database = database,
+            registry = runnerRegistry,
+            runnerApi = runnerApi,
+            applicationScope = applicationScope,
+            developmentEndpoint = BuildConfig.RUNNER_BASE_URL,
+            allowDevelopmentHttp = BuildConfig.DEBUG,
         )
         retentionCoordinator = RunnerRetentionCoordinator(database, runnerApi)
         toolchainCoordinator = ToolchainCoordinator(database, runnerApi)
@@ -96,7 +111,11 @@ class ReproDroidApplication : Application() {
             retentionCoordinator = retentionCoordinator,
         )
         releaseCheckRepository = ReleaseCheckRepository(applicationContext, database)
-        JobSyncWorker.schedule(this)
+        applicationScope.launch {
+            runCatching { runnerConnectionRepository.initialize() }
+                .onFailure { runnerConnectionRepository.reportInitializationFailure() }
+            JobSyncWorker.schedule(this@ReproDroidApplication)
+        }
         applicationScope.launch {
             releaseCheckRepository.ensureInitialized()
             ReleaseCheckScheduler.enqueueDelivery(applicationContext)

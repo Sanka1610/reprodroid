@@ -60,6 +60,13 @@ interface JobDao {
     @Upsert
     suspend fun upsertJob(job: JobEntity)
 
+    /** A newly returned remote ID must never replace existing local history, even across concurrent writers. */
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertNewJob(job: JobEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertNewJobs(jobs: List<JobEntity>)
+
     @Upsert
     suspend fun upsertJobs(jobs: List<JobEntity>)
 

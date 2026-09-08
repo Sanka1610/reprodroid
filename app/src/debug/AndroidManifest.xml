@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Android 16 local-network-protection opt-in acceptance only; target SDK 37 uses ACCESS_LOCAL_NETWORK later. -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="33" />
     <permission
         android:name="com.sanka1610.reprodroid.permission.AUDIT_TEST_DESTINATION"
         android:protectionLevel="signature" />
 
-    <application>
+    <application
+        android:usesCleartextTraffic="true"
+        tools:replace="android:usesCleartextTraffic">
         <provider
             android:name="com.sanka1610.reprodroid.data.local.WritableAuditDestinationProvider"
             android:authorities="com.sanka1610.reprodroid.debug.audit-destination"
