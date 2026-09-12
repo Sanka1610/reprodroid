@@ -259,7 +259,7 @@
     <string name="data_android_deletion_note">Complete Android registration deletion is available only for tracking-removed records and does not delete Runner data.</string>
     <string name="data_runner_separate">Runner storage and retention</string>
     <string name="data_runner_note">Runner cleanup is previewed and executed independently. Android and Runner deletion are never reported as one atomic result.</string>
-    <string name="data_log_export">Log export · unavailable until Phase 4.8</string>
+    <string name="data_log_export">Export Android operational logs</string>
     <string name="deletion_preview_title">Complete deletion preview</string>
     <string name="deletion_preview_body">This permanently deletes the selected local registration and its audit history. Runner data is managed separately.</string>
     <string name="deletion_release_count">Release observations: %1$d</string>
@@ -351,7 +351,8 @@
     <string name="runner_local_delete_confirm">This deletes only the app-private key envelope and Runner reference. It does not claim or request Runner-side revocation.</string>
     <string name="action_delete">Delete</string>
     <string name="settings_integrations">Integrations</string>
-    <string name="settings_backup">Backup</string>
+    <string name="settings_log_export">Operational log export</string>
+    <string name="settings_licenses">Licenses and third-party notices</string>
     <string name="settings_debug">Diagnostics</string>
     <string name="settings_storage">Storage, cleanup, and audit export</string>
     <string name="settings_runner">Runner</string>
@@ -418,8 +419,11 @@
     <string name="storage_reason">Reason</string>
     <string name="planned_phase">Planned for Phase %1$s</string>
     <string name="planned_unavailable">Not available in UI-R</string>
-    <string name="planned_updates_body">Scheduled metadata checks, release channels, constraints, and notifications will connect here.</string>
-    <string name="planned_backup_body">Encrypted backup, restore, and log export will connect here. Audit export remains a separate function.</string>
+    <string name="planned_updates_body">Configure scheduled metadata checks, release channels, constraints, and notifications here.</string>
+    <string name="log_export_scope">Exports only ReproDroid Android operational events as UTF-8 text through a user-selected destination. Runner build logs and OS logcat are not included.</string>
+    <string name="log_export_missing_warning">The store is intentionally bounded and rotates at 4 MiB, so older records may be missing. If the selected provider fails after opening the destination, an incomplete file may remain; ReproDroid will not show it as saved.</string>
+    <string name="log_export_sensitive_warning">Review the file before sharing. Operational messages are structured and secret-safe, but this export is not an anonymized diagnostic package.</string>
+    <string name="log_export_migration_warning">Logs remain app-private and are not migrated between release and debug data stores. Changing app data or moving from an old debug package can lose old logs; ReproDroid provides no backup or restore.</string>
     <string name="github_stars_title">Import GitHub Stars</string>
     <string name="github_stars_body">Repository selection and import will connect after the Phase 4.5 provider queue and rate-limit foundation.</string>
     <string name="future_update_schedule">Enable scheduled checks</string>
@@ -465,9 +469,15 @@
         <item quantity="one">%d hour</item>
         <item quantity="other">%d hours</item>
     </plurals>
-    <string name="future_backup_create">Create encrypted backup</string>
-    <string name="future_backup_restore">Restore encrypted backup</string>
-    <string name="future_log_export">Export logs</string>
+    <string name="log_export_choose_destination">Save operational logs</string>
+    <string name="log_export_saved">Operational log export saved</string>
+    <string name="log_export_records">Records: %1$d</string>
+    <string name="log_export_size">Size: %1$s</string>
+    <string name="log_export_rotated_included">The rotated log generation was included.</string>
+    <string name="log_export_clear_result">Dismiss export result</string>
+    <string name="licenses_intro">License texts and third-party attribution notices are bundled in this APK and can be read offline. The list is informational; verify the exact artifact metadata before redistribution.</string>
+    <string name="licenses_loading">Loading bundled license texts…</string>
+    <string name="licenses_load_error">The bundled license documents could not be read. No network fallback is used.</string>
     <string name="future_stars_select_import">Select and import GitHub repositories</string>
     <string name="add_title">Add from source</string>
     <string name="add_source_phase">1. Source</string>

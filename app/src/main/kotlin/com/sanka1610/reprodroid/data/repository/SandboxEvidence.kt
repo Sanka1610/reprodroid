@@ -62,7 +62,10 @@ fun sandboxManifestText(json: String?): String = try {
         if (evidence.mode == BuildSandboxMode.HOST) "Execution: HOST (Runner-observed)" else {
             val limits = requireNotNull(evidence.limits)
             val toolchains = if (evidence.profileId in GENERIC_DOCKER_PROFILE_IDS) "JDK / SDK / Gradle" else "JDK / SDK"
-            val tmpfs = if (evidence.profileId == GENERIC_DOCKER_PROFILE_ID) {
+            val tmpfs = if (evidence.profileId in setOf(
+                    GENERIC_DOCKER_PROFILE_ID,
+                    DETACHED_GIT_GENERIC_DOCKER_PROFILE_ID,
+                )) {
                 "/tmp 960 MiB noexec + /run/reprodroid-native 64 MiB exec (1 GiB total)"
             } else {
                 "/tmp ${limits.tmpfsBytes / (1024L * 1024 * 1024)} GiB"

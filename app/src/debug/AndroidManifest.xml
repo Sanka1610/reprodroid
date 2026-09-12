@@ -7,7 +7,7 @@
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="33" />
     <permission
-        android:name="com.sanka1610.reprodroid.permission.AUDIT_TEST_DESTINATION"
+        android:name="${applicationId}.permission.PHASE48_AUDIT_TEST_DESTINATION"
         android:protectionLevel="signature" />
 
     <application
@@ -15,9 +15,9 @@
         tools:replace="android:usesCleartextTraffic">
         <provider
             android:name="com.sanka1610.reprodroid.data.local.WritableAuditDestinationProvider"
-            android:authorities="com.sanka1610.reprodroid.debug.audit-destination"
+            android:authorities="${applicationId}.phase48-audit-destination"
             android:exported="true"
-            android:readPermission="com.sanka1610.reprodroid.permission.AUDIT_TEST_DESTINATION"
-            android:writePermission="com.sanka1610.reprodroid.permission.AUDIT_TEST_DESTINATION" />
+            android:readPermission="${applicationId}.permission.PHASE48_AUDIT_TEST_DESTINATION"
+            android:writePermission="${applicationId}.permission.PHASE48_AUDIT_TEST_DESTINATION" />
     </application>
 </manifest>

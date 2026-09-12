@@ -1,3 +1,6 @@
+import org.cyclonedx.gradle.CyclonedxDirectTask
+import org.cyclonedx.model.Component
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -25,8 +28,8 @@ android {
         applicationId = "com.sanka1610.reprodroid"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-alpha01"
+        versionCode = 3
+        versionName = "0.1.0-alpha03"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "RUNNER_BASE_URL", buildConfigString(runnerBaseUrlOverride.orEmpty()))
@@ -34,6 +37,7 @@ android {
 
     buildTypes {
         debug {
+            applicationIdSuffix = ".debug"
             buildConfigField(
                 "String",
                 "RUNNER_BASE_URL",
@@ -80,6 +84,12 @@ ksp {
 // Both variants export the same Room schema file. Serialize first-time generation to avoid a truncated JSON race.
 tasks.matching { it.name == "kspReleaseKotlin" }.configureEach {
     mustRunAfter("kspDebugKotlin")
+}
+
+tasks.named<CyclonedxDirectTask>("cyclonedxDirectBom") {
+    includeConfigs = listOf("releaseRuntimeClasspath")
+    projectType = Component.Type.APPLICATION
+    includeLicenseText = true
 }
 
 dependencies {

@@ -18,6 +18,7 @@ import com.sanka1610.reprodroid.data.repository.BuildConfigurationInput
 import com.sanka1610.reprodroid.data.repository.AppDeletionPreview
 import com.sanka1610.reprodroid.data.repository.AppDeletionResult
 import com.sanka1610.reprodroid.data.repository.ExistingPrimaryRegistration
+import com.sanka1610.reprodroid.data.log.AppLogExportResult
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupPreview
 import com.sanka1610.reprodroid.data.storage.AndroidStorageSummary
 import com.sanka1610.reprodroid.data.storage.StagedAuditExport
@@ -56,6 +57,8 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     private val cleanupManager = reprodroidApplication.cleanupManager
     private val retentionCoordinator = reprodroidApplication.retentionCoordinator
     private val auditExportManager = reprodroidApplication.auditExportManager
+    private val appLogStore = reprodroidApplication.appLogStore
+    private val appLogExportManager = reprodroidApplication.appLogExportManager
     private val toolchainCoordinator = reprodroidApplication.toolchainCoordinator
     private val releaseCheckRepository = reprodroidApplication.releaseCheckRepository
     private val runnerConnectionRepository = reprodroidApplication.runnerConnectionRepository
@@ -153,6 +156,8 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     val storageBusy = _storageBusy.asStateFlow()
     private val _auditExport = MutableStateFlow<StagedAuditExport?>(null)
     val auditExport = _auditExport.asStateFlow()
+    private val _appLogExport = MutableStateFlow<AppLogExportResult?>(null)
+    val appLogExport = _appLogExport.asStateFlow()
 
     private val _preview = MutableStateFlow(RepositoryPreviewState())
     val preview = _preview.asStateFlow()
@@ -547,6 +552,15 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch { releaseCheckRepository.markCandidateSeen(candidateId) }
     }
 
+    fun openReleaseCandidate(
+        registeredAppId: String,
+        candidateId: String,
+        onReady: () -> Unit,
+    ) = runAppAction(registeredAppId) {
+        releaseCheckRepository.stageCandidateForManualAction(candidateId)
+        onReady()
+    }
+
     fun refreshStorage() = runStorageAction {
         storageManager.reconcileAvailability()
         cleanupManager.reconcileInterruptedRuns()
@@ -606,6 +620,19 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         _auditExport.value = null
     }
 
+    fun exportAppLogs(destination: Uri) = runStorageAction {
+        val result = appLogExportManager.exportTo(destination)
+        _appLogExport.value = result
+        appLogStore.info(
+            "LOG_EXPORT_COMPLETED",
+            "records=${result.recordCount} bytes=${result.sizeBytes}",
+        )
+    }
+
+    fun clearAppLogExport() {
+        _appLogExport.value = null
+    }
+
     fun refreshToolchains() = runToolchainAction { toolchainCoordinator.refresh() }
 
     fun installToolchains(acceptedLicenseIds: Set<String>) = runToolchainAction {
@@ -636,6 +663,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
+                appLogStore.error("APP_ACTION_FAILED", failure::class.simpleName.orEmpty())
                 _message.value = failure.userMessage()
             } finally {
                 _activeAppIds.value -= registeredAppId
@@ -652,6 +680,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
+                appLogStore.error("STORAGE_ACTION_FAILED", failure::class.simpleName.orEmpty())
                 _message.value = failure.userMessage()
             } finally {
                 _storageBusy.value = false
@@ -666,6 +695,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
+                appLogStore.error("TOOLCHAIN_ACTION_FAILED", failure::class.simpleName.orEmpty())
                 _message.value = failure.userMessage()
             }
         }
@@ -678,6 +708,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
+                appLogStore.error("GROUP_ACTION_FAILED", failure::class.simpleName.orEmpty())
                 _message.value = failure.userMessage()
             }
         }

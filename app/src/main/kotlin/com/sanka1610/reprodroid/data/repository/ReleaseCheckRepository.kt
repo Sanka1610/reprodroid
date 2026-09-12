@@ -19,6 +19,7 @@ import com.sanka1610.reprodroid.MainActivity
 import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.local.AppReleaseCheckOverrideEntity
 import com.sanka1610.reprodroid.data.local.AppTrackingState
+import com.sanka1610.reprodroid.data.local.AssetSelectionReason
 import com.sanka1610.reprodroid.data.local.ComparisonOutcome
 import com.sanka1610.reprodroid.data.local.NotificationDedupHeaderEntity
 import com.sanka1610.reprodroid.data.local.NotificationOutboxEntity
@@ -26,6 +27,7 @@ import com.sanka1610.reprodroid.data.local.NotificationOutboxState
 import com.sanka1610.reprodroid.data.local.ProviderCooldownEntity
 import com.sanka1610.reprodroid.data.local.RegisteredAppEntity
 import com.sanka1610.reprodroid.data.local.RepositoryIdentityStatus
+import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateEntity
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateState
 import com.sanka1610.reprodroid.data.local.ReleaseCheckChannel
@@ -35,6 +37,7 @@ import com.sanka1610.reprodroid.data.local.ReleaseCheckScheduleMode
 import com.sanka1610.reprodroid.data.local.ReleaseCheckSettingsEntity
 import com.sanka1610.reprodroid.data.local.ReleaseCheckTrigger
 import com.sanka1610.reprodroid.data.local.ReleaseCheckWaitingReason
+import com.sanka1610.reprodroid.data.local.ReleaseDiscoveryStatus
 import com.sanka1610.reprodroid.data.local.ReleaseNotificationType
 import com.sanka1610.reprodroid.data.local.ReleaseObservationCandidate
 import com.sanka1610.reprodroid.data.local.ReleaseObservationHasher
@@ -42,6 +45,7 @@ import com.sanka1610.reprodroid.data.local.ReleaseObservationInput
 import com.sanka1610.reprodroid.data.local.ReleaseMetadataObservationCandidate
 import com.sanka1610.reprodroid.data.local.ReleaseMetadataObservationInput
 import com.sanka1610.reprodroid.data.local.ReleaseScheduleStateEntity
+import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.local.UpdateStatus
 import com.sanka1610.reprodroid.data.provider.GitHubReleaseMetadataClient
@@ -309,6 +313,111 @@ class ReleaseCheckRepository(
 
     suspend fun markCandidateSeen(candidateId: String) = releaseDao.markCandidateSeen(candidateId)
 
+    suspend fun stageCandidateForManualAction(candidateId: String) {
+        val candidate = releaseDao.getCandidate(candidateId)
+            ?: throw IllegalArgumentException("Release candidate was not found.")
+        val app = appDao.getRegisteredApp(candidate.registeredAppId)
+            ?: throw IllegalArgumentException("Registered app was not found.")
+        check(app.trackingState == AppTrackingState.ACTIVE.name) {
+            "Resume tracking before opening a release candidate."
+        }
+        val latestCandidate = releaseDao.getCandidates(candidate.registeredAppId).firstOrNull()
+        check(latestCandidate?.candidateId == candidateId) {
+            "Only the latest release candidate can be opened for a manual action."
+        }
+        val binding = appDao.getRepositoryBinding(candidate.registeredAppId)
+            ?: throw IllegalStateException("Repository identity is not available.")
+        check(
+            binding.identityStatus == RepositoryIdentityStatus.VERIFIED.name &&
+                binding.provider == candidate.provider &&
+                binding.instance == candidate.instance &&
+                binding.providerRepositoryId == candidate.providerRepositoryId,
+        ) { "The release candidate no longer matches the verified repository identity." }
+        val assets = runCatching {
+            json.decodeFromString<List<ReleaseCandidateAsset>>(candidate.assetsJson)
+        }.getOrElse { throw IllegalStateException("Stored release candidate metadata is invalid.", it) }
+        check(assets.isNotEmpty()) { "The release candidate has no APK to select." }
+
+        database.withTransaction {
+            val currentCandidate = releaseDao.getCandidate(candidateId)
+            val currentLatestCandidate = releaseDao.getCandidates(candidate.registeredAppId).firstOrNull()
+            val currentApp = appDao.getRegisteredApp(candidate.registeredAppId)
+            val currentBinding = appDao.getRepositoryBinding(candidate.registeredAppId)
+            check(
+                currentCandidate == candidate &&
+                    currentLatestCandidate?.candidateId == candidateId &&
+                    currentApp?.trackingState == AppTrackingState.ACTIVE.name &&
+                    currentBinding == binding,
+            ) { "The release candidate or repository identity changed while it was being opened." }
+
+            val existingSnapshot = appDao.getLatestReleaseSnapshotByMetadataHash(
+                candidate.registeredAppId,
+                candidate.observationSha256,
+            ) ?: appDao.getReleaseSnapshotByObservationHash(
+                candidate.registeredAppId,
+                candidate.observationSha256,
+            )
+            val snapshotId = existingSnapshot?.releaseSnapshotId
+                ?: stableUuid("${candidate.registeredAppId}/release-observation/${candidate.observationSha256}")
+            if (existingSnapshot == null) {
+                appDao.upsertReleaseSnapshot(
+                    ReleaseSnapshotEntity(
+                        releaseSnapshotId = snapshotId,
+                        registeredAppId = candidate.registeredAppId,
+                        providerReleaseId = candidate.providerReleaseId,
+                        tagName = candidate.tagName,
+                        resolvedCommitSha = candidate.resolvedCommitSha,
+                        releaseName = candidate.releaseName,
+                        releaseUrl = candidate.releaseUrl,
+                        targetCommitishRaw = candidate.targetCommitishRaw,
+                        isDraft = false,
+                        isPrerelease = candidate.isPrerelease,
+                        isImmutable = candidate.isImmutable,
+                        releaseCreatedAt = candidate.releaseCreatedAt,
+                        publishedAt = candidate.publishedAt,
+                        fetchedAt = candidate.lastSeenAt,
+                        observationSha256 = candidate.observationSha256,
+                        lastObservedAt = candidate.lastSeenAt,
+                        observationSchemaVersion = 2,
+                        metadataObservationSha256 = candidate.observationSha256,
+                        selectedProviderAssetId = null,
+                    ),
+                )
+            }
+            assets.forEach { asset ->
+                if (appDao.getReleaseAsset(snapshotId, asset.providerAssetId) == null) {
+                    appDao.upsertReleaseAsset(
+                        ReleaseAssetEntity(
+                            releaseAssetId = stableUuid("$snapshotId/asset/${asset.providerAssetId}"),
+                            releaseSnapshotId = snapshotId,
+                            providerAssetId = asset.providerAssetId,
+                            assetName = asset.name,
+                            stableAssetUrl = asset.stableUrl,
+                            selectionReason = AssetSelectionReason.MANUAL_SELECTION_REQUIRED.name,
+                            contentType = asset.contentType,
+                            providerSizeBytes = asset.providerSizeBytes,
+                            providerDigestSha256 = asset.providerDigestSha256,
+                            providerCreatedAt = asset.providerCreatedAt,
+                        ),
+                    )
+                }
+            }
+            appDao.upsertRegisteredApp(
+                requireNotNull(currentApp).copy(
+                    releaseDiscoveryStatus = if (existingSnapshot?.selectedProviderAssetId == null) {
+                        ReleaseDiscoveryStatus.AWAITING_ASSET_SELECTION.name
+                    } else {
+                        ReleaseDiscoveryStatus.AVAILABLE.name
+                    },
+                    releaseDiscoveryErrorCode = null,
+                    releaseDiscoveryErrorMessage = null,
+                    updatedAt = clock.instant().toString(),
+                ),
+            )
+            releaseDao.markCandidateSeen(candidateId)
+        }
+    }
+
     suspend fun deliverPendingNotifications(limit: Int = 20): Int {
         createNotificationChannel()
         var processed = 0
@@ -496,10 +605,6 @@ class ReleaseCheckRepository(
                         effective,
                         result,
                         started,
-                    )
-                    else -> throw ReleaseMetadataException(
-                        "INVALID_METADATA",
-                        message = "The provider returned an unsupported metadata result.",
                     )
                 }
             } catch (cancelled: CancellationException) {

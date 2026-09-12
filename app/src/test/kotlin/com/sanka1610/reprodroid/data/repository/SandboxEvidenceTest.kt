@@ -42,14 +42,18 @@ class SandboxEvidenceTest {
         assertThrows(Exception::class.java) { validateBuildEnvironmentManifest("job", remote().copy(sandbox = dockerSelection().copy(cleanupStatus = SandboxCleanupStatus.PENDING)), manifest(), "now") }
     }
 
-    @Test fun `generic v1 evidence remains valid and v2 is accepted without profile mutation`() {
-        listOf(LEGACY_GENERIC_DOCKER_PROFILE_ID, GENERIC_DOCKER_PROFILE_ID).forEach { profileId ->
+    @Test fun `generic v1 and v2 evidence remain valid and v3 is accepted without profile mutation`() {
+        listOf(
+            LEGACY_GENERIC_DOCKER_PROFILE_ID,
+            GENERIC_DOCKER_PROFILE_ID,
+            DETACHED_GIT_GENERIC_DOCKER_PROFILE_ID,
+        ).forEach { profileId ->
             val evidence = genericEvidence(profileId)
             validateSandboxEvidence(evidence)
             assertEquals(evidence, decodeSandboxEvidence(sandboxEvidenceJson(evidence)))
             val manifestText = sandboxManifestText(sandboxEvidenceJson(evidence))
             assertTrue(manifestText.contains("JDK / SDK / Gradle"))
-            if (profileId == GENERIC_DOCKER_PROFILE_ID) {
+            if (profileId in setOf(GENERIC_DOCKER_PROFILE_ID, DETACHED_GIT_GENERIC_DOCKER_PROFILE_ID)) {
                 assertTrue(manifestText.contains("/tmp 960 MiB noexec + /run/reprodroid-native 64 MiB exec (1 GiB total)"))
             } else {
                 assertTrue(manifestText.contains("/tmp 1 GiB"))
@@ -58,7 +62,7 @@ class SandboxEvidenceTest {
             validateJobSandbox(genericSelection(profileId), ExecutionMode.REAL_TRUSTED, JobState.SUCCEEDED)
         }
 
-        assertThrows(Exception::class.java) { validateSandboxEvidence(genericEvidence("docker-generic-v3")) }
+        assertThrows(Exception::class.java) { validateSandboxEvidence(genericEvidence("docker-generic-v4")) }
         assertThrows(Exception::class.java) {
             validateSandboxRefresh(
                 remote().copy(sandbox = genericSelection(LEGACY_GENERIC_DOCKER_PROFILE_ID)).toJobEntity(null, 0),

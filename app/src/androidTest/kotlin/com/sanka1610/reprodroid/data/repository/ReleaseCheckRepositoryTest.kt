@@ -32,6 +32,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -175,12 +176,96 @@ class ReleaseCheckRepositoryTest {
         )
 
         val outcome = repository.checkNow(appId)
-        val candidate = database.releaseCheckDao().getCandidates(appId).single()
-
         assertEquals(ReleaseCheckOutcome.NEW_RELEASE_DISCOVERED, outcome)
+        val candidate = database.releaseCheckDao().getCandidates(appId).single()
         assertEquals(ReleaseCandidateState.NEW_RELEASE_DISCOVERED.name, candidate.state)
         assertNotEquals(ReleaseCandidateState.VERIFIED_UPDATE_AVAILABLE.name, candidate.state)
         assertNotNull(database.managedAppDao().getReleaseSnapshot(snapshotId))
+    }
+
+    @Test
+    fun openingLatestCandidateStagesMetadataWithoutSelectingOrDownloadingAnApk() = runBlocking {
+        val commitSha = "d".repeat(40)
+        val provider = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/repos/example/project/releases/latest" -> MULTI_ASSET_RELEASE_JSON
+                "/repos/example/project/git/ref/tags/v2" ->
+                    """{"ref":"refs/tags/v2","object":{"type":"commit","sha":"$commitSha","url":"unused"}}"""
+                else -> error("Unexpected request: ${request.url}")
+            }
+            respond(body, HttpStatusCode.OK, JSON_HEADERS)
+        }
+        val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        databases += database
+        val appId = "app-stage"
+        database.managedAppDao().upsertRegisteredApp(
+            RegisteredAppEntity(
+                registeredAppId = appId,
+                displayName = "Example",
+                repositoryUrl = "https://github.com/example/project",
+                canonicalRepositoryUrl = "https://github.com/example/project",
+                provider = "PUBLIC_GITHUB_RELEASES",
+                managementMode = ManagementMode.ACQUISITION.name,
+                trackingState = AppTrackingState.ACTIVE.name,
+                createdAt = now.toString(),
+                updatedAt = now.toString(),
+            ),
+        )
+        database.managedAppDao().upsertRepositoryBinding(
+            AppRepositoryBindingEntity(
+                registeredAppId = appId,
+                provider = "GITHUB",
+                instance = "github.com",
+                providerRepositoryId = "42",
+                identityStatus = RepositoryIdentityStatus.VERIFIED.name,
+                registrationSlot = "PRIMARY",
+                verifiedAt = now.toString(),
+            ),
+        )
+        val repository = ReleaseCheckRepository(
+            context = context,
+            database = database,
+            provider = GitHubReleaseMetadataClient(provider),
+            environment = object : ReleaseCheckEnvironment {
+                override fun currentState() = ReleaseCheckDeviceState(
+                    networkAvailable = true,
+                    networkMetered = false,
+                    batteryPercent = 100,
+                )
+            },
+            clock = Clock.fixed(now, ZoneOffset.UTC),
+            zoneId = { ZoneOffset.UTC },
+        )
+
+        assertEquals(ReleaseCheckOutcome.ASSET_SELECTION_REQUIRED, repository.checkNow(appId))
+        val candidate = database.releaseCheckDao().getCandidates(appId).single()
+        repository.stageCandidateForManualAction(candidate.candidateId)
+
+        val record = database.managedAppDao().getRegisteredAppRecord(appId)
+        val release = requireNotNull(record?.latestRelease)
+        assertEquals(candidate.observationSha256, release.snapshot.metadataObservationSha256)
+        assertNull(release.snapshot.selectedProviderAssetId)
+        assertEquals(listOf("201", "202"), release.assets.map { it.providerAssetId }.sorted())
+        release.assets.forEach { asset ->
+            assertEquals(ReferenceDownloadStatus.NOT_DOWNLOADED.name, asset.downloadStatus)
+            assertNull(asset.localContentPath)
+            assertNull(asset.computedRawSha256)
+        }
+        assertEquals(false, database.releaseCheckDao().getCandidate(candidate.candidateId)?.unseen)
+
+        database.managedAppDao().upsertReleaseSnapshot(
+            release.snapshot.copy(selectedProviderAssetId = "201"),
+        )
+        repository.stageCandidateForManualAction(candidate.candidateId)
+        assertEquals(
+            "201",
+            database.managedAppDao().getRegisteredAppRecord(appId)
+                ?.latestRelease
+                ?.snapshot
+                ?.selectedProviderAssetId,
+        )
     }
 
     private companion object {
@@ -205,6 +290,37 @@ class ReleaseCheckRepositoryTest {
                 "size":1024,
                 "digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "browser_download_url":"https://github.com/example/project/releases/download/v1/project.apk"
+              }]
+            }
+        """
+        const val MULTI_ASSET_RELEASE_JSON = """
+            {
+              "id":101,
+              "tag_name":"v2",
+              "target_commitish":"main",
+              "name":"Version 2",
+              "html_url":"https://github.com/example/project/releases/tag/v2",
+              "draft":false,
+              "prerelease":false,
+              "immutable":true,
+              "created_at":"2026-09-02T00:00:00Z",
+              "published_at":"2026-09-02T00:00:00Z",
+              "assets":[{
+                "id":201,
+                "name":"project-store.apk",
+                "state":"uploaded",
+                "content_type":"application/vnd.android.package-archive",
+                "size":1024,
+                "digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "browser_download_url":"https://github.com/example/project/releases/download/v2/project-store.apk"
+              },{
+                "id":202,
+                "name":"project-github.apk",
+                "state":"uploaded",
+                "content_type":"application/vnd.android.package-archive",
+                "size":2048,
+                "digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "browser_download_url":"https://github.com/example/project/releases/download/v2/project-github.apk"
               }]
             }
         """

@@ -438,7 +438,7 @@ abstract class ReproDroidDatabase : RoomDatabase() {
                         incomparableReason TEXT,
                         downloadedAt TEXT,
                         PRIMARY KEY(releaseAssetId),
-                        FOREIGN KEY(releaseSnapshotId) REFERENCES release_snapshots_new(releaseSnapshotId)
+                        FOREIGN KEY(releaseSnapshotId) REFERENCES release_snapshots(releaseSnapshotId)
                             ON UPDATE NO ACTION ON DELETE CASCADE
                     )
                     """.trimIndent(),

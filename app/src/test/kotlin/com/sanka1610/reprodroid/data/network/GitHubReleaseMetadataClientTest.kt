@@ -316,7 +316,7 @@ class GitHubReleaseMetadataClientTest {
             now = NOW,
         )
 
-        assertTrue(result is GitHubMetadataResult.NoPublishedRelease)
+        assertTrue(result is ProviderMetadataResult.NoPublishedRelease)
         assertEquals(2, result.requestCount)
         assertEquals(2, requests)
         assertTrue(result.representations.isEmpty())
@@ -508,9 +508,9 @@ class GitHubReleaseMetadataClientTest {
         assertEquals("INVALID_METADATA", failure.code)
     }
 
-    private fun requireIsRelease(result: GitHubMetadataResult): GitHubMetadataResult.Release {
-        assertTrue("Expected release result, got $result", result is GitHubMetadataResult.Release)
-        return result as GitHubMetadataResult.Release
+    private fun requireIsRelease(result: ProviderMetadataResult): ProviderMetadataResult.Release {
+        assertTrue("Expected release result, got $result", result is ProviderMetadataResult.Release)
+        return result as ProviderMetadataResult.Release
     }
 
     private companion object {
