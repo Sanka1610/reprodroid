@@ -1,0 +1,63 @@
+name: Android CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: '21.0.12+1'
+          cache: gradle
+      - name: Verify wrapper checksum policy
+        run: test -n "$(sed -n 's/^distributionSha256Sum=//p' gradle/wrapper/gradle-wrapper.properties)"
+      - name: Test, lint, build unsigned artifacts, and create SBOM
+        run: >-
+          ./gradlew --no-daemon
+          :app:testDebugUnitTest :app:testReleaseUnitTest
+          :app:lintDebug :app:lintRelease
+          :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest
+          cyclonedxBom
+      - name: Record unsigned build provenance
+        shell: bash
+        run: |
+          mkdir -p build/reports/reprodroid
+          {
+            printf 'source_commit=%s\n' "$(git rev-parse HEAD)"
+            printf 'github_run_id=%s\n' "$GITHUB_RUN_ID"
+            printf 'github_run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'runner_image=%s\n' "$ImageOS-$ImageVersion"
+            java -version 2>&1
+            ./gradlew --version
+            sha256sum app/build/outputs/apk/debug/app-debug.apk
+            sha256sum app/build/outputs/apk/release/app-release-unsigned.apk
+            sha256sum app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            sha256sum build/reports/cyclonedx/bom.json
+          } > build/reports/reprodroid/unsigned-provenance.txt
+      - name: Upload unsigned verification artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reprodroid-unsigned-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release-unsigned.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-release.html
+            build/reports/cyclonedx/bom.json
+            build/reports/reprodroid/unsigned-provenance.txt
