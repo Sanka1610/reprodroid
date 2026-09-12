@@ -38,6 +38,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -257,6 +258,7 @@ internal fun LegacyReproDroidApp(managedViewModel: ManagedAppsViewModel, jobView
                                             input,
                                         )
                                     },
+                                    onOpenUpdateSettings = {},
                                 )
                             }
                         }
@@ -1309,6 +1311,7 @@ internal fun AppPreferencesScreen(
     onBack: () -> Unit,
     onSave: (AppSettingsUpdate) -> Unit,
     onSaveBuildConfiguration: (Long?, BuildConfigurationInput) -> Unit,
+    onOpenUpdateSettings: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val appSettingsBackDescription = stringResource(R.string.action_back)
@@ -1462,14 +1465,16 @@ internal fun AppPreferencesScreen(
             item { HorizontalDivider() }
             item {
                 SectionTitle(
-                    stringResource(R.string.app_settings_future),
-                    stringResource(R.string.app_settings_future_body),
+                    stringResource(R.string.settings_updates),
+                    stringResource(R.string.planned_updates_body),
                 )
             }
-            item { PlannedAppSetting(stringResource(R.string.app_settings_scheduled_checks), "4.5") }
-            item { PlannedAppSetting(stringResource(R.string.app_settings_release_channel), "4.5") }
-            item { PlannedAppSetting(stringResource(R.string.app_settings_automatic_actions), "4.5") }
-            item { PlannedAppSetting(stringResource(R.string.app_settings_notifications), "4.5") }
+            item {
+                OutlinedButton(onClick = onOpenUpdateSettings, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.settings_updates))
+                }
+            }
+            item { Text(stringResource(R.string.release_check_manual_only_body)) }
             item { HorizontalDivider() }
             item {
                 SectionTitle(
@@ -1643,19 +1648,6 @@ private fun BuildSettingField(
         label = { Text(label) },
         supportingText = hint.takeIf(String::isNotEmpty)?.let { text -> { Text(text) } },
         singleLine = true,
-    )
-}
-
-@Composable
-private fun PlannedAppSetting(label: String, phase: String) {
-    OutlinedTextField(
-        value = stringResource(R.string.planned_phase, phase),
-        onValueChange = {},
-        modifier = Modifier.fillMaxWidth(),
-        enabled = false,
-        readOnly = true,
-        label = { Text(label) },
-        supportingText = { Text(stringResource(R.string.planned_unavailable)) },
     )
 }
 

@@ -31,23 +31,6 @@ import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
-sealed interface GitHubMetadataResult : ProviderMetadataResult {
-
-    data class Release(
-        val resolved: ResolvedProviderRelease,
-        val representationNotModified: Boolean,
-        override val requestCount: Int,
-        override val receivedBytes: Long,
-        override val representations: List<ProviderRepresentationEntity>,
-    ) : GitHubMetadataResult
-
-    data class NoPublishedRelease(
-        override val requestCount: Int,
-        override val receivedBytes: Long,
-        override val representations: List<ProviderRepresentationEntity>,
-    ) : GitHubMetadataResult
-}
-
 class ReleaseMetadataException(
     val code: String,
     val statusCode: Int? = null,
@@ -70,7 +53,7 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
         channel: ReleaseCheckChannel,
         cachedRepresentations: List<ProviderRepresentationEntity>,
         now: Instant,
-    ): GitHubMetadataResult = try {
+    ): ProviderMetadataResult = try {
         withTimeout(APP_TIMEOUT_MILLIS) {
             val repository = GitHubRepositoryParser.parse(repositoryUrl)
             canonicalProviderId(providerRepositoryId)
@@ -84,7 +67,7 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
                     val fetched = fetchRepresentation(repository, listOf("releases", "latest"), endpoint, cache[endpoint], budget, now)
                     if (fetched.status == HttpStatusCode.NotFound) {
                         confirmPublicRepository(repository, providerRepositoryId, budget)
-                        return@withTimeout GitHubMetadataResult.NoPublishedRelease(
+                        return@withTimeout ProviderMetadataResult.NoPublishedRelease(
                             requestCount = budget.requestCount,
                             receivedBytes = budget.receivedBytes,
                             representations = emptyList(),
@@ -129,7 +112,7 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
                 }
                 .onEach(::validateRelease)
                 .maxWithOrNull { left, right -> compareReleases(left, right) }
-                ?: return@withTimeout GitHubMetadataResult.NoPublishedRelease(
+                ?: return@withTimeout ProviderMetadataResult.NoPublishedRelease(
                     requestCount = budget.requestCount,
                     receivedBytes = budget.receivedBytes,
                     representations = updated.values.toList(),
@@ -140,7 +123,7 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
             } catch (failure: ReleaseAssetSelectionException) {
                 if (failure.code == "NO_APK_ASSET") emptyList() else throw failure
             }
-            GitHubMetadataResult.Release(
+            ProviderMetadataResult.Release(
                 resolved = ResolvedGitHubRelease(
                     repository = repository,
                     release = selected,

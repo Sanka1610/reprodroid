@@ -497,10 +497,6 @@ class ReleaseCheckRepository(
                         result,
                         started,
                     )
-                    else -> throw ReleaseMetadataException(
-                        "INVALID_METADATA",
-                        message = "The provider returned an unsupported metadata result.",
-                    )
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled

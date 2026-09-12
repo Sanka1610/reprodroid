@@ -259,7 +259,7 @@
     <string name="data_android_deletion_note">Android登録の完全削除は追跡解除済みレコードだけが対象です。Runnerデータは削除しません。</string>
     <string name="data_runner_separate">Runnerストレージと保持</string>
     <string name="data_runner_note">Runnerクリーンアップは独立してプレビュー・実行します。AndroidとRunnerの削除を単一の原子的成功として表示しません。</string>
-    <string name="data_log_export">ログエクスポート・Phase 4.8まで利用不可</string>
+    <string name="data_log_export">Android運用ログをエクスポート</string>
     <string name="deletion_preview_title">完全削除の確認</string>
     <string name="deletion_preview_body">選択したローカル登録と監査履歴を完全に削除します。Runner側のデータは別に管理します。</string>
     <string name="deletion_release_count">リリース観測：%1$d件</string>
@@ -351,7 +351,8 @@
     <string name="runner_local_delete_confirm">アプリ専用の暗号化envelopeとRunner参照だけを削除します。Runner側の失効を要求または確認したとは表示しません。</string>
     <string name="action_delete">削除</string>
     <string name="settings_integrations">連携</string>
-    <string name="settings_backup">バックアップ</string>
+    <string name="settings_log_export">運用ログのエクスポート</string>
+    <string name="settings_licenses">ライセンスとthird-party notice</string>
     <string name="settings_debug">診断</string>
     <string name="settings_storage">ストレージ・クリーンアップ・監査エクスポート</string>
     <string name="settings_runner">Runner</string>
@@ -418,8 +419,11 @@
     <string name="storage_reason">理由</string>
     <string name="planned_phase">Phase %1$sで実装予定</string>
     <string name="planned_unavailable">UI-Rでは利用できません</string>
-    <string name="planned_updates_body">定期metadata確認、Release channel、実行条件、通知をここへ接続します。</string>
-    <string name="planned_backup_body">暗号化バックアップ、復元、ログエクスポートをここへ接続します。監査エクスポートは別機能です。</string>
+    <string name="planned_updates_body">定期metadata確認、Release channel、実行条件、通知をここで設定します。</string>
+    <string name="log_export_scope">ReproDroid Android自身の運用イベントだけをUTF-8テキストとして、利用者が選んだ保存先へ出力します。Runnerのbuild logとOSのlogcatは含めません。</string>
+    <string name="log_export_missing_warning">保存領域はboundedで、4 MiBでrotationするため古い記録は欠損する場合があります。保存先providerがfileを開いた後に失敗すると未完了fileが残る場合がありますが、ReproDroidは保存成功と表示しません。</string>
+    <string name="log_export_sensitive_warning">共有前に内容を確認してください。運用メッセージはstructuredかつsecret-safeですが、匿名化済みの診断packageではありません。</string>
+    <string name="log_export_migration_warning">ログはアプリ専用領域に保持し、releaseとdebugのデータ領域間では移行しません。アプリデータの変更や旧debug packageからの移行で古いログを失う場合があります。ReproDroidにbackup／restore機能はありません。</string>
     <string name="github_stars_title">GitHub Starsからインポート</string>
     <string name="github_stars_body">Repository選択とインポートは、Phase 4.5のprovider queue・rate limit基盤完成後に接続します。</string>
     <string name="future_update_schedule">定期確認を有効化</string>
@@ -464,9 +468,15 @@
     <plurals name="release_check_hours">
         <item quantity="other">%d時間</item>
     </plurals>
-    <string name="future_backup_create">暗号化バックアップを作成</string>
-    <string name="future_backup_restore">暗号化バックアップを復元</string>
-    <string name="future_log_export">ログをエクスポート</string>
+    <string name="log_export_choose_destination">運用ログを保存</string>
+    <string name="log_export_saved">運用ログのエクスポートを保存しました</string>
+    <string name="log_export_records">記録数：%1$d</string>
+    <string name="log_export_size">サイズ：%1$s</string>
+    <string name="log_export_rotated_included">rotation済みのログ世代も含めました。</string>
+    <string name="log_export_clear_result">エクスポート結果を閉じる</string>
+    <string name="licenses_intro">ライセンス本文とthird-party attribution noticeをAPKに同梱し、offlineで読めるようにしています。この一覧は情報提供用です。再配布前に実際のartifact metadataを確認してください。</string>
+    <string name="licenses_loading">同梱ライセンス本文を読み込んでいます…</string>
+    <string name="licenses_load_error">同梱ライセンス文書を読み込めませんでした。ネットワークへのfallbackは使用しません。</string>
     <string name="future_stars_select_import">GitHubリポジトリを選択してインポート</string>
     <string name="add_title">ソースから追加</string>
     <string name="add_source_phase">1. ソース</string>

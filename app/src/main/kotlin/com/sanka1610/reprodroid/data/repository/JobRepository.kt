@@ -363,7 +363,7 @@ class JobRepository(
             val logPage = runnerApi.getLogs(
                 jobId,
                 afterSequence,
-                expectedRunnerId = runnerBinding(requireNotNull(existing)),
+                expectedRunnerId = runnerBinding(existing),
             )
             validateLogPage(requestedAfterSequence, logPage)
             newLogs += logPage.entries.map { entry ->
@@ -571,8 +571,8 @@ class JobRepository(
     private suspend fun verifiedRemoteJob(jobId: String, existing: JobEntity?): JobResponse {
         requireRunnerBinding(existing)
         try {
-            val binding = runnerBinding(requireNotNull(existing))
-            val remote = if (existing.genericComparisonId != null) {
+            val binding = runnerBinding(existing)
+            val remote = if (existing?.genericComparisonId != null) {
                 runnerApi.getGenericBuild(jobId, binding).job
             } else runnerApi.getJob(jobId, binding)
             return remote.also { validateSandboxRefresh(existing, it) }
@@ -854,7 +854,7 @@ class JobRepository(
         }
     }
 
-    private fun runnerBinding(job: JobEntity): String = job.runnerId ?: "local-development"
+    private fun runnerBinding(job: JobEntity?): String = job?.runnerId ?: "local-development"
 
 }
 

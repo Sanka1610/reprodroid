@@ -16,6 +16,8 @@ import com.sanka1610.reprodroid.data.storage.AndroidStorageManager
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupManager
 import com.sanka1610.reprodroid.data.storage.RunnerRetentionCoordinator
 import com.sanka1610.reprodroid.data.storage.AuditExportManager
+import com.sanka1610.reprodroid.data.log.AppLogExportManager
+import com.sanka1610.reprodroid.data.log.AppLogStore
 import com.sanka1610.reprodroid.data.toolchain.ToolchainCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,11 +43,18 @@ class ReproDroidApplication : Application() {
         private set
     lateinit var runnerConnectionRepository: RunnerConnectionRepository
         private set
+    lateinit var appLogStore: AppLogStore
+        private set
+    lateinit var appLogExportManager: AppLogExportManager
+        private set
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
+        appLogStore = AppLogStore(applicationContext)
+        appLogExportManager = AppLogExportManager(applicationContext, appLogStore)
+        appLogStore.info("APPLICATION_START", "debug=${BuildConfig.DEBUG}")
         DatabaseMigrationGate.prepare(
             context = applicationContext,
             databaseName = "reprodroid.sqlite3",
@@ -114,13 +123,21 @@ class ReproDroidApplication : Application() {
         releaseCheckRepository = ReleaseCheckRepository(applicationContext, database)
         applicationScope.launch {
             runCatching { runnerConnectionRepository.initialize() }
-                .onFailure { runnerConnectionRepository.reportInitializationFailure() }
+                .onFailure {
+                    appLogStore.error("RUNNER_INITIALIZATION_FAILED", it::class.simpleName.orEmpty())
+                    runnerConnectionRepository.reportInitializationFailure()
+                }
             JobSyncWorker.schedule(this@ReproDroidApplication)
         }
         applicationScope.launch {
-            releaseCheckRepository.ensureInitialized()
-            ReleaseCheckScheduler.enqueueDelivery(applicationContext)
-            ReleaseCheckScheduler.scheduleNext(applicationContext, releaseCheckRepository)
+            runCatching {
+                releaseCheckRepository.ensureInitialized()
+                ReleaseCheckScheduler.enqueueDelivery(applicationContext)
+                ReleaseCheckScheduler.scheduleNext(applicationContext, releaseCheckRepository)
+            }.onFailure {
+                appLogStore.error("RELEASE_CHECK_INITIALIZATION_FAILED", it::class.simpleName.orEmpty())
+            }
         }
+        appLogStore.info("APPLICATION_READY")
     }
 }

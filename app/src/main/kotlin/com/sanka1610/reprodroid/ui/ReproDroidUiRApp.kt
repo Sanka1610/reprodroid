@@ -71,6 +71,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.sanka1610.reprodroid.data.connection.RunnerConnectionIssue
@@ -105,6 +106,10 @@ import com.sanka1610.reprodroid.data.local.ReleaseCheckSettingsEntity
 import com.sanka1610.reprodroid.data.local.ReleaseScheduleStateEntity
 import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import com.sanka1610.reprodroid.data.local.ThemeMode
+import com.sanka1610.reprodroid.data.license.LicenseAssetStore
+import com.sanka1610.reprodroid.data.license.LicenseDocument
+import com.sanka1610.reprodroid.data.log.AppLogExportManager
+import com.sanka1610.reprodroid.data.log.AppLogExportResult
 import com.sanka1610.reprodroid.data.repository.AppDeletionPreview
 import com.sanka1610.reprodroid.data.connection.ManualPairingPayloadParser
 import com.sanka1610.reprodroid.data.connection.RunnerConnectionPhase
@@ -138,6 +143,7 @@ fun ReproDroidApp(
     val runnerStorageState by managedViewModel.runnerStorageState.collectAsStateWithLifecycle()
     val storageBusy by managedViewModel.storageBusy.collectAsStateWithLifecycle()
     val auditExport by managedViewModel.auditExport.collectAsStateWithLifecycle()
+    val appLogExport by managedViewModel.appLogExport.collectAsStateWithLifecycle()
     val runnerCleanupPreview by managedViewModel.runnerCleanupPreview.collectAsStateWithLifecycle()
     val runnerCleanupRun by managedViewModel.runnerCleanupRun.collectAsStateWithLifecycle()
     val toolchainState by managedViewModel.toolchainState.collectAsStateWithLifecycle()
@@ -178,6 +184,7 @@ fun ReproDroidApp(
     var addRiskConfirmed by rememberSaveable { mutableStateOf(false) }
     var addSeparateTarget by rememberSaveable { mutableStateOf(false) }
     var inactiveReturnRoute by rememberSaveable { mutableStateOf(ReproDroidRoute.InactiveApps.encode()) }
+    var updateSettingsReturnRoute by rememberSaveable { mutableStateOf(ReproDroidRoute.Settings.encode()) }
 
     fun navigate(destination: ReproDroidRoute) {
         encodedRoute = destination.encode()
@@ -189,7 +196,8 @@ fun ReproDroidApp(
         ReproDroidRoute.RunnerSettings,
         ReproDroidRoute.UpdateSettings,
         ReproDroidRoute.Authentication,
-        ReproDroidRoute.Backup,
+        ReproDroidRoute.LogExport,
+        ReproDroidRoute.Licenses,
         -> ReproDroidRoute.Settings
         ReproDroidRoute.DataStorage,
         ReproDroidRoute.DataInactive,
@@ -241,6 +249,9 @@ fun ReproDroidApp(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { }
+    val appLogDestinationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(AppLogExportManager.MIME_TYPE),
+    ) { destination -> destination?.let(managedViewModel::exportAppLogs) }
 
     LaunchedEffect(route, routeApp?.app?.trackingState, appCatalogLoaded) {
         if (appCatalogLoaded && route.appId != null && routeApp == null) {
@@ -360,7 +371,12 @@ fun ReproDroidApp(
                         ReproDroidRoute.Settings -> UiRSettingsScreen(
                             settings = globalSettings,
                             onUpdate = managedViewModel::updateGlobalSettings,
-                            onNavigate = ::navigate,
+                            onNavigate = { destination ->
+                                if (destination == ReproDroidRoute.UpdateSettings) {
+                                    updateSettingsReturnRoute = ReproDroidRoute.Settings.encode()
+                                }
+                                navigate(destination)
+                            },
                         )
                         ReproDroidRoute.DataManagement -> DataManagementScreen(
                             onBack = { navigate(ReproDroidRoute.Settings) },
@@ -370,6 +386,7 @@ fun ReproDroidApp(
                             },
                             onInactive = { navigate(ReproDroidRoute.DataInactive) },
                             onRunner = { navigate(ReproDroidRoute.RunnerSettings) },
+                            onLogExport = { navigate(ReproDroidRoute.LogExport) },
                         )
                         ReproDroidRoute.DataInactive -> InactiveAppsScreen(
                             apps = inactiveApps,
@@ -483,7 +500,9 @@ fun ReproDroidApp(
                                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 }
                             },
-                            onBack = { navigate(ReproDroidRoute.Settings) },
+                            onBack = {
+                                navigate(ReproDroidRoute.parse(updateSettingsReturnRoute))
+                            },
                         )
                         ReproDroidRoute.Authentication -> RunnerAuthenticationScreen(
                             status = runnerConnectionStatus,
@@ -495,15 +514,16 @@ fun ReproDroidApp(
                             onLocalDelete = managedViewModel::deleteLocalRunnerConnection,
                             onBack = { navigate(ReproDroidRoute.RunnerSettings) },
                         )
-                        ReproDroidRoute.Backup -> PlannedFeatureScreen(
-                            title = stringResource(R.string.settings_backup),
-                            phase = "4.8",
-                            body = stringResource(R.string.planned_backup_body),
-                            controls = listOf(
-                                stringResource(R.string.future_backup_create),
-                                stringResource(R.string.future_backup_restore),
-                                stringResource(R.string.future_log_export),
-                            ),
+                        ReproDroidRoute.LogExport -> LogExportScreen(
+                            result = appLogExport,
+                            busy = storageBusy,
+                            onExport = {
+                                appLogDestinationLauncher.launch(AppLogExportManager.SUGGESTED_FILE_NAME)
+                            },
+                            onClearResult = managedViewModel::clearAppLogExport,
+                            onBack = { navigate(ReproDroidRoute.Settings) },
+                        )
+                        ReproDroidRoute.Licenses -> LicenseScreen(
                             onBack = { navigate(ReproDroidRoute.Settings) },
                         )
                         ReproDroidRoute.GitHubStarsImport -> PlannedFeatureScreen(
@@ -589,6 +609,12 @@ fun ReproDroidApp(
                                 },
                                 onSaveBuildConfiguration = { revision, input ->
                                     managedViewModel.saveBuildConfiguration(record.app.registeredAppId, revision, input)
+                                },
+                                onOpenUpdateSettings = {
+                                    updateSettingsReturnRoute = ReproDroidRoute.AppSettings(
+                                        record.app.registeredAppId,
+                                    ).encode()
+                                    navigate(ReproDroidRoute.UpdateSettings)
                                 },
                             )
                         } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
@@ -1808,7 +1834,8 @@ private fun UiRSettingsScreen(
         }
         item {
             AccordionSection(stringResource(R.string.settings_updates), updatesExpanded, { updatesExpanded = !updatesExpanded }) {
-                PlannedCard("4.5", stringResource(R.string.planned_updates_body)) {
+                Text(stringResource(R.string.planned_updates_body), style = MaterialTheme.typography.bodySmall)
+                SettingsLink(stringResource(R.string.settings_updates)) {
                     onNavigate(ReproDroidRoute.UpdateSettings)
                 }
             }
@@ -1825,12 +1852,13 @@ private fun UiRSettingsScreen(
             AccordionSection(stringResource(R.string.settings_integrations), integrationsExpanded, { integrationsExpanded = !integrationsExpanded }) {
                 SettingsLink(stringResource(R.string.settings_runner)) { onNavigate(ReproDroidRoute.RunnerSettings) }
                 Text(stringResource(R.string.codeberg_provider_available), style = MaterialTheme.typography.bodySmall)
+                SettingsLink(stringResource(R.string.settings_licenses)) { onNavigate(ReproDroidRoute.Licenses) }
             }
         }
         item {
-            AccordionSection(stringResource(R.string.settings_backup), backupExpanded, { backupExpanded = !backupExpanded }) {
-                PlannedCard("4.8", stringResource(R.string.planned_backup_body)) {
-                    onNavigate(ReproDroidRoute.Backup)
+            AccordionSection(stringResource(R.string.settings_log_export), backupExpanded, { backupExpanded = !backupExpanded }) {
+                SettingsLink(stringResource(R.string.settings_log_export)) {
+                    onNavigate(ReproDroidRoute.LogExport)
                 }
             }
         }
@@ -2150,6 +2178,7 @@ private fun DataManagementScreen(
     onStorage: () -> Unit,
     onInactive: () -> Unit,
     onRunner: () -> Unit,
+    onLogExport: () -> Unit,
 ) {
     BackScaffoldTitle(stringResource(R.string.data_management_title), onBack) {
         Column(
@@ -2162,7 +2191,7 @@ private fun DataManagementScreen(
             HorizontalDivider()
             SettingsLink(stringResource(R.string.data_runner_separate), onRunner)
             Text(stringResource(R.string.data_runner_note), style = MaterialTheme.typography.bodySmall)
-            DisabledSetting(stringResource(R.string.data_log_export), "4.8")
+            SettingsLink(stringResource(R.string.settings_log_export), onLogExport)
         }
     }
 }
@@ -2427,6 +2456,79 @@ private fun PlannedFeatureScreen(
             Text(body)
             Text(stringResource(R.string.planned_phase, phase), color = MaterialTheme.colorScheme.secondary)
             controls.forEach { control -> DisabledSetting(control, phase) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LogExportScreen(
+    result: AppLogExportResult?,
+    busy: Boolean,
+    onExport: () -> Unit,
+    onClearResult: () -> Unit,
+    onBack: () -> Unit,
+) {
+    BackScaffoldTitle(stringResource(R.string.settings_log_export), onBack) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.log_export_scope), style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.log_export_missing_warning), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.log_export_sensitive_warning), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.log_export_migration_warning), style = MaterialTheme.typography.bodySmall)
+            Button(
+                enabled = !busy,
+                onClick = onExport,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.log_export_choose_destination))
+            }
+            result?.let { exported ->
+                HorizontalDivider()
+                Text(stringResource(R.string.log_export_saved), style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.log_export_records, exported.recordCount))
+                Text(stringResource(R.string.log_export_size, humanBytes(exported.sizeBytes)))
+                if (exported.includesRotatedFile) {
+                    Text(stringResource(R.string.log_export_rotated_included))
+                }
+                TextButton(onClick = onClearResult) {
+                    Text(stringResource(R.string.log_export_clear_result))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LicenseScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val store = remember(context) { LicenseAssetStore(context) }
+    var documents by remember { mutableStateOf<List<LicenseDocument>?>(null) }
+    var loadFailed by remember { mutableStateOf(false) }
+
+    LaunchedEffect(store) {
+        runCatching { store.loadDocuments() }
+            .onSuccess { documents = it }
+            .onFailure { loadFailed = true }
+    }
+
+    BackScaffoldTitle(stringResource(R.string.settings_licenses), onBack) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.licenses_intro), style = MaterialTheme.typography.bodyMedium)
+            when {
+                loadFailed -> Text(stringResource(R.string.licenses_load_error))
+                documents == null -> Text(stringResource(R.string.licenses_loading))
+                else -> documents.orEmpty().forEach { document ->
+                    Text(document.title, style = MaterialTheme.typography.titleMedium)
+                    Text(document.text, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                }
+            }
         }
     }
 }

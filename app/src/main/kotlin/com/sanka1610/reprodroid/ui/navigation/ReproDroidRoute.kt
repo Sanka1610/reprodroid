@@ -22,7 +22,8 @@ sealed interface ReproDroidRoute {
     data object Jobs : ReproDroidRoute
     data object UpdateSettings : ReproDroidRoute
     data object Authentication : ReproDroidRoute
-    data object Backup : ReproDroidRoute
+    data object LogExport : ReproDroidRoute
+    data object Licenses : ReproDroidRoute
     data object GitHubStarsImport : ReproDroidRoute
     data class AppInformation(val registeredAppId: String) : ReproDroidRoute
     data class AppEdit(val registeredAppId: String) : ReproDroidRoute
@@ -69,7 +70,8 @@ sealed interface ReproDroidRoute {
         Jobs -> "settings/jobs"
         UpdateSettings -> "settings/updates"
         Authentication -> "settings/authentication"
-        Backup -> "settings/backup"
+        LogExport -> "settings/log-export"
+        Licenses -> "settings/licenses"
         GitHubStarsImport -> "import/github-stars"
         is AppInformation -> "apps/${registeredAppId.segment()}/information"
         is AppEdit -> "apps/${registeredAppId.segment()}/edit"
@@ -98,7 +100,10 @@ sealed interface ReproDroidRoute {
                 "settings/jobs" -> Jobs
                 "settings/updates" -> UpdateSettings
                 "settings/authentication" -> Authentication
-                "settings/backup" -> Backup
+                "settings/log-export",
+                // Keep old UI-R deep links readable while exposing only the log export route.
+                "settings/backup" -> LogExport
+                "settings/licenses" -> Licenses
                 "import/github-stars" -> GitHubStarsImport
                 else -> parseAppRoute(route) ?: parseComparisonRoute(route) ?: Apps
             }
