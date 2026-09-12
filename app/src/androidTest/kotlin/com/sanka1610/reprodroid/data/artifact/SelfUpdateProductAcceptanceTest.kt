@@ -1,10 +1,12 @@
 package com.sanka1610.reprodroid.data.artifact
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.sanka1610.reprodroid.MainActivity
 import com.sanka1610.reprodroid.data.local.ExistingInstallStatus
 import com.sanka1610.reprodroid.data.local.InstallAttemptStatus
 import com.sanka1610.reprodroid.data.local.ManagementMode
@@ -148,6 +150,10 @@ class SelfUpdateProductAcceptanceTest {
                         wrongSignerFailure.message.orEmpty().contains("signer"),
                 )
 
+                instrumentation.startActivitySync(
+                    Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+                instrumentation.waitForIdleSync()
                 val attemptId = ReleaseApkInstaller(context, dao).install(registeredAppId, verifiedAsset)
                 assertEquals(
                     InstallAttemptStatus.COMMITTED.name,
