@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.sanka1610.reprodroid.data.local.InstallationSource
+import com.sanka1610.reprodroid.data.local.AppRepositoryBindingEntity
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.AssetSelectionReason
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
@@ -14,6 +15,7 @@ import com.sanka1610.reprodroid.data.local.ReleaseObservationHasher
 import com.sanka1610.reprodroid.data.local.ReleaseObservationInput
 import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
+import com.sanka1610.reprodroid.data.local.RepositoryIdentityStatus
 import com.sanka1610.reprodroid.data.network.RunnerApiClient
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
 import com.sanka1610.reprodroid.data.network.RevisionType
@@ -189,6 +191,7 @@ class RegistrationPersistenceTest {
                 database = database,
                 jobRepository = JobRepository(context, database, RunnerApiClient("")),
                 provider = GitHubReleasesClient(providerEngine),
+                repositoryDiscoveryClient = GitHubRepositoryDiscoveryClient(successfulRefreshDiscoveryEngine()),
             )
             repository.ensureSettings()
             val appId = "ambiguous-app"
@@ -203,6 +206,17 @@ class RegistrationPersistenceTest {
                     managementMode = ManagementMode.VERIFICATION.name,
                     createdAt = now,
                     updatedAt = now,
+                ),
+            )
+            database.managedAppDao().upsertRepositoryBinding(
+                AppRepositoryBindingEntity(
+                    registeredAppId = appId,
+                    provider = "GITHUB",
+                    instance = "github.com",
+                    providerRepositoryId = TEST_PROVIDER_REPOSITORY_ID,
+                    identityStatus = RepositoryIdentityStatus.VERIFIED.name,
+                    registrationSlot = "PRIMARY",
+                    verifiedAt = now,
                 ),
             )
 
@@ -509,7 +523,7 @@ class RegistrationPersistenceTest {
     }
 
     @Test
-    fun identicalReleaseObservationRefreshConvergesWithoutDuplicateOrDownload() = runBlocking {
+    fun notModifiedReleaseRefreshConvergesWithoutDuplicateOrDownload() = runBlocking {
         val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java)
             .allowMainThreadQueries()
             .build()
@@ -520,12 +534,7 @@ class RegistrationPersistenceTest {
         val observedAt = "2026-09-01T00:00:00Z"
         val provider = MockEngine { request ->
             when (request.url.encodedPath) {
-                "/repos/example/project/releases/latest" -> respond(RELEASE_OBSERVATION_JSON, HttpStatusCode.OK, JSON_HEADERS)
-                "/repos/example/project/git/ref/tags/1.0" -> respond(
-                    """{"ref":"refs/tags/1.0","object":{"type":"commit","sha":"$commitSha","url":"unused"}}""",
-                    HttpStatusCode.OK,
-                    JSON_HEADERS,
-                )
+                "/repos/example/project/releases/latest" -> respond("", HttpStatusCode.NotModified)
                 else -> error("Unexpected request: ${request.url}")
             }
         }
@@ -534,7 +543,7 @@ class RegistrationPersistenceTest {
                 ReleaseObservationInput(
                     provider = "GITHUB",
                     instance = "github.com",
-                    providerRepositoryId = "https://github.com/example/project",
+                    providerRepositoryId = TEST_PROVIDER_REPOSITORY_ID,
                     providerReleaseId = "100",
                     tagName = "1.0",
                     resolvedCommitSha = commitSha,
@@ -564,8 +573,20 @@ class RegistrationPersistenceTest {
                     canonicalRepositoryUrl = "https://github.com/example/project",
                     provider = "PUBLIC_GITHUB_RELEASES",
                     managementMode = ManagementMode.VERIFICATION.name,
+                    releaseMetadataEtag = "\"release-etag\"",
                     createdAt = observedAt,
                     updatedAt = observedAt,
+                ),
+            )
+            dao.upsertRepositoryBinding(
+                AppRepositoryBindingEntity(
+                    registeredAppId = appId,
+                    provider = "GITHUB",
+                    instance = "github.com",
+                    providerRepositoryId = TEST_PROVIDER_REPOSITORY_ID,
+                    identityStatus = RepositoryIdentityStatus.VERIFIED.name,
+                    registrationSlot = "PRIMARY",
+                    verifiedAt = observedAt,
                 ),
             )
             dao.upsertReleaseSnapshot(
@@ -608,6 +629,7 @@ class RegistrationPersistenceTest {
                 database,
                 JobRepository(context, database, RunnerApiClient("")),
                 provider = GitHubReleasesClient(provider),
+                repositoryDiscoveryClient = GitHubRepositoryDiscoveryClient(successfulRefreshDiscoveryEngine()),
             )
 
             repository.refresh(appId)
@@ -615,7 +637,7 @@ class RegistrationPersistenceTest {
             assertEquals(1, rowCount(database, "release_snapshots"))
             assertEquals(1, rowCount(database, "release_assets"))
             assertEquals(snapshotId, dao.getReleaseSnapshotByObservationHash(appId, observationSha)?.releaseSnapshotId)
-            assertTrue(requireNotNull(dao.getReleaseSnapshot(snapshotId)).lastObservedAt > observedAt)
+            assertTrue(requireNotNull(dao.getRegisteredApp(appId)).lastReleaseCheckedAt.orEmpty() > observedAt)
             assertEquals(ReferenceDownloadStatus.NOT_DOWNLOADED.name, dao.getReleaseAsset(assetId)?.downloadStatus)
         } finally {
             database.close()
@@ -656,31 +678,38 @@ class RegistrationPersistenceTest {
         ),
     )
 
-    private companion object {
-        val JSON_HEADERS = headersOf(HttpHeaders.ContentType, "application/json")
-        const val RELEASE_OBSERVATION_JSON = """
-            {
-              "id":100,
-              "tag_name":"1.0",
-              "target_commitish":"main",
-              "name":"1.0",
-              "html_url":"https://github.com/example/project/releases/tag/1.0",
-              "draft":false,
-              "prerelease":false,
-              "immutable":false,
-              "created_at":"2026-09-01T00:00:00Z",
-              "published_at":"2026-09-01T00:00:00Z",
-              "assets":[{
-                "id":200,
-                "name":"project.apk",
-                "state":"uploaded",
-                "content_type":"application/vnd.android.package-archive",
-                "size":1024,
-                "digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                "browser_download_url":"https://github.com/example/project/releases/download/1.0/project.apk"
-              }]
+    private fun successfulRefreshDiscoveryEngine(): MockEngine {
+        val commit = "d".repeat(40)
+        val root = "e".repeat(40)
+        val blob = "f".repeat(40)
+        return MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/repos/example/project" -> """{
+                    "id":$TEST_PROVIDER_REPOSITORY_ID,
+                    "name":"project",
+                    "full_name":"example/project",
+                    "private":false,
+                    "html_url":"https://github.com/example/project",
+                    "default_branch":"main",
+                    "owner":{"login":"example"}
+                }""".trimIndent()
+                "/repos/example/project/git/ref/heads/main" ->
+                    """{"ref":"refs/heads/main","object":{"type":"commit","sha":"$commit"}}"""
+                "/repos/example/project/git/commits/$commit" ->
+                    """{"sha":"$commit","tree":{"type":"tree","sha":"$root"}}"""
+                "/repos/example/project/git/trees/$root" ->
+                    """{"sha":"$root","truncated":false,"tree":[
+                        {"path":"build.gradle.kts","mode":"100644","type":"blob","sha":"$blob"}
+                    ]}"""
+                else -> error("Unexpected discovery request: ${request.url}")
             }
-        """
+            respond(body, HttpStatusCode.OK, JSON_HEADERS)
+        }
+    }
+
+    private companion object {
+        const val TEST_PROVIDER_REPOSITORY_ID = "123456789012345678"
+        val JSON_HEADERS = headersOf(HttpHeaders.ContentType, "application/json")
         const val AMBIGUOUS_RELEASE_JSON = """
             {
               "id":101,

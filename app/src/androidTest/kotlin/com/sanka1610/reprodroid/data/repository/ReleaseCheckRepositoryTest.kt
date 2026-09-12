@@ -175,9 +175,8 @@ class ReleaseCheckRepositoryTest {
         )
 
         val outcome = repository.checkNow(appId)
-        val candidate = database.releaseCheckDao().getCandidates(appId).single()
-
         assertEquals(ReleaseCheckOutcome.NEW_RELEASE_DISCOVERED, outcome)
+        val candidate = database.releaseCheckDao().getCandidates(appId).single()
         assertEquals(ReleaseCandidateState.NEW_RELEASE_DISCOVERED.name, candidate.state)
         assertNotEquals(ReleaseCandidateState.VERIFIED_UPDATE_AVAILABLE.name, candidate.state)
         assertNotNull(database.managedAppDao().getReleaseSnapshot(snapshotId))

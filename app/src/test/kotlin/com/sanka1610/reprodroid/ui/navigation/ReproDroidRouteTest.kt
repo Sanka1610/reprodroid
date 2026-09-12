@@ -24,11 +24,13 @@ class ReproDroidRouteTest {
             ReproDroidRoute.Jobs,
             ReproDroidRoute.UpdateSettings,
             ReproDroidRoute.Authentication,
-            ReproDroidRoute.Backup,
+            ReproDroidRoute.LogExport,
+            ReproDroidRoute.Licenses,
             ReproDroidRoute.GitHubStarsImport,
         )
 
         routes.forEach { route -> assertEquals(route, ReproDroidRoute.parse(route.encode())) }
+        assertEquals(ReproDroidRoute.LogExport, ReproDroidRoute.parse("settings/backup"))
     }
 
     @Test
