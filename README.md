@@ -18,6 +18,7 @@ ReproDroidは、公開されているAndroidアプリの公式APKと、対応す
 - public GitHub／Codeberg repositoryの登録と、上限付きsource・release metadata取得
 - 複数APK候補からの明示選択と、size、SHA-256、package、version、signerの検査
 - 同じsource revisionから独立したBuild A／Bを作成し、公式APK対A、公式APK対B、A対Bを別々に比較
+- detached checkoutを解決済みcommitへ固定した`docker-generic-v3`でのgeneric build
 - DEX、native library、Manifest、resource等の差異を、raw結果と補助的な意味比較に分けて表示
 - metadata-onlyの定期release確認と通知
 - 履歴、保存容量、手動cleanup、監査export

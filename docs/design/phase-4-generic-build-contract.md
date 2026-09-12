@@ -66,7 +66,7 @@ generic buildはDocker必須であり、HOST fallbackを持たない。A／Bは�
 
 Docker container内で実行してよいのは、Runnerがcatalog digestで検証済みのGradle distribution内`org.gradle.launcher.GradleMain`とその子processだけである。repositoryの`gradlew`、downloadしたscript、Docker daemon、Docker socket、host device、Runner credential、他Jobのpathは渡さない。JDK、Android SDK、Gradle distributionは4.3 storeから検証済みread-only mountとして提供し、共有可変cacheを作らない。
 
-新規generic Jobは`docker-generic-v2`を使い、SQLite JNIなどJVMが展開するnative libraryだけを`-Dorg.sqlite.tmpdir=/run/reprodroid-native`へ固定する。汎用一時領域`/tmp`は`noexec`を維持し、native専用mountの実行成功と`/tmp`の実行拒否をGradle開始前にprobeする。既存の`docker-generic-v1` Job／Manifestはcanonical bytesとprofile hashを変更せず読み取り可能とし、v1をv2へ暗黙変換しない。
+新規generic Jobは`docker-generic-v3`を使う。v3はv2のresource／mount境界を維持し、detached checkoutを正しく扱わない上流build向けに、Runnerが解決済みfull commit SHAへ固定した最小`git rev-parse` shimだけを`/run/reprodroid-native`から提供する。shimは`git rev-parse --abbrev-ref HEAD`、`git rev-parse HEAD`、`git rev-parse --verify HEAD`以外を拒否し、repositoryのref移動や任意Git操作を許可しない。SQLite JNIなどJVMが展開するnative libraryは引き続き`-Dorg.sqlite.tmpdir=/run/reprodroid-native`へ固定する。汎用一時領域`/tmp`は`noexec`を維持し、native専用mountの実行成功と`/tmp`の実行拒否をGradle開始前にprobeする。既存の`docker-generic-v1`／`docker-generic-v2` Job／Manifestはcanonical bytesとprofile hashを変更せず読み取り可能とし、旧profileをv3へ暗黙変換しない。
 
 ### 3.2 Explicit scope exclusions
 
