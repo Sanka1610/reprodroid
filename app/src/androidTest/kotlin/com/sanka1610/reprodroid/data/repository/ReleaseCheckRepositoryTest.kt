@@ -254,6 +254,18 @@ class ReleaseCheckRepositoryTest {
             assertNull(asset.computedRawSha256)
         }
         assertEquals(false, database.releaseCheckDao().getCandidate(candidate.candidateId)?.unseen)
+
+        database.managedAppDao().upsertReleaseSnapshot(
+            release.snapshot.copy(selectedProviderAssetId = "201"),
+        )
+        repository.stageCandidateForManualAction(candidate.candidateId)
+        assertEquals(
+            "201",
+            database.managedAppDao().getRegisteredAppRecord(appId)
+                ?.latestRelease
+                ?.snapshot
+                ?.selectedProviderAssetId,
+        )
     }
 
     private companion object {

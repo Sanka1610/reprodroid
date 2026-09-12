@@ -338,25 +338,27 @@ class ReleaseCheckRepository(
         }.getOrElse { throw IllegalStateException("Stored release candidate metadata is invalid.", it) }
         check(assets.isNotEmpty()) { "The release candidate has no APK to select." }
 
-        val existingSnapshot = appDao.getLatestReleaseSnapshotByMetadataHash(
-            candidate.registeredAppId,
-            candidate.observationSha256,
-        ) ?: appDao.getReleaseSnapshotByObservationHash(
-            candidate.registeredAppId,
-            candidate.observationSha256,
-        )
-        val snapshotId = existingSnapshot?.releaseSnapshotId
-            ?: stableUuid("${candidate.registeredAppId}/release-observation/${candidate.observationSha256}")
         database.withTransaction {
             val currentCandidate = releaseDao.getCandidate(candidateId)
+            val currentLatestCandidate = releaseDao.getCandidates(candidate.registeredAppId).firstOrNull()
             val currentApp = appDao.getRegisteredApp(candidate.registeredAppId)
             val currentBinding = appDao.getRepositoryBinding(candidate.registeredAppId)
             check(
                 currentCandidate == candidate &&
+                    currentLatestCandidate?.candidateId == candidateId &&
                     currentApp?.trackingState == AppTrackingState.ACTIVE.name &&
                     currentBinding == binding,
             ) { "The release candidate or repository identity changed while it was being opened." }
 
+            val existingSnapshot = appDao.getLatestReleaseSnapshotByMetadataHash(
+                candidate.registeredAppId,
+                candidate.observationSha256,
+            ) ?: appDao.getReleaseSnapshotByObservationHash(
+                candidate.registeredAppId,
+                candidate.observationSha256,
+            )
+            val snapshotId = existingSnapshot?.releaseSnapshotId
+                ?: stableUuid("${candidate.registeredAppId}/release-observation/${candidate.observationSha256}")
             if (existingSnapshot == null) {
                 appDao.upsertReleaseSnapshot(
                     ReleaseSnapshotEntity(
