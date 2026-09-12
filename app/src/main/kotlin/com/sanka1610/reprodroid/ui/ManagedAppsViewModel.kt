@@ -552,6 +552,15 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch { releaseCheckRepository.markCandidateSeen(candidateId) }
     }
 
+    fun openReleaseCandidate(
+        registeredAppId: String,
+        candidateId: String,
+        onReady: () -> Unit,
+    ) = runAppAction(registeredAppId) {
+        releaseCheckRepository.stageCandidateForManualAction(candidateId)
+        onReady()
+    }
+
     fun refreshStorage() = runStorageAction {
         storageManager.reconcileAvailability()
         cleanupManager.reconcileInterruptedRuns()

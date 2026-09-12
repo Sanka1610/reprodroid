@@ -492,8 +492,12 @@ fun ReproDroidApp(
                             onUpdateOverride = managedViewModel::updateReleaseCheckOverride,
                             onCheckNow = managedViewModel::checkReleaseMetadataNow,
                             onOpenCandidate = { candidate ->
-                                managedViewModel.markReleaseCandidateSeen(candidate.candidateId)
-                                navigate(ReproDroidRoute.AppInformation(candidate.registeredAppId))
+                                managedViewModel.openReleaseCandidate(
+                                    candidate.registeredAppId,
+                                    candidate.candidateId,
+                                ) {
+                                    navigate(ReproDroidRoute.AppTechnical(candidate.registeredAppId))
+                                }
                             },
                             onRequestNotifications = {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -549,7 +553,14 @@ fun ReproDroidApp(
                                 onCheckMetadata = {
                                     managedViewModel.checkReleaseMetadataNow(record.app.registeredAppId)
                                 },
-                                onCandidateSeen = managedViewModel::markReleaseCandidateSeen,
+                                onOpenCandidate = { candidate ->
+                                    managedViewModel.openReleaseCandidate(
+                                        candidate.registeredAppId,
+                                        candidate.candidateId,
+                                    ) {
+                                        navigate(ReproDroidRoute.AppTechnical(candidate.registeredAppId))
+                                    }
+                                },
                                 onTechnical = {
                                     navigate(ReproDroidRoute.AppTechnical(record.app.registeredAppId))
                                 },
@@ -1321,7 +1332,7 @@ private fun AppInformationScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onCheckMetadata: () -> Unit,
-    onCandidateSeen: (String) -> Unit,
+    onOpenCandidate: (ReleaseCandidateEntity) -> Unit,
     onTechnical: () -> Unit,
     onComparison: (String) -> Unit,
     onResume: () -> Unit,
@@ -1412,7 +1423,7 @@ private fun AppInformationScreen(
                     )
                     candidates.take(5).forEach { candidate ->
                         Card(
-                            Modifier.fillMaxWidth().clickable { onCandidateSeen(candidate.candidateId) },
+                            Modifier.fillMaxWidth().clickable { onOpenCandidate(candidate) },
                         ) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(candidate.releaseName, fontWeight = FontWeight.SemiBold)
