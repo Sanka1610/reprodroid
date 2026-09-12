@@ -39,9 +39,14 @@ data class SandboxEvidence(
 internal const val DOCKER_PROFILE_ID = "docker-microg-v1"
 internal const val LEGACY_GENERIC_DOCKER_PROFILE_ID = "docker-generic-v1"
 internal const val GENERIC_DOCKER_PROFILE_ID = "docker-generic-v2"
+internal const val DETACHED_GIT_GENERIC_DOCKER_PROFILE_ID = "docker-generic-v3"
 internal const val DOCKER_IMAGE_DIGEST = "sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316"
 internal val SANDBOX_JSON = Json { ignoreUnknownKeys = false; explicitNulls = false; encodeDefaults = true }
-internal val GENERIC_DOCKER_PROFILE_IDS = setOf(LEGACY_GENERIC_DOCKER_PROFILE_ID, GENERIC_DOCKER_PROFILE_ID)
+internal val GENERIC_DOCKER_PROFILE_IDS = setOf(
+    LEGACY_GENERIC_DOCKER_PROFILE_ID,
+    GENERIC_DOCKER_PROFILE_ID,
+    DETACHED_GIT_GENERIC_DOCKER_PROFILE_ID,
+)
 private val SUPPORTED_DOCKER_PROFILE_IDS = setOf(DOCKER_PROFILE_ID) + GENERIC_DOCKER_PROFILE_IDS
 
 internal fun validateJobSandbox(sandbox: JobSandbox?, executionMode: ExecutionMode, state: JobState) {
