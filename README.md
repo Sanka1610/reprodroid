@@ -3,7 +3,7 @@
 ReproDroidは、公開されているAndroidアプリの公式APKと、対応する公開ソースからPC側Runnerが生成したAPKを比較し、利用者が差異と来歴を確認できるようにするAndroidアプリです。
 
 > [!IMPORTANT]
-> `0.1.0-alpha03`のPhase 4受入はローカルで完了しています。公開、push、`main`統合は別の承認対象であり、まだ実施していません。ビルド成功、静的scan、意味比較の一致だけを、公式APKとの再現性や安全性の証明として扱いません。
+> 現在のsourceは`0.1.0-alpha03`／`versionCode 3`のapplication identityを維持したまま、Phase 5.6までローカル統合されています。Phase 5の最終release候補はまだ生成・署名・受入されていません。公開、push、`main`統合も別の承認対象です。ビルド成功、静的scan、意味比較の一致だけを、公式APKとの再現性や安全性の証明として扱いません。
 
 ## Repository roles
 
@@ -45,7 +45,7 @@ ReproDroidは、silent install、自動アンインストール、root／Shizuku
 | JDK | 21 |
 | Build | Gradle Wrapper、Kotlin DSL |
 | Runner | 対応する`reprodroid-runner`。release経路はpaired HTTPSを使用 |
-| Current Android schema | Room22 |
+| Current Android schema | Room24 |
 | Current Runner schema | SQLite12 |
 
 ## Build
@@ -65,6 +65,10 @@ release候補の生成・署名・公開は通常のdeveloper buildと分離し�
 - [Documentation index](docs/README.md)
 - [Current status](docs/status/current.md)
 - [Architecture overview](docs/architecture/overview.md)
+- [UI architecture and navigation](docs/architecture/ui.md)
+- [Getting started](docs/guides/getting-started.md)
+- [Operations and recovery](docs/guides/operations.md)
+- [Unreleased notes](docs/releases/unreleased.md)
 - [ADR index](docs/adr/README.md)
 - [Runner API](docs/api/README.md)
 - [Feature contracts](docs/design/README.md)

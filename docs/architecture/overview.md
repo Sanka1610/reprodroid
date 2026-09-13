@@ -1,7 +1,7 @@
 # Architecture overview
 
 - Status: Current public overview
-- Updated: 2026-09-12
+- Updated: 2026-09-14
 
 ## Purpose
 
@@ -24,6 +24,8 @@ ReproDroidは、配布元が公開するAPKと、対応する公開sourceから�
 - Android自身のlog export
 
 Androidは、Runnerのfilesystem path、秘密情報、toolchain inventory truthを正本として複製しません。
+
+Androidのproduction UI rootは`MainActivity`から起動される単一の`ReproDroidApp`です。typed route、back、notification route、screen package、presentation state、one-shot resultの現在のownerは[UI architecture and navigation](ui.md)を参照してください。
 
 ### Runner
 
@@ -72,7 +74,7 @@ release経路はmanual pairingとroot pin付きHTTPSを使用します。Android
 
 ## Data and privacy
 
-- 登録、履歴、設定、比較結果はAndroidのRoomへ保存します。
+- 登録、履歴、設定、比較結果はAndroidのRoom24へ保存します。
 - RunnerはJob、resource、log、artifact、owner情報をSQLiteと専用state directoryへ保存します。
 - metadata-only scheduled checkはbuildやinstallを開始しません。
 - AndroidはOS全体のlogcatや他アプリのlogをexportしません。
