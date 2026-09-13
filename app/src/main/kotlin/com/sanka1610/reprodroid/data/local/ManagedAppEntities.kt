@@ -177,6 +177,8 @@ data class GlobalSettingsEntity(
     val themeMode: String = ThemeMode.DARK.name,
     @ColumnInfo(defaultValue = "1")
     val dynamicColorEnabled: Boolean = true,
+    @ColumnInfo(defaultValue = "1")
+    val showOperationHints: Boolean = true,
     val defaultManagementMode: String = ManagementMode.VERIFICATION.name,
     val defaultInstallationSource: String = InstallationSource.OFFICIAL_RELEASE.name,
     val defaultReleaseVariantPreference: String = ReleaseVariantPreference.RELEASE.name,

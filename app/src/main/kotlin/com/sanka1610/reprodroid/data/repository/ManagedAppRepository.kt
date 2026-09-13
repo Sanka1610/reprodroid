@@ -453,6 +453,11 @@ class ManagedAppRepository(
     }
 
     suspend fun stopTrackingAfterConfirmedUninstall(registeredAppId: String) {
+        confirmUninstall(registeredAppId)
+        stopTracking(registeredAppId)
+    }
+
+    suspend fun confirmUninstall(registeredAppId: String) {
         val record = dao.getRegisteredAppRecord(registeredAppId)
             ?: throw IllegalArgumentException("Registered app was not found.")
         val packageName = record.latestRelease?.selectedAsset?.packageName
@@ -464,7 +469,7 @@ class ManagedAppRepository(
         check(installedPackageVersion(packageName) == null) {
             "Android still reports the package as installed. Tracking was not changed."
         }
-        stopTracking(registeredAppId)
+        refreshInstalledStateForApp(registeredAppId)
     }
 
     suspend fun resumeTracking(registeredAppId: String) {

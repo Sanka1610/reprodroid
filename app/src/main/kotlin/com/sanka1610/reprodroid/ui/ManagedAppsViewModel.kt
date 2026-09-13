@@ -442,6 +442,12 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
             onStopped()
         }
 
+    fun confirmUninstall(registeredAppId: String, onConfirmed: () -> Unit) =
+        runAppAction(registeredAppId) {
+            repository.confirmUninstall(registeredAppId)
+            onConfirmed()
+        }
+
     fun resumeTracking(registeredAppId: String, onResumed: () -> Unit = {}) = runAppAction(registeredAppId) {
         repository.resumeTracking(registeredAppId)
         ReleaseCheckScheduler.reconcile(getApplication(), releaseCheckRepository, forceRecalculate = true)
