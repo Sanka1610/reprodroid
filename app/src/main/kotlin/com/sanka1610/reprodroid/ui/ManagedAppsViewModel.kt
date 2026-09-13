@@ -29,8 +29,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.sanka1610.reprodroid.ui.state.AppDetailUiState
+import com.sanka1610.reprodroid.ui.state.AppsUiState
+import com.sanka1610.reprodroid.ui.state.DeletionExportUiState
+import com.sanka1610.reprodroid.ui.state.RegistrationUiState
+import com.sanka1610.reprodroid.ui.state.ReleaseUiState
+import com.sanka1610.reprodroid.ui.state.RunnerUiState
+import com.sanka1610.reprodroid.ui.state.StorageUiState
+import com.sanka1610.reprodroid.ui.state.ToolchainFeatureUiState
 import java.time.Instant
 
 data class RepositoryPreviewState(
@@ -179,6 +188,78 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _activeAppIds = MutableStateFlow<Set<String>>(emptySet())
     val activeAppIds = _activeAppIds.asStateFlow()
+
+    private val appsCoreState = combine(
+        apps,
+        inactiveApps,
+        appCatalogLoaded,
+        groups,
+        settings,
+    ) { active, inactive, loaded, appGroups, globalSettings ->
+        AppsUiState(active, inactive, loaded, appGroups, globalSettings)
+    }
+    val appsUiState = combine(appsCoreState, activeAppIds) { state, activeIds ->
+        state.copy(activeAppIds = activeIds)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppsUiState())
+
+    val registrationUiState = combine(preview, sourceEditPreview) { registrationPreview, sourcePreview ->
+        RegistrationUiState(registrationPreview, sourcePreview)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RegistrationUiState())
+
+    private val appDetailCoreState = combine(
+        buildEnvironmentManifests,
+        runnerJobs,
+        buildManifestWarnings,
+        sourceScanWarnings,
+        sandboxWarnings,
+    ) { manifests, jobs, manifestWarnings, scanWarnings, sandboxState ->
+        AppDetailUiState(manifests, jobs, manifestWarnings, scanWarnings, sandboxState)
+    }
+    val appDetailUiState = combine(appDetailCoreState, availability) { state, resourceAvailability ->
+        state.copy(availability = resourceAvailability)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppDetailUiState())
+
+    val releaseUiState = combine(
+        releaseCheckSettings,
+        releaseCheckOverrides,
+        releaseScheduleStates,
+        releaseCandidates,
+    ) { checkSettings, overrides, schedules, candidates ->
+        ReleaseUiState(checkSettings, overrides, schedules, candidates)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReleaseUiState())
+
+    private val storageCoreState = combine(
+        androidStorageSummary,
+        androidCleanupPreview,
+        runnerStorageState,
+        storageBusy,
+        auditExport,
+    ) { summary, cleanupPreview, runnerState, busy, stagedAudit ->
+        StorageUiState(summary, cleanupPreview, runnerState, busy, stagedAudit)
+    }
+    val storageUiState = combine(
+        storageCoreState,
+        appLogExport,
+        runnerCleanupPreview,
+        runnerCleanupRun,
+    ) { state, logExport, cleanupPreview, cleanupRun ->
+        state.copy(
+            appLogExport = logExport,
+            runnerCleanupPreview = cleanupPreview,
+            runnerCleanupRun = cleanupRun,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StorageUiState())
+
+    val runnerUiState = combine(runnerConnectionStatus, runnerConnections) { status, connections ->
+        RunnerUiState(status, connections)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RunnerUiState())
+
+    val toolchainUiState = toolchainState.map(::ToolchainFeatureUiState)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ToolchainFeatureUiState())
+
+    val deletionExportUiState = combine(deletionPreview, deletionResult) { preview, result ->
+        DeletionExportUiState(preview, result)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DeletionExportUiState())
 
     init {
         viewModelScope.launch {
