@@ -91,7 +91,6 @@ import com.sanka1610.reprodroid.ui.settings.ReleaseUpdateSettingsScreen
 import com.sanka1610.reprodroid.ui.settings.StorageScreen
 import com.sanka1610.reprodroid.ui.settings.UiRSettingsScreen
 import com.sanka1610.reprodroid.ui.shared.BackScaffoldTitle
-import com.sanka1610.reprodroid.ui.shared.MAX_VISIBLE_ERROR_LENGTH
 import com.sanka1610.reprodroid.ui.shared.MissingRecordScreen
 import com.sanka1610.reprodroid.ui.shared.knownPackageName
 import com.sanka1610.reprodroid.ui.state.ManagedUiMessage
@@ -957,7 +956,7 @@ private fun UiRMessageBanner(message: ManagedUiMessage, onDismiss: () -> Unit) {
         ManagedUiMessageCode.RATE_LIMIT -> stringResource(R.string.error_rate_limit)
         ManagedUiMessageCode.NOT_FOUND -> stringResource(R.string.error_not_found)
         ManagedUiMessageCode.STALE_STATE -> stringResource(R.string.error_stale)
-        ManagedUiMessageCode.OPERATION_FAILED -> message.text.take(MAX_VISIBLE_ERROR_LENGTH)
+        ManagedUiMessageCode.OPERATION_FAILED -> stringResource(R.string.error_operation_failed)
     }
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),

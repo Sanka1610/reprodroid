@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -133,21 +134,45 @@ internal fun DetailCard(title: String, content: @Composable () -> Unit) {
 @Composable
 internal fun SourceScanEvidence(label: String, evidence: SourceScanWithDetails?) {
     if (evidence == null) {
-        DetailValue(label, "Not available")
+        DetailValue(label, stringResource(R.string.value_not_available))
         return
     }
     DetailValue(
         label,
         if (evidence.scan.findingCount == 0) {
-            "No configured detector findings"
+            stringResource(R.string.jobs_source_scan_clean)
         } else {
-            "${evidence.scan.findingCount} configured detector findings"
+            pluralStringResource(
+                R.plurals.jobs_source_scan_findings,
+                evidence.scan.findingCount,
+                evidence.scan.findingCount,
+            )
         },
     )
     DetailValue(
-        "$label scope",
-        "${evidence.scan.scannedFiles} files, ${evidence.scan.scannedBytes} bytes; " +
-            "binary skipped ${evidence.scan.skippedBinaryFiles}, symlinks skipped ${evidence.scan.skippedSymlinks}",
+        stringResource(R.string.technical_source_scan_scope, label),
+        listOf(
+            pluralStringResource(
+                R.plurals.jobs_source_scan_files,
+                evidence.scan.scannedFiles,
+                evidence.scan.scannedFiles,
+            ),
+            pluralStringResource(
+                R.plurals.jobs_source_scan_bytes,
+                evidence.scan.scannedBytes.pluralQuantity(),
+                evidence.scan.scannedBytes,
+            ),
+            pluralStringResource(
+                R.plurals.jobs_source_scan_binary_skipped,
+                evidence.scan.skippedBinaryFiles,
+                evidence.scan.skippedBinaryFiles,
+            ),
+            pluralStringResource(
+                R.plurals.jobs_source_scan_symlinks_skipped,
+                evidence.scan.skippedSymlinks,
+                evidence.scan.skippedSymlinks,
+            ),
+        ).joinToString(" · "),
     )
     DetailValue(stringResource(R.string.technical_scan_result, label), evidence.scan.resultSha256, true)
     evidence.detectorCounts.sortedBy { it.detectorId }.forEach { count ->
@@ -164,7 +189,7 @@ internal fun SourceScanEvidence(label: String, evidence: SourceScanWithDetails?)
         )
     }
     Text(
-        "Static indicators only; this is not a safe/malicious verdict and does not change comparison, trust, update, or install policy.",
+        stringResource(R.string.technical_source_scan_boundary),
         style = MaterialTheme.typography.bodySmall,
     )
 }
@@ -172,7 +197,17 @@ internal fun SourceScanEvidence(label: String, evidence: SourceScanWithDetails?)
 @Composable
 internal fun DetailValue(label: String, value: String, monospace: Boolean = false) {
     Column {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.weight(1f),
+            )
+            if ((monospace || value.length > LONG_TECHNICAL_VALUE_LENGTH) && value.isNotBlank()) {
+                CopyValueButton(value)
+            }
+        }
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
@@ -183,32 +218,34 @@ internal fun DetailValue(label: String, value: String, monospace: Boolean = fals
     }
 }
 
+@Composable
 internal fun trustLabel(record: RegisteredAppRecord): String = when (record.trustLevel) {
-    TrustLevel.REPRODUCIBLE -> "Reproducible"
-    TrustLevel.BUILDABLE -> "Buildable"
-    TrustLevel.DIFFERENT -> "Different"
-    TrustLevel.INCOMPARABLE -> "Incomparable"
-    TrustLevel.FAILED -> "Failed"
+    TrustLevel.REPRODUCIBLE -> stringResource(R.string.state_reproducible)
+    TrustLevel.BUILDABLE -> stringResource(R.string.state_buildable)
+    TrustLevel.DIFFERENT -> stringResource(R.string.state_different)
+    TrustLevel.INCOMPARABLE -> stringResource(R.string.state_incomparable)
+    TrustLevel.FAILED -> stringResource(R.string.state_error)
     null -> when (record.currentComparison?.status) {
         ComparisonRunStatus.BUILDING.name,
-        ComparisonRunStatus.REPEAT_BUILDING.name -> "Building"
+        ComparisonRunStatus.REPEAT_BUILDING.name -> stringResource(R.string.state_building)
         ComparisonRunStatus.COMPARING.name,
-        ComparisonRunStatus.COMPARING_REPEAT.name -> "Comparing"
+        ComparisonRunStatus.COMPARING_REPEAT.name -> stringResource(R.string.state_comparing)
         ComparisonRunStatus.AWAITING_CONFIRMATION.name,
-        ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name -> "Confirmation required"
+        ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name -> stringResource(R.string.state_awaiting_confirmation)
         ComparisonRunStatus.AWAITING_SCAN_REVIEW.name,
-        ComparisonRunStatus.AWAITING_REPEAT_SCAN_REVIEW.name -> "Source scan review required"
-        else -> "Not evaluated"
+        ComparisonRunStatus.AWAITING_REPEAT_SCAN_REVIEW.name -> stringResource(R.string.state_awaiting_scan_review)
+        else -> stringResource(R.string.state_not_checked)
     }
 }
 
+@Composable
 internal fun updateLabel(status: String?): String = when (status) {
-    UpdateStatus.NOT_INSTALLED.name -> "Not installed"
-    UpdateStatus.UPDATE_AVAILABLE.name -> "Update available"
-    UpdateStatus.UP_TO_DATE.name -> "Up to date"
-    UpdateStatus.OLDER_THAN_INSTALLED.name -> "Older release"
-    UpdateStatus.UNKNOWN.name -> "Unknown"
-    else -> "Not evaluated"
+    UpdateStatus.NOT_INSTALLED.name -> stringResource(R.string.state_not_installed)
+    UpdateStatus.UPDATE_AVAILABLE.name -> stringResource(R.string.state_update_available)
+    UpdateStatus.UP_TO_DATE.name -> stringResource(R.string.state_success)
+    UpdateStatus.OLDER_THAN_INSTALLED.name -> stringResource(R.string.state_older_than_installed)
+    UpdateStatus.UNKNOWN.name -> stringResource(R.string.value_unknown)
+    else -> stringResource(R.string.state_not_checked)
 }
 
 @Composable
@@ -218,21 +255,32 @@ internal fun updateColor(status: String?): Color = when (status) {
     else -> MaterialTheme.colorScheme.secondary
 }
 
+@Composable
 internal fun signerLabel(status: String?): String = when (status) {
-    "SIGNER_MATCH" -> "Signer match"
-    "SIGNER_MISMATCH" -> "Signer mismatch"
-    "NOT_INSTALLED_OR_NOT_VISIBLE" -> "New install"
-    else -> "Signer unknown"
+    "SIGNER_MATCH" -> stringResource(R.string.technical_signer_match)
+    "SIGNER_MISMATCH" -> stringResource(R.string.technical_signer_mismatch)
+    "NOT_INSTALLED_OR_NOT_VISIBLE" -> stringResource(R.string.technical_signer_new_install)
+    else -> stringResource(R.string.technical_signer_unknown)
 }
 
+@Composable
 internal fun modeLabel(mode: ManagementMode): String =
-    if (mode == ManagementMode.VERIFICATION) "Verification" else "Acquisition"
+    stringResource(if (mode == ManagementMode.VERIFICATION) R.string.mode_verification else R.string.mode_acquisition)
 
+@Composable
 internal fun modeLabel(mode: String): String = modeLabel(enumValue(mode, ManagementMode.VERIFICATION))
 
+@Composable
 internal fun installationSourceLabel(source: InstallationSource): String =
-    if (source == InstallationSource.OFFICIAL_RELEASE) "Official release APK" else "Local ReproDroid build"
+    stringResource(
+        if (source == InstallationSource.OFFICIAL_RELEASE) {
+            R.string.technical_official_release_apk
+        } else {
+            R.string.technical_local_reprodroid_build
+        },
+    )
 
+@Composable
 internal fun installationSourceLabel(source: String): String =
     installationSourceLabel(enumValue(source, InstallationSource.OFFICIAL_RELEASE))
 
@@ -263,7 +311,9 @@ internal inline fun <reified T : Enum<T>> enumValue(value: String, fallback: T):
 
 internal fun String.displayEnum(): String = lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
-internal fun formatDecimalBytes(value: String): String = value.toLongOrNull()?.let(::formatBytes) ?: "Unavailable"
+@Composable
+internal fun formatDecimalBytes(value: String): String =
+    value.toLongOrNull()?.let(::formatBytes) ?: stringResource(R.string.value_not_available)
 
 internal fun formatBytes(value: Long): String = when {
     value >= 1024L * 1024L * 1024L -> "%.2f GiB".format(value.toDouble() / (1024L * 1024L * 1024L))
@@ -282,4 +332,7 @@ internal const val MAX_SEMANTIC_DIFFERENCES_IN_UI = 3
 internal const val MAX_DEPENDENCY_DIFFERENCES_IN_UI = 40
 internal const val MAX_SOURCE_SCAN_FINDINGS_IN_UI = 40
 internal const val AUDIT_MIME_TYPE = "application/vnd.reprodroid.audit+json"
+
+private fun Long.pluralQuantity(): Int = coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+private const val LONG_TECHNICAL_VALUE_LENGTH = 80
 internal val APK_LIMITS = listOf(64L * MIB, 128L * MIB, 256L * MIB, 512L * MIB)

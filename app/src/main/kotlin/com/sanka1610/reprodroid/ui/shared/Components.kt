@@ -102,7 +102,6 @@ internal fun UiRDetailCard(title: String, content: @Composable ColumnScope.() ->
 
 @Composable
 internal fun UiRDetailValue(label: String, value: String, monospace: Boolean = false) {
-    val clipboard = LocalClipboardManager.current
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -111,18 +110,25 @@ internal fun UiRDetailValue(label: String, value: String, monospace: Boolean = f
                 color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.weight(1f),
             )
-            if (monospace && value.isNotBlank()) {
-                TextButton(onClick = { clipboard.setText(AnnotatedString(value)) }) {
-                    Text(stringResource(R.string.action_copy))
-                }
+            if ((monospace || value.length > LONG_PRESENTATION_VALUE_LENGTH) && value.isNotBlank()) {
+                CopyValueButton(value)
             }
         }
         Text(
             value,
             style = MaterialTheme.typography.bodyMedium,
             fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
-            overflow = TextOverflow.Visible,
+            maxLines = if (monospace) 4 else 6,
+            overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+internal fun CopyValueButton(value: String) {
+    val clipboard = LocalClipboardManager.current
+    TextButton(onClick = { clipboard.setText(AnnotatedString(value)) }) {
+        Text(stringResource(R.string.action_copy))
     }
 }
 
@@ -193,7 +199,7 @@ internal fun humanBytes(value: Long): String = when {
 
 internal const val ALL_GROUP_ID = "__all__"
 internal const val UNGROUPED_ID = "__ungrouped__"
-internal const val MAX_VISIBLE_ERROR_LENGTH = 800
+private const val LONG_PRESENTATION_VALUE_LENGTH = 80
 internal const val MAX_GROUP_NAME_LENGTH = 80
 internal const val MAX_DISPLAY_NAME_LENGTH = 120
 internal const val MAX_AUTHOR_DISPLAY_LENGTH = 160

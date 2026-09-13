@@ -23,15 +23,12 @@
     <string name="action_delete_group">グループを削除</string>
     <string name="action_move_up">上へ移動</string>
     <string name="action_move_down">下へ移動</string>
-    <string name="action_stop_tracking">追跡を解除</string>
-    <string name="action_uninstall_stop_tracking">アンインストールして追跡を解除</string>
     <string name="action_resume_tracking">追跡を再開</string>
     <string name="action_preview_deletion">完全削除の内容を確認</string>
     <string name="action_delete_permanently">完全に削除</string>
     <string name="action_use_default">デフォルトへ戻す</string>
     <string name="action_expand">展開</string>
     <string name="action_collapse">折りたたむ</string>
-    <string name="apps_title">追跡中のアプリ</string>
     <string name="apps_search_hint">アプリまたはリポジトリを検索</string>
     <string name="apps_empty_title">追跡中のアプリはありません</string>
     <string name="apps_empty_body">ソースリポジトリのURLからアプリを追加できます。</string>
@@ -43,9 +40,7 @@
     <string name="groups_title">グループ</string>
     <string name="groups_empty">作成済みのグループはありません。「すべて」と「未分類」は常に利用できます。</string>
     <string name="group_delete_explanation">このグループ内のアプリは「未分類」へ移動します。アプリや履歴は削除されません。</string>
-    <string name="app_information_title">アプリ情報</string>
     <string name="app_edit_title">アプリを編集</string>
-    <string name="app_settings_title">アプリ個別設定</string>
     <string name="app_settings_for">%1$sの設定</string>
     <string name="app_settings_registration">登録設定</string>
     <string name="app_settings_registration_body">管理モードとインストール元はアプリ固有の値です。</string>
@@ -73,13 +68,6 @@
     <string name="build_cmake_version">CMake version（任意）</string>
     <string name="build_save_configuration">ビルド設定を保存</string>
     <string name="build_numeric_error">Java majorとcompileSdkは、指定する場合は10進整数で入力してください。</string>
-    <string name="app_settings_future">今後接続するアプリ設定</string>
-    <string name="app_settings_future_body">永続化、スケジュール、通知、バックグラウンド処理を持たない経路だけを確保しています。</string>
-    <string name="app_settings_scheduled_checks">定期更新確認と実行条件</string>
-    <string name="app_settings_release_channel">Release channelとprerelease</string>
-    <string name="app_settings_automatic_actions">自動取得・ビルド・比較・インストール</string>
-    <string name="app_settings_notifications">更新・ビルド・比較・エラー通知</string>
-    <string name="app_technical_title">技術詳細</string>
     <string name="comparison_evidence_title">比較証拠</string>
     <string name="comparison_id">比較ID</string>
     <string name="comparison_reference_asset">参照Asset ID</string>
@@ -106,7 +94,6 @@
     <string name="technical_offline_warning">Gradleのoffline解決はnetwork isolationではありません。</string>
     <string name="technical_environment_evidence_body">この証拠はビルド条件の説明用です。raw APK outcome、trust、installation policyは変更しません。</string>
     <string name="technical_repository_id">リポジトリID</string>
-    <string name="technical_default_branch">デフォルトブランチ</string>
     <string name="technical_identity">ID検証状態</string>
     <string name="technical_source_discovery">ソース解析</string>
     <string name="technical_discovery_reason">解析理由</string>
@@ -123,6 +110,43 @@
     <string name="technical_file">ファイル</string>
     <string name="technical_provider_size">Provider報告size</string>
     <string name="technical_provider_created">Provider上のasset作成日時</string>
+    <string name="technical_build_settings">ビルド設定</string>
+    <string name="technical_build_settings_summary">リビジョン %1$d · %2$s</string>
+    <string name="technical_installed">インストール済み</string>
+    <string name="technical_not_supplied">未提供</string>
+    <string name="technical_source_scan_scope">%1$sの対象範囲</string>
+    <string name="technical_source_scan_boundary">静的な指標だけを示します。安全または悪意ありという判定ではなく、比較・trust・更新・install方針を変更しません。</string>
+    <string name="technical_dependency_policy_mismatch">Build AとBuild Bでdependency固定方針が異なります。これは説明用証拠であり、比較・trust・更新・installの判断を変更しません。</string>
+    <string name="technical_build_environment">Build %1$s環境</string>
+    <string name="technical_build_environment_value">Java %1$s（%2$s）、Gradle %3$s、SDK API %4$d、Build Tools %5$s、決定性：%6$s</string>
+    <string name="technical_dependency_multiset">Dependency multiset</string>
+    <string name="technical_dependency_multiset_value">同一 %1$d、変更 %2$d、Build Aのみ %3$d、Build Bのみ %4$d</string>
+    <string name="technical_difference_changed">変更</string>
+    <string name="technical_difference_build_a_only">Build Aのみ</string>
+    <string name="technical_difference_build_b_only">Build Bのみ</string>
+    <string name="technical_difference_same">同一</string>
+    <string name="technical_environment_mismatch">build recipe、variant、Java、決定性制御のいずれかが異なります。これは説明用証拠であり、原因として表示したりraw outcomeの変更に使用したりしません。</string>
+    <string name="technical_advanced_official_primary">詳細証拠：Official対Build A</string>
+    <string name="technical_advanced_official_repeat">詳細証拠：Official対Build B</string>
+    <string name="technical_advanced_local_repeatability">詳細証拠：Build A対Build B</string>
+    <string name="technical_advanced_other">詳細証拠：%1$s</string>
+    <string name="technical_entry_changes">Entryの変更</string>
+    <string name="technical_entry_changes_value">同一 %1$d、変更 %2$d、追加 %3$d、不足 %4$d</string>
+    <string name="technical_dependency_none">なし</string>
+    <string name="technical_dependency_lockfile">Lockfile確認済み</string>
+    <string name="technical_dependency_lockfile_offline">Lockfile確認済み · Gradle offline解決</string>
+    <string name="technical_determinism_not_configured">未設定</string>
+    <string name="technical_determinism_epoch">SOURCE_DATE_EPOCH %1$d%2$s</string>
+    <string name="technical_determinism_no_build_cache">RunnerでGradle build cacheを無効化</string>
+    <string name="technical_determinism_locale">Process locale %1$s</string>
+    <string name="technical_signer_match">Signer一致</string>
+    <string name="technical_signer_mismatch">Signer不一致</string>
+    <string name="technical_signer_new_install">新規インストール</string>
+    <string name="technical_signer_unknown">Signer未確認</string>
+    <string name="technical_official_release_apk">Official release APK</string>
+    <string name="technical_local_reprodroid_build">ReproDroidのLocal Build</string>
+    <string name="technical_filename_inference">ABI：%1$s、variant：%2$s（ファイル名のみ）</string>
+    <string name="technical_not_inferred">推定なし</string>
     <string name="technical_download_content_type">Download応答MIME</string>
     <string name="technical_content_type">Content-Type</string>
     <string name="technical_filename_hints">ファイル名の判定材料</string>
@@ -222,6 +246,7 @@
     <string name="tracking_active">有効</string>
     <string name="tracking_inactive">解除済み</string>
     <string name="value_unknown">未確認</string>
+    <string name="value_unknown_with_value">未確認（%1$s）</string>
     <string name="value_never">なし</string>
     <string name="value_not_available">利用不可</string>
     <string name="state_active">有効</string>
@@ -230,6 +255,10 @@
     <string name="state_checking">確認中</string>
     <string name="state_pending">待機中</string>
     <string name="state_running">処理中</string>
+    <string name="state_building">ビルド中</string>
+    <string name="state_comparing">比較中</string>
+    <string name="state_awaiting_confirmation">確認が必要</string>
+    <string name="state_awaiting_scan_review">ソーススキャンの確認が必要</string>
     <string name="state_success">成功</string>
     <string name="state_update_available">更新あり</string>
     <string name="state_not_installed">未インストール</string>
@@ -251,10 +280,7 @@
     <string name="remove_independent_body">アンインストールだけなら登録と追跡を維持します。登録解除だけならAndroidアプリを維持します。</string>
     <string name="remove_effect_uninstall">Androidのアンインストール確認を開き、パッケージが存在しないことを確認してから完了します。</string>
     <string name="remove_effect_registration">履歴を保持したまま、この登録の追跡を停止します。</string>
-    <string name="remove_uninstall_body">Androidのシステム確認画面を表示します。パッケージが未インストールになったことを確認した後だけ追跡を解除します。</string>
     <string name="remove_package_unknown">パッケージが不明または現在インストールされていないため、アンインストールは選択できません。</string>
-    <string name="remove_final_tracking_body">この登録に対する新しい追跡処理を停止しますか？</string>
-    <string name="remove_final_uninstall_body">Androidのアンインストール確認を開き、パッケージが存在しないと確認できた場合だけ追跡を解除しますか？</string>
     <string name="remove_other_references">同一パッケージを参照する他の登録</string>
     <string name="remove_history_preserved">リリース、ビルド、比較、インストール、監査履歴は保持します。完全削除は設定内の独立した操作です。</string>
     <string name="inactive_apps_title">追跡履歴</string>
@@ -264,7 +290,6 @@
     <string name="data_android_deletion_note">Android登録の完全削除は追跡解除済みレコードだけが対象です。Runnerデータは削除しません。</string>
     <string name="data_runner_separate">Runnerストレージと保持</string>
     <string name="data_runner_note">Runnerクリーンアップは独立してプレビュー・実行します。AndroidとRunnerの削除を単一の原子的成功として表示しません。</string>
-    <string name="data_log_export">Android運用ログをエクスポート</string>
     <string name="deletion_preview_title">完全削除の確認</string>
     <string name="deletion_preview_body">選択したローカル登録と監査履歴を完全に削除します。Runner側のデータは別に管理します。</string>
     <string name="deletion_release_count">リリース観測：%1$d件</string>
@@ -279,7 +304,6 @@
     <string name="deletion_result_bytes">解放済み容量：%1$s</string>
     <string name="deletion_result_failed_files">残存ファイル：%1$s</string>
     <string name="deletion_result_cleanup_hint">残ったアプリ専用孤立ファイルはストレージ再調整の対象として残り、削除済みとは表示しません。</string>
-    <string name="settings_title">設定</string>
     <string name="settings_appearance">外観</string>
     <string name="settings_theme">テーマ</string>
     <string name="settings_theme_system">システム</string>
@@ -440,6 +464,11 @@
     <string name="storage_protected">保護中：%1$s</string>
     <string name="storage_result">結果</string>
     <string name="storage_reason">理由</string>
+    <string name="storage_unclassified">未分類</string>
+    <string name="storage_budget_no_automatic_delete">現在の使用量より小さい上限を選んでも、ファイルを自動削除しません。</string>
+    <string name="storage_runner_unavailable">Runnerストレージが利用不可または非互換でも、空として扱いません。Android側の履歴は引き続き利用できます。</string>
+    <string name="storage_audit_boundary">公開可能なallowlist済み履歴だけを出力します。APK、ソース本文、private manifest、raw log、credential、storage pathは除外します。</string>
+    <string name="storage_scope_all_apps">登録済みの全アプリ</string>
     <string name="planned_phase">Phase %1$sで実装予定</string>
     <string name="planned_unavailable">UI-Rでは利用できません</string>
     <string name="planned_updates_body">定期metadata確認、Release channel、実行条件、通知をここで設定します。</string>
@@ -451,8 +480,6 @@
     <string name="github_stars_body">GitHub StarsからのRepositoryインポートは、このバージョンでは利用できません。</string>
     <string name="future_update_schedule">定期確認を有効化</string>
     <string name="future_update_interval">確認間隔と毎日の実行時刻</string>
-    <string name="future_update_constraints">ネットワークとバッテリー条件</string>
-    <string name="future_update_notifications">更新通知とミュート</string>
     <string name="release_check_global_settings">Releaseの定期確認</string>
     <string name="release_check_scope_body">公開providerのmetadataだけを確認します。APK取得、Runner接続、build、比較、installは開始しません。</string>
     <string name="release_check_schedule_mode">スケジュール方式</string>
@@ -500,7 +527,6 @@
     <string name="licenses_intro">ライセンス本文とthird-party attribution noticeをAPKに同梱し、offlineで読めるようにしています。この一覧は情報提供用です。再配布前に実際のartifact metadataを確認してください。</string>
     <string name="licenses_loading">同梱ライセンス本文を読み込んでいます…</string>
     <string name="licenses_load_error">同梱ライセンス文書を読み込めませんでした。ネットワークへのfallbackは使用しません。</string>
-    <string name="future_stars_select_import">GitHubリポジトリを選択してインポート</string>
     <string name="add_title">ソースから追加</string>
     <string name="add_source_phase">1. ソース</string>
     <string name="add_analysis_phase">2. 解析</string>
@@ -512,12 +538,11 @@
     <string name="add_supported_providers">対応形式：https://github.com/{owner}/{repository} または https://codeberg.org/{owner}/{repository}</string>
     <string name="add_inspect_repository">リポジトリを解析</string>
     <string name="add_inspecting">リポジトリIDを確認し、範囲を制限してソースツリーを解析しています…</string>
-    <string name="codeberg_provider_available">Codebergリポジトリは「ソースから追加」から利用できます。</string>
     <string name="add_repository_verified">検証済みのリポジトリ情報</string>
     <string name="add_repository_id">不変リポジトリID</string>
     <string name="add_discovery_state">ソース解析状態</string>
     <string name="add_gradle_candidates">静的Gradle候補</string>
-    <string name="add_more_candidates">ほか%1$d件の候補</string>
+    <plurals name="add_more_candidates"><item quantity="other">ほか%1$d件の候補</item></plurals>
     <string name="add_options_copy_note">初期値には現在のグローバル設定を使用します。対応項目はアプリ設定から以後の変更も継承できます。</string>
     <string name="add_separate_target">このリポジトリ内の別パッケージ用に、独立した管理対象を作成する。</string>
     <string name="add_local_build_risk">Local Buildは署名者が異なる可能性があり、インストール済みOfficialアプリを置換できません。比較対象成果物に署名がある場合だけインストールできることを理解しました。</string>
@@ -545,8 +570,8 @@
     <string name="error_rate_limit">プロバイダーのRate Limitにより処理できません。リセット時刻以降に再試行してください。</string>
     <string name="error_not_found">指定したレコードまたはリポジトリが見つかりません。</string>
     <string name="error_stale">画面を開いている間にデータが変更されました。再読み込みしてからやり直してください。</string>
+    <string name="error_operation_failed">処理を完了できませんでした。現在の状態を確認してから再試行してください。</string>
     <string name="value_none">なし</string>
-    <string name="jobs_title">Runnerジョブ</string>
     <string name="jobs_subtitle">Runnerでのビルドと結果を確認します</string>
     <string name="jobs_execution_simulated">シミュレーション</string>
     <string name="jobs_execution_trusted">信頼済みソース</string>
@@ -558,6 +583,8 @@
     <string name="jobs_revision_commit">コミット</string>
     <string name="jobs_creation_boundary">作成時は許可済みリビジョンの解決だけを行います。ビルド実行には、確定したコミットとRunnerが選択したsandboxの個別確認が必要です。</string>
     <string name="jobs_creating">作成しています…</string>
+    <string name="jobs_input_required">リポジトリURLとリビジョンを入力してください。</string>
+    <string name="jobs_sync_failed">Runnerとの同期に失敗しました。</string>
     <string name="jobs_create">ジョブを作成</string>
     <string name="jobs_empty">保存済みジョブはありません</string>
     <string name="jobs_progress">%1$d%%</string>
@@ -571,7 +598,10 @@
     <string name="jobs_source_scan_title">ビルド前ソーススキャン</string>
     <string name="jobs_source_scan_clean">設定済み検出器の該当項目はありません</string>
     <plurals name="jobs_source_scan_findings"><item quantity="other">設定済み検出器の該当項目：%1$d件</item></plurals>
-    <string name="jobs_source_scan_summary">%1$dファイル · %2$d bytes · binary除外%3$d件 · symlink除外%4$d件</string>
+    <plurals name="jobs_source_scan_files"><item quantity="other">%1$dファイル</item></plurals>
+    <plurals name="jobs_source_scan_bytes"><item quantity="other">%1$d bytes</item></plurals>
+    <plurals name="jobs_source_scan_binary_skipped"><item quantity="other">binary除外%1$d件</item></plurals>
+    <plurals name="jobs_source_scan_symlinks_skipped"><item quantity="other">symlink除外%1$d件</item></plurals>
     <string name="jobs_scanner_result">Scanner %1$s · 結果 %2$s</string>
     <plurals name="jobs_additional_findings"><item quantity="other">ほか%1$d件</item></plurals>
     <string name="jobs_scan_not_verdict">静的な指標だけを示します。安全または悪意ありという判定ではありません。</string>
@@ -579,7 +609,7 @@
     <string name="jobs_java_environment">Java %1$s（%2$s）</string>
     <string name="jobs_gradle_environment">Gradle %1$s · 検証済みSDK API %2$d · Build Tools %3$s</string>
     <string name="jobs_apk_sha256">APK SHA-256 %1$s</string>
-    <string name="jobs_dependency_records">依存関係記録%1$d件 · 取得日時 %2$s</string>
+    <plurals name="jobs_dependency_records"><item quantity="other">依存関係記録%1$d件 · 取得日時 %2$s</item></plurals>
     <string name="jobs_refresh_sandbox">sandbox状態を更新</string>
     <string name="jobs_refresh_manifest">ビルドmanifestを更新</string>
     <string name="jobs_rce_title">ビルド実行の確認</string>
@@ -594,7 +624,7 @@
     <string name="jobs_logs">ログ</string>
     <string name="jobs_retry">新しいジョブとして再試行</string>
     <string name="jobs_artifact_apk">APK：%1$s</string>
-    <string name="jobs_runner_artifact">Runner：%1$d bytes · SHA-256 %2$s</string>
+    <plurals name="jobs_runner_artifact"><item quantity="other">Runner：%1$d bytes · SHA-256 %2$s</item></plurals>
     <string name="jobs_simulated_no_apk">シミュレーションのmetadataにはダウンロード可能なAPKがありません。</string>
     <string name="jobs_downloading_verifying">ダウンロードして検証しています…</string>
     <string name="jobs_retry_interrupted_download">中断したダウンロードを再試行</string>

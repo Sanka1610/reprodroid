@@ -360,7 +360,11 @@ internal fun AppEditScreen(
                     UiRDetailCard(stringResource(R.string.section_source)) {
                         UiRDetailValue(stringResource(R.string.label_repository), result.normalizedInputUrl, true)
                         UiRDetailValue(stringResource(R.string.label_branch), result.identity.defaultBranch)
-                        UiRDetailValue(stringResource(R.string.label_commit), result.discovery.resolvedCommitSha ?: "UNKNOWN", true)
+                        UiRDetailValue(
+                            stringResource(R.string.label_commit),
+                            result.discovery.resolvedCommitSha ?: stringResource(R.string.value_unknown),
+                            true,
+                        )
                         Text(
                             stringResource(
                                 if (identityMatches) R.string.source_identity_match else R.string.source_identity_mismatch,

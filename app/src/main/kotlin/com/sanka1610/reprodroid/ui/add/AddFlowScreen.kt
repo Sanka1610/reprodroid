@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -115,7 +116,14 @@ internal fun UiRAddFlowScreen(
                             UiRDetailValue(candidate.fileKind, candidate.relativePath, true)
                         }
                         if (resolved.discovery.candidates.size > 8) {
-                            Text(stringResource(R.string.add_more_candidates, resolved.discovery.candidates.size - 8))
+                            val additionalCandidates = resolved.discovery.candidates.size - 8
+                            Text(
+                                pluralStringResource(
+                                    R.plurals.add_more_candidates,
+                                    additionalCandidates,
+                                    additionalCandidates,
+                                ),
+                            )
                         }
                         Text(stringResource(R.string.add_known_facts), style = MaterialTheme.typography.bodySmall)
                     }

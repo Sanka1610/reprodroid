@@ -118,14 +118,15 @@ internal fun StorageScreen(
                         DetailValue(stringResource(R.string.storage_reserved), formatBytes(androidSummary.reservedBytes))
                         DetailValue(stringResource(R.string.storage_budget), formatBytes(androidSummary.budgetBytes))
                         DetailValue(
-                            "Unclassified",
-                            androidSummary.unclassifiedBytes?.let(::formatBytes) ?: "Unavailable",
+                            stringResource(R.string.storage_unclassified),
+                            androidSummary.unclassifiedBytes?.let(::formatBytes)
+                                ?: stringResource(R.string.value_not_available),
                         )
                         DetailValue(stringResource(R.string.storage_usable_filesystem), androidSummary.usableBytes?.let(::formatBytes) ?: stringResource(R.string.value_not_available))
                         DetailValue(stringResource(R.string.storage_measured), androidSummary.measuredAt)
                     }
                     Text(
-                        "Lowering the budget below current usage never deletes files automatically.",
+                        stringResource(R.string.storage_budget_no_automatic_delete),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -165,7 +166,7 @@ internal fun StorageScreen(
                         DetailValue(stringResource(R.string.storage_usable_filesystem), formatDecimalBytes(area.usableBytes))
                     }
                     Text(
-                        "Unavailable or incompatible Runner storage is never treated as empty. Local Android history remains available.",
+                        stringResource(R.string.storage_runner_unavailable),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -175,13 +176,13 @@ internal fun StorageScreen(
             item {
                 DetailCard(stringResource(R.string.storage_local_audit)) {
                     Text(
-                        "Exports public allowlisted history only. APKs, source text, private Manifests, raw logs, credentials, and storage paths are excluded.",
+                        stringResource(R.string.storage_audit_boundary),
                         style = MaterialTheme.typography.bodySmall,
                     )
                     DropdownSetting(
                         label = stringResource(R.string.storage_scope),
                         value = auditScope,
-                        options = linkedMapOf("ALL" to "All registered apps") +
+                        options = linkedMapOf("ALL" to stringResource(R.string.storage_scope_all_apps)) +
                             apps.associate { it.app.registeredAppId to it.app.displayName },
                         onSelect = { auditScope = it },
                         enabled = !busy,
