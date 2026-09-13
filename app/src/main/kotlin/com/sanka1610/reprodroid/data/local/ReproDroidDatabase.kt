@@ -52,7 +52,7 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         ProviderRepresentationEntity::class,
         RunnerConnectionEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -64,6 +64,14 @@ abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun runnerConnectionDao(): RunnerConnectionDao
 
     companion object {
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE global_settings ADD COLUMN showOperationHints INTEGER NOT NULL DEFAULT 1",
+                )
+            }
+        }
+
         val MIGRATION_20_21 = object : Migration(20, 21) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE jobs ADD COLUMN runnerId TEXT")

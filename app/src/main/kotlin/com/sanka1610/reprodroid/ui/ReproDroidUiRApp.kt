@@ -2,12 +2,18 @@ package com.sanka1610.reprodroid.ui
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,6 +44,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -44,14 +52,19 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -61,14 +74,17 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -83,7 +99,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.local.AppGroupEntity
@@ -177,6 +195,7 @@ fun ReproDroidApp(
     }
     var removalTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     var uninstallTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var uninstallStopsTracking by rememberSaveable { mutableStateOf(false) }
     var addRepositoryUrl by rememberSaveable { mutableStateOf("") }
     var addModeName by rememberSaveable(globalSettings.updatedAt) {
         mutableStateOf(globalSettings.defaultManagementMode)
@@ -188,6 +207,8 @@ fun ReproDroidApp(
     var addSeparateTarget by rememberSaveable { mutableStateOf(false) }
     var inactiveReturnRoute by rememberSaveable { mutableStateOf(ReproDroidRoute.InactiveApps.encode()) }
     var updateSettingsReturnRoute by rememberSaveable { mutableStateOf(ReproDroidRoute.Settings.encode()) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val rootScope = rememberCoroutineScope()
 
     fun navigate(destination: ReproDroidRoute) {
         encodedRoute = destination.encode()
@@ -199,7 +220,8 @@ fun ReproDroidApp(
         comparisonOwnerAppId = comparisonRouteApp?.app?.registeredAppId,
     )
 
-    BackHandler(enabled = !route.isRoot) { navigate(backDestination(route, backContext)) }
+    BackHandler(enabled = drawerState.isOpen) { rootScope.launch { drawerState.close() } }
+    BackHandler(enabled = !route.isRoot && !drawerState.isOpen) { navigate(backDestination(route, backContext)) }
 
     LaunchedEffect(preview.repository, route) {
         if (route == ReproDroidRoute.AddSource && preview.repository != null) {
@@ -211,10 +233,20 @@ fun ReproDroidApp(
         ActivityResultContracts.StartActivityForResult(),
     ) {
         uninstallTargetId?.let { appId ->
-            managedViewModel.stopTrackingAfterConfirmedUninstall(appId) {
+            val onConfirmed = {
                 uninstallTargetId = null
                 removalTargetId = null
-                navigate(ReproDroidRoute.Apps)
+                if (uninstallStopsTracking) {
+                    navigate(ReproDroidRoute.Apps)
+                } else {
+                    navigate(ReproDroidRoute.AppInformation(appId))
+                }
+                uninstallStopsTracking = false
+            }
+            if (uninstallStopsTracking) {
+                managedViewModel.stopTrackingAfterConfirmedUninstall(appId, onConfirmed)
+            } else {
+                managedViewModel.confirmUninstall(appId, onConfirmed)
             }
         }
     }
@@ -243,13 +275,139 @@ fun ReproDroidApp(
         }
     }
 
+    val rootContent: @Composable (ReproDroidRoute) -> Unit = { destination ->
+        when (destination) {
+            ReproDroidRoute.Apps -> UiRAppsScreen(
+                apps = apps,
+                groups = groups,
+                onSelect = { navigate(ReproDroidRoute.AppInformation(it)) },
+                onAdd = { navigate(ReproDroidRoute.AddSource) },
+                onCreateGroup = managedViewModel::createGroup,
+                onRenameGroup = managedViewModel::renameGroup,
+                onReorderGroups = managedViewModel::reorderGroups,
+                onDeleteGroup = managedViewModel::deleteGroup,
+            )
+            ReproDroidRoute.AddSource -> UiRAddFlowScreen(
+                route = destination,
+                preview = preview,
+                repositoryUrl = addRepositoryUrl,
+                onRepositoryUrlChange = {
+                    addRepositoryUrl = it
+                    managedViewModel.clearPreview()
+                },
+                mode = ManagementMode.entries.firstOrNull { it.name == addModeName }
+                    ?: ManagementMode.VERIFICATION,
+                onModeChange = {
+                    addModeName = it.name
+                    if (it == ManagementMode.ACQUISITION) {
+                        addInstallationSourceName = InstallationSource.OFFICIAL_RELEASE.name
+                        addRiskConfirmed = false
+                    }
+                },
+                installationSource = InstallationSource.entries.firstOrNull {
+                    it.name == addInstallationSourceName
+                } ?: InstallationSource.OFFICIAL_RELEASE,
+                onInstallationSourceChange = {
+                    addInstallationSourceName = it.name
+                    if (it != InstallationSource.LOCAL_BUILD) addRiskConfirmed = false
+                },
+                localRiskConfirmed = addRiskConfirmed,
+                onLocalRiskConfirmedChange = { addRiskConfirmed = it },
+                separateManagementTarget = addSeparateTarget,
+                onSeparateManagementTargetChange = { addSeparateTarget = it },
+                onPreview = managedViewModel::preview,
+                onCancelPreview = managedViewModel::clearPreview,
+                onNavigate = ::navigate,
+                onResume = { id ->
+                    managedViewModel.resumeTracking(id) {
+                        managedViewModel.clearPreview()
+                        navigate(ReproDroidRoute.AppInformation(id))
+                    }
+                },
+                onRegister = { mode, source, confirmed, separateTarget ->
+                    managedViewModel.register(mode, source, confirmed, separateTarget) { id ->
+                        addRepositoryUrl = ""
+                        addRiskConfirmed = false
+                        addSeparateTarget = false
+                        navigate(ReproDroidRoute.AppInformation(id))
+                    }
+                },
+            )
+            ReproDroidRoute.Settings -> UiRSettingsScreen(
+                settings = globalSettings,
+                onUpdate = managedViewModel::updateGlobalSettings,
+                onNavigate = { target ->
+                    if (target == ReproDroidRoute.UpdateSettings) {
+                        updateSettingsReturnRoute = ReproDroidRoute.Settings.encode()
+                    }
+                    navigate(target)
+                },
+            )
+            else -> Unit
+        }
+    }
+
+    val showRootShell = route.isRoot || route.isAddFlow || route == ReproDroidRoute.GitHubStarsImport
     ReproDroidTheme(globalSettings) {
         Surface(Modifier.fillMaxSize()) {
-            Scaffold(
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                gesturesEnabled = showRootShell,
+                drawerContent = {
+                    ModalDrawerSheet {
+                        Text(
+                            stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(24.dp),
+                        )
+                        RootDrawerItem(
+                            label = stringResource(R.string.nav_apps),
+                            icon = Icons.Default.Home,
+                            selected = route == ReproDroidRoute.Apps,
+                        ) {
+                            navigate(ReproDroidRoute.Apps)
+                            rootScope.launch { drawerState.close() }
+                        }
+                        RootDrawerItem(
+                            label = stringResource(R.string.nav_add),
+                            icon = Icons.Default.Add,
+                            selected = route.isAddFlow || route == ReproDroidRoute.GitHubStarsImport,
+                        ) {
+                            navigate(ReproDroidRoute.AddSource)
+                            rootScope.launch { drawerState.close() }
+                        }
+                        RootDrawerItem(
+                            label = stringResource(R.string.nav_settings),
+                            icon = Icons.Default.Settings,
+                            selected = route == ReproDroidRoute.Settings,
+                        ) {
+                            navigate(ReproDroidRoute.Settings)
+                            rootScope.launch { drawerState.close() }
+                        }
+                    }
+                },
+            ) {
+                Scaffold(
+                topBar = {
+                    if (showRootShell) {
+                        RootTopBar(
+                            route = route,
+                            onOpenDrawer = { rootScope.launch { drawerState.open() } },
+                            onOpenSettings = { navigate(ReproDroidRoute.Settings) },
+                        )
+                    }
+                },
+                floatingActionButton = {
+                    if (route == ReproDroidRoute.Apps) {
+                        FloatingActionButton(onClick = { navigate(ReproDroidRoute.AddSource) }) {
+                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.action_add_app))
+                        }
+                    }
+                },
                 bottomBar = {
                     when {
                         route.isRoot || route.isAddFlow || route == ReproDroidRoute.GitHubStarsImport ->
-                            RootNavigationBar(route, ::navigate)
+                            RootPageIndicator(route, ::navigate)
                         route.appId != null && routeApp != null -> AppActionBar(
                             route = route,
                             active = routeApp.app.trackingState == AppTrackingState.ACTIVE.name,
@@ -258,14 +416,27 @@ fun ReproDroidApp(
                         )
                     }
                 },
-            ) { contentPadding ->
+                ) { contentPadding ->
                 Column(
                     Modifier
                         .fillMaxSize()
                         .padding(contentPadding),
                 ) {
                     message?.let { UiRMessageBanner(it, managedViewModel::clearMessage) }
-                    when (route) {
+                    if (route.isRoot) {
+                        AnimatedContent(
+                            targetState = route,
+                            transitionSpec = {
+                                val forward = rootPageIndex(targetState) >= rootPageIndex(initialState)
+                                slideInHorizontally { width -> if (forward) width else -width } togetherWith
+                                    slideOutHorizontally { width -> if (forward) -width else width }
+                            },
+                            label = "root-route",
+                        ) { destination ->
+                            rootContent(destination)
+                        }
+                    } else {
+                        when (route) {
                         ReproDroidRoute.Apps -> UiRAppsScreen(
                             apps = apps,
                             groups = groups,
@@ -509,9 +680,7 @@ fun ReproDroidApp(
                         )
                         ReproDroidRoute.GitHubStarsImport -> PlannedFeatureScreen(
                             title = stringResource(R.string.github_stars_title),
-                            phase = "4.5",
                             body = stringResource(R.string.github_stars_body),
-                            controls = listOf(stringResource(R.string.future_stars_select_import)),
                             onBack = { navigate(ReproDroidRoute.AddSource) },
                         )
                         is ReproDroidRoute.AppInformation -> routeApp?.let { record ->
@@ -655,7 +824,9 @@ fun ReproDroidApp(
                                 )
                             }
                         } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
+                        }
                     }
+                }
                 }
             }
         }
@@ -678,8 +849,9 @@ fun ReproDroidApp(
                         navigate(ReproDroidRoute.Apps)
                     }
                 },
-                onUninstall = { packageName ->
+                onUninstall = { packageName, stopTracking ->
                     uninstallTargetId = appId
+                    uninstallStopsTracking = stopTracking
                     uninstallLauncher.launch(
                         Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName"))
                             .putExtra(Intent.EXTRA_RETURN_RESULT, true),
@@ -691,27 +863,95 @@ fun ReproDroidApp(
 }
 
 @Composable
-private fun RootNavigationBar(route: ReproDroidRoute, onNavigate: (ReproDroidRoute) -> Unit) {
-    NavigationBar {
-        NavigationBarItem(
-            selected = route == ReproDroidRoute.Apps,
-            onClick = { onNavigate(ReproDroidRoute.Apps) },
-            icon = { Icon(Icons.Default.Home, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_apps)) },
-        )
-        NavigationBarItem(
-            selected = route in ReproDroidRoute.addFlowRoutes || route == ReproDroidRoute.GitHubStarsImport,
-            onClick = { onNavigate(ReproDroidRoute.AddSource) },
-            icon = { Icon(Icons.Default.Add, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_add)) },
-        )
-        NavigationBarItem(
-            selected = route == ReproDroidRoute.Settings,
-            onClick = { onNavigate(ReproDroidRoute.Settings) },
-            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_settings)) },
-        )
+private fun RootDrawerItem(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    NavigationDrawerItem(
+        label = { Text(label) },
+        selected = selected,
+        onClick = onClick,
+        icon = { Icon(icon, contentDescription = null) },
+        modifier = Modifier.padding(horizontal = 12.dp),
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RootTopBar(
+    route: ReproDroidRoute,
+    onOpenDrawer: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    val title = when {
+        route == ReproDroidRoute.Apps -> stringResource(R.string.nav_apps)
+        route.isAddFlow || route == ReproDroidRoute.GitHubStarsImport -> stringResource(R.string.nav_add)
+        else -> stringResource(R.string.nav_settings)
     }
+    TopAppBar(
+        title = { Text(title) },
+        navigationIcon = {
+            IconButton(onClick = onOpenDrawer) {
+                Icon(Icons.Default.Menu, contentDescription = stringResource(R.string.root_open_navigation))
+            }
+        },
+        actions = {
+            if (route != ReproDroidRoute.Settings) {
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.root_open_settings))
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun RootPageIndicator(route: ReproDroidRoute, onNavigate: (ReproDroidRoute) -> Unit) {
+    val selected = rootPageIndex(route)
+    val pages = listOf(
+        stringResource(R.string.nav_apps) to ReproDroidRoute.Apps,
+        stringResource(R.string.nav_add) to ReproDroidRoute.AddSource,
+        stringResource(R.string.nav_settings) to ReproDroidRoute.Settings,
+    )
+    Surface(tonalElevation = 2.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            pages.forEachIndexed { index, (label, destination) ->
+                val description = stringResource(
+                    if (index == selected) R.string.root_page_selected else R.string.root_page_open,
+                    label,
+                )
+                IconButton(
+                    onClick = { onNavigate(destination) },
+                    modifier = Modifier.semantics { contentDescription = description },
+                ) {
+                    Box(
+                        Modifier
+                            .size(if (index == selected) 10.dp else 7.dp)
+                            .background(
+                                color = if (index == selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                shape = CircleShape,
+                            ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun rootPageIndex(route: ReproDroidRoute): Int = when {
+    route == ReproDroidRoute.Apps -> 0
+    route.isAddFlow || route == ReproDroidRoute.GitHubStarsImport -> 1
+    else -> 2
 }
 
 @Composable
@@ -818,15 +1058,10 @@ private fun UiRAppsScreen(
     }
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 16.dp),
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
         ) {
-            Text(
-                stringResource(R.string.apps_title),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
             TextButton(onClick = { showGroups = true }) { Text(stringResource(R.string.action_manage_groups)) }
         }
         OutlinedTextField(
@@ -1079,10 +1314,6 @@ private fun UiRAddFlowScreen(
                         Text(stringResource(R.string.action_cancel))
                     }
                 }
-                OutlinedButton(
-                    onClick = { onNavigate(ReproDroidRoute.GitHubStarsImport) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.github_stars_title)) }
             }
             ReproDroidRoute.AddAnalysis -> {
                 if (resolved == null) {
@@ -1420,11 +1651,6 @@ private fun AppInformationScreen(
                     )
                     comparison?.let {
                         UiRDetailValue(stringResource(R.string.label_comparison_status), statusLabel(it.status))
-                        UiRDetailValue(stringResource(R.string.label_official_primary), statusLabel(it.outcome))
-                        if (it.protocolVersion >= 2) {
-                            UiRDetailValue(stringResource(R.string.label_official_repeat), statusLabel(it.repeatOfficialOutcome))
-                            UiRDetailValue(stringResource(R.string.label_local_repeatability), statusLabel(it.repeatabilityOutcome))
-                        }
                         OutlinedButton(
                             onClick = { onComparison(it.comparisonRunId) },
                             modifier = Modifier.fillMaxWidth(),
@@ -1436,7 +1662,7 @@ private fun AppInformationScreen(
                 UiRDetailCard(stringResource(R.string.section_build_summary)) {
                     UiRDetailValue(
                         stringResource(R.string.label_build_configuration),
-                        record.selectedBuildConfiguration?.let { "r${it.revision} · ${statusLabel(it.validationState)}" }
+                        record.selectedBuildConfiguration?.let { statusLabel(it.validationState) }
                             ?: stringResource(R.string.value_not_available),
                     )
                     currentJob?.let {
@@ -1455,13 +1681,6 @@ private fun AppInformationScreen(
                     UiRDetailValue(
                         stringResource(R.string.label_branch),
                         record.latestSourceDiscovery?.requestedBranch ?: stringResource(R.string.value_unknown),
-                    )
-                    UiRDetailValue(
-                        stringResource(R.string.label_commit),
-                        record.latestSourceDiscovery?.resolvedCommitSha
-                            ?: record.latestRelease?.snapshot?.resolvedCommitSha
-                            ?: stringResource(R.string.value_unknown),
-                        true,
                     )
                     UiRDetailValue(
                         stringResource(R.string.label_package),
@@ -1725,15 +1944,19 @@ private fun UiRSettingsScreen(
     var appearanceExpanded by rememberSaveable { mutableStateOf(true) }
     var defaultsExpanded by rememberSaveable { mutableStateOf(false) }
     var updatesExpanded by rememberSaveable { mutableStateOf(false) }
-    var authenticationExpanded by rememberSaveable { mutableStateOf(false) }
+    var serviceAuthenticationExpanded by rememberSaveable { mutableStateOf(false) }
     var integrationsExpanded by rememberSaveable { mutableStateOf(false) }
+    var runnerExpanded by rememberSaveable { mutableStateOf(false) }
     var backupExpanded by rememberSaveable { mutableStateOf(false) }
-    var diagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
+    var warningsExpanded by rememberSaveable { mutableStateOf(false) }
+    var debugExpanded by rememberSaveable { mutableStateOf(false) }
+    var aboutExpanded by rememberSaveable { mutableStateOf(false) }
+    var showHintsInfo by rememberSaveable { mutableStateOf(false) }
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item { Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 16.dp)) }
+        item { Spacer(Modifier.height(6.dp)) }
         item {
             AccordionSection(stringResource(R.string.settings_appearance), appearanceExpanded, { appearanceExpanded = !appearanceExpanded }) {
                 DropdownSetting(
@@ -1829,34 +2052,97 @@ private fun UiRSettingsScreen(
             }
         }
         item {
-            AccordionSection(stringResource(R.string.settings_authentication), authenticationExpanded, { authenticationExpanded = !authenticationExpanded }) {
-                SettingsLink(stringResource(R.string.runner_connection_title)) {
-                    onNavigate(ReproDroidRoute.Authentication)
-                }
-                Text(stringResource(R.string.runner_pairing_boundaries), style = MaterialTheme.typography.bodySmall)
+            AccordionSection(
+                stringResource(R.string.settings_service_authentication),
+                serviceAuthenticationExpanded,
+                { serviceAuthenticationExpanded = !serviceAuthenticationExpanded },
+            ) {
+                UnavailableSetting(
+                    stringResource(R.string.settings_github_token),
+                    stringResource(R.string.settings_service_authentication_unavailable),
+                )
+                UnavailableSetting(
+                    stringResource(R.string.settings_codeberg_token),
+                    stringResource(R.string.settings_service_authentication_unavailable),
+                )
             }
         }
         item {
             AccordionSection(stringResource(R.string.settings_integrations), integrationsExpanded, { integrationsExpanded = !integrationsExpanded }) {
-                SettingsLink(stringResource(R.string.settings_runner)) { onNavigate(ReproDroidRoute.RunnerSettings) }
-                Text(stringResource(R.string.codeberg_provider_available), style = MaterialTheme.typography.bodySmall)
-                SettingsLink(stringResource(R.string.settings_licenses)) { onNavigate(ReproDroidRoute.Licenses) }
+                UnavailableSetting(
+                    stringResource(R.string.settings_shizuku),
+                    stringResource(R.string.settings_external_tools_unavailable),
+                )
             }
         }
         item {
-            AccordionSection(stringResource(R.string.settings_log_export), backupExpanded, { backupExpanded = !backupExpanded }) {
-                SettingsLink(stringResource(R.string.settings_log_export)) {
-                    onNavigate(ReproDroidRoute.LogExport)
+            AccordionSection(stringResource(R.string.settings_runner), runnerExpanded, { runnerExpanded = !runnerExpanded }) {
+                SettingsLink(stringResource(R.string.settings_runner_connections)) {
+                    onNavigate(ReproDroidRoute.RunnerSettings)
                 }
             }
         }
         item {
-            AccordionSection(stringResource(R.string.settings_debug), diagnosticsExpanded, { diagnosticsExpanded = !diagnosticsExpanded }) {
+            AccordionSection(stringResource(R.string.settings_backup), backupExpanded, { backupExpanded = !backupExpanded }) {
+                UnavailableSetting(
+                    stringResource(R.string.settings_backup_android),
+                    stringResource(R.string.settings_backup_unavailable),
+                )
+                UnavailableSetting(
+                    stringResource(R.string.settings_backup_runner),
+                    stringResource(R.string.settings_backup_unavailable),
+                )
+            }
+        }
+        item {
+            AccordionSection(stringResource(R.string.settings_warnings), warningsExpanded, { warningsExpanded = !warningsExpanded }) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.settings_operation_hints),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { showHintsInfo = true }) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = stringResource(R.string.settings_operation_hints_info),
+                        )
+                    }
+                    Switch(
+                        checked = settings.showOperationHints,
+                        onCheckedChange = { onUpdate(settings.copy(showOperationHints = it)) },
+                    )
+                }
+            }
+        }
+        item {
+            AccordionSection(stringResource(R.string.settings_debug), debugExpanded, { debugExpanded = !debugExpanded }) {
                 SettingsLink(stringResource(R.string.settings_storage)) { onNavigate(ReproDroidRoute.DataManagement) }
-                SettingsLink(stringResource(R.string.settings_runner)) { onNavigate(ReproDroidRoute.RunnerSettings) }
+                SettingsLink(stringResource(R.string.settings_log_export)) { onNavigate(ReproDroidRoute.LogExport) }
+            }
+        }
+        item {
+            AccordionSection(stringResource(R.string.settings_about), aboutExpanded, { aboutExpanded = !aboutExpanded }) {
+                SettingsLink(stringResource(R.string.settings_licenses)) { onNavigate(ReproDroidRoute.Licenses) }
             }
         }
         item { Spacer(Modifier.height(16.dp)) }
+    }
+    if (showHintsInfo) {
+        AlertDialog(
+            onDismissRequest = { showHintsInfo = false },
+            title = { Text(stringResource(R.string.settings_operation_hints_info_title)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.settings_operation_hints_info_body))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showHintsInfo = false }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+        )
     }
 }
 
@@ -2136,6 +2422,14 @@ private fun SettingsLink(label: String, onClick: () -> Unit) {
 }
 
 @Composable
+private fun UnavailableSetting(label: String, body: String) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.titleSmall)
+        Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+    }
+}
+
+@Composable
 private fun PlannedCard(phase: String, body: String, onOpen: () -> Unit) {
     Card(
         Modifier.fillMaxWidth().clickable(onClick = onOpen),
@@ -2357,7 +2651,16 @@ private fun RunnerAuthenticationScreen(
         AlertDialog(
             onDismissRequest = { confirmRevoke = false },
             title = { Text(stringResource(R.string.runner_self_revoke)) },
-            text = { Text(stringResource(R.string.runner_self_revoke_confirm)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.runner_self_revoke_confirm))
+                    active?.let { connection ->
+                        ConnectionValue(stringResource(R.string.runner_id), connection.runnerId)
+                        ConnectionValue(stringResource(R.string.runner_endpoint), connection.endpoint)
+                        ConnectionValue(stringResource(R.string.runner_pin), connection.rootSpkiSha256)
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = { confirmRevoke = false; onSelfRevoke() }) {
                     Text(stringResource(R.string.action_confirm))
@@ -2367,10 +2670,20 @@ private fun RunnerAuthenticationScreen(
         )
     }
     deleteRunnerId?.let { selectedRunnerId ->
+        val selectedConnection = connections.firstOrNull { it.runnerId == selectedRunnerId }
         AlertDialog(
             onDismissRequest = { deleteRunnerId = null },
             title = { Text(stringResource(R.string.runner_local_delete)) },
-            text = { Text(stringResource(R.string.runner_local_delete_confirm)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.runner_local_delete_confirm))
+                    ConnectionValue(stringResource(R.string.runner_id), selectedRunnerId)
+                    selectedConnection?.let { connection ->
+                        ConnectionValue(stringResource(R.string.runner_endpoint), connection.endpoint)
+                        ConnectionValue(stringResource(R.string.runner_pin), connection.rootSpkiSha256)
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = { deleteRunnerId = null; onLocalDelete(selectedRunnerId) }) {
                     Text(stringResource(R.string.action_delete))
@@ -2387,7 +2700,16 @@ private fun RunnerAuthenticationScreen(
         AlertDialog(
             onDismissRequest = { replacementPayload = null },
             title = { Text(stringResource(if (changesEndpoint) R.string.runner_change_endpoint else R.string.runner_repair_confirm_title)) },
-            text = { Text(stringResource(if (changesEndpoint) R.string.runner_endpoint_confirm else R.string.runner_repair_confirm)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(if (changesEndpoint) R.string.runner_endpoint_confirm else R.string.runner_repair_confirm))
+                    replacement?.let { connection ->
+                        ConnectionValue(stringResource(R.string.runner_id), connection.runnerId)
+                        ConnectionValue(stringResource(R.string.runner_endpoint), connection.endpoint)
+                        ConnectionValue(stringResource(R.string.runner_pin), connection.rootSpkiSha256)
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = { replacementPayload = null; onPair(submitted) }) {
                     Text(stringResource(R.string.action_confirm))
@@ -2429,9 +2751,7 @@ private fun ConnectionValue(label: String, value: String) {
 @Composable
 private fun PlannedFeatureScreen(
     title: String,
-    phase: String,
     body: String,
-    controls: List<String>,
     onBack: () -> Unit,
 ) {
     BackScaffoldTitle(title, onBack) {
@@ -2440,10 +2760,7 @@ private fun PlannedFeatureScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
         ) {
-            Text(stringResource(R.string.planned_unavailable), style = MaterialTheme.typography.titleLarge)
             Text(body)
-            Text(stringResource(R.string.planned_phase, phase), color = MaterialTheme.colorScheme.secondary)
-            controls.forEach { control -> DisabledSetting(control, phase) }
         }
     }
 }
@@ -2649,17 +2966,27 @@ private fun RemoveTrackingDialog(
     otherPackageReferenceCount: Int,
     onDismiss: () -> Unit,
     onStop: () -> Unit,
-    onUninstall: (String) -> Unit,
+    onUninstall: (String, Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
     val packageName = knownPackageName(record)
     val installedVersion = record.latestRelease?.selectedAsset?.installedVersionName
-    var selectedAction by rememberSaveable(record.app.registeredAppId) { mutableStateOf<String?>(null) }
+    val canUninstall = remember(packageName) {
+        packageName != null && isPackageInstalledForRemoval(context.packageManager, packageName)
+    }
+    var removeRegistration by rememberSaveable(record.app.registeredAppId, canUninstall) {
+        mutableStateOf(!canUninstall)
+    }
+    var uninstallPackage by rememberSaveable(record.app.registeredAppId, canUninstall) {
+        mutableStateOf(canUninstall)
+    }
+    var reviewing by rememberSaveable(record.app.registeredAppId) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
                 stringResource(
-                    if (selectedAction == null) R.string.remove_title else R.string.remove_final_title,
+                    if (reviewing) R.string.remove_final_title else R.string.remove_title,
                 ),
             )
         },
@@ -2668,33 +2995,33 @@ private fun RemoveTrackingDialog(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (selectedAction == null) {
+                if (!reviewing) {
                     Text(stringResource(R.string.remove_body))
-                    OutlinedButton(
-                        onClick = { selectedAction = REMOVE_TRACKING_ONLY },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.action_stop_tracking)) }
-                    OutlinedButton(
-                        enabled = packageName != null,
-                        onClick = { selectedAction = REMOVE_WITH_UNINSTALL },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.action_uninstall_stop_tracking)) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = removeRegistration,
+                            onCheckedChange = { removeRegistration = it },
+                        )
+                        Text(stringResource(R.string.remove_registration_option))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = uninstallPackage,
+                            enabled = canUninstall,
+                            onCheckedChange = { uninstallPackage = it },
+                        )
+                        Text(stringResource(R.string.remove_uninstall_option))
+                    }
                     Text(
                         stringResource(
-                            if (packageName == null) R.string.remove_package_unknown else R.string.remove_uninstall_body,
+                            if (canUninstall) R.string.remove_independent_body else R.string.remove_package_unknown,
                         ),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 } else {
-                    Text(
-                        stringResource(
-                            if (selectedAction == REMOVE_WITH_UNINSTALL) {
-                                R.string.remove_final_uninstall_body
-                            } else {
-                                R.string.remove_final_tracking_body
-                            },
-                        ),
-                    )
+                    Text(record.app.resolvedDisplayName, style = MaterialTheme.typography.titleMedium)
+                    if (uninstallPackage) Text(stringResource(R.string.remove_effect_uninstall))
+                    if (removeRegistration) Text(stringResource(R.string.remove_effect_registration))
                     UiRDetailValue(
                         stringResource(R.string.label_package),
                         packageName ?: stringResource(R.string.value_unknown),
@@ -2713,29 +3040,47 @@ private fun RemoveTrackingDialog(
             }
         },
         confirmButton = {
-            if (selectedAction != null) {
+            if (reviewing) {
                 TextButton(
                     onClick = {
-                        if (selectedAction == REMOVE_WITH_UNINSTALL) {
-                            packageName?.let(onUninstall)
+                        if (uninstallPackage) {
+                            packageName?.let { onUninstall(it, removeRegistration) }
                         } else {
                             onStop()
                         }
                     },
                 ) { Text(stringResource(R.string.action_confirm)) }
+            } else {
+                TextButton(
+                    enabled = removeRegistration || uninstallPackage,
+                    onClick = { reviewing = true },
+                ) { Text(stringResource(R.string.action_continue)) }
             }
         },
         dismissButton = {
             TextButton(
                 onClick = {
-                    if (selectedAction == null) onDismiss() else selectedAction = null
+                    if (reviewing) reviewing = false else onDismiss()
                 },
             ) {
-                Text(stringResource(if (selectedAction == null) R.string.action_cancel else R.string.action_back))
+                Text(stringResource(if (reviewing) R.string.action_back else R.string.action_cancel))
             }
         },
     )
 }
+
+private fun isPackageInstalledForRemoval(packageManager: PackageManager, packageName: String): Boolean =
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0)
+        }
+        true
+    } catch (_: PackageManager.NameNotFoundException) {
+        false
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2890,8 +3235,6 @@ private fun humanBytes(value: Long): String = when {
 
 private const val ALL_GROUP_ID = "__all__"
 private const val UNGROUPED_ID = "__ungrouped__"
-private const val REMOVE_TRACKING_ONLY = "TRACKING_ONLY"
-private const val REMOVE_WITH_UNINSTALL = "WITH_UNINSTALL"
 private const val MAX_VISIBLE_ERROR_LENGTH = 800
 private const val MAX_GROUP_NAME_LENGTH = 80
 private const val MAX_DISPLAY_NAME_LENGTH = 120

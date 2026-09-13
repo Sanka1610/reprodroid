@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.core.net.toUri
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,10 +35,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.local.JobRecord
 import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
 import com.sanka1610.reprodroid.data.local.ArtifactEntity
@@ -75,138 +81,134 @@ fun JobScreen(viewModel: JobViewModel) {
 
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("ReproDroid", style = MaterialTheme.typography.headlineMedium)
-                Text("Phase 3E · build sandbox evidence", style = MaterialTheme.typography.bodyMedium)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    ExecutionMode.entries.forEach { candidate ->
-                        RadioButton(
-                            selected = executionMode == candidate,
-                            onClick = { executionMode = candidate },
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(stringResource(R.string.jobs_subtitle), style = MaterialTheme.typography.bodyMedium)
+                        Column(Modifier.selectableGroup()) {
+                            ExecutionMode.entries.forEach { candidate ->
+                                JobRadioChoice(
+                                    selected = executionMode == candidate,
+                                    label = executionModeLabel(candidate),
+                                    onClick = { executionMode = candidate },
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = repositoryUrl,
+                            onValueChange = { repositoryUrl = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = {
+                                Text(
+                                    if (executionMode == ExecutionMode.SIMULATED) {
+                                        stringResource(R.string.jobs_repository_simulated)
+                                    } else {
+                                        stringResource(R.string.jobs_repository_trusted)
+                                    },
+                                )
+                            },
+                            singleLine = true,
                         )
-                        Text(candidate.name)
+                        OutlinedTextField(
+                            value = revision,
+                            onValueChange = { revision = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text(stringResource(R.string.jobs_revision)) },
+                            singleLine = true,
+                        )
+                        Column(Modifier.selectableGroup()) {
+                            RevisionType.entries.forEach { candidate ->
+                                JobRadioChoice(
+                                    selected = revisionType == candidate,
+                                    label = revisionTypeLabel(candidate),
+                                    onClick = { revisionType = candidate },
+                                )
+                            }
+                        }
+                        if (executionMode == ExecutionMode.SIMULATED) {
+                            Column(Modifier.selectableGroup()) {
+                                SimulationOutcome.entries.forEach { candidate ->
+                                    JobRadioChoice(
+                                        selected = outcome == candidate,
+                                        label = simulationOutcomeLabel(candidate),
+                                        onClick = { outcome = candidate },
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                stringResource(R.string.jobs_creation_boundary),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Button(
+                            enabled = !isSubmitting,
+                            onClick = {
+                                viewModel.createJob(executionMode, repositoryUrl, revisionType, revision, outcome)
+                            },
+                        ) {
+                            Text(stringResource(if (isSubmitting) R.string.jobs_creating else R.string.jobs_create))
+                        }
                     }
                 }
-                OutlinedTextField(
-                    value = repositoryUrl,
-                    onValueChange = { repositoryUrl = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = {
-                        Text(
-                            if (executionMode == ExecutionMode.SIMULATED) {
-                                "Repository URL (not accessed)"
-                            } else {
-                                "Allowlisted GitHub HTTPS URL"
+                message?.let { currentMessage ->
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(currentMessage, modifier = Modifier.weight(1f))
+                                TextButton(onClick = viewModel::clearMessage) {
+                                    Text(stringResource(R.string.action_dismiss))
+                                }
+                            }
+                        }
+                    }
+                }
+                item { HorizontalDivider() }
+                if (jobs.isEmpty()) {
+                    item { Text(stringResource(R.string.jobs_empty)) }
+                } else {
+                    items(jobs, key = { it.job.jobId }) { record ->
+                        JobCard(
+                            record = record,
+                            onCancel = { viewModel.cancelJob(record.job.jobId) },
+                            onRetry = { viewModel.retryJob(record.job.jobId) },
+                            onConfirm = { commit -> viewModel.confirmRealBuild(record.job.jobId, commit) },
+                            activeArtifactActions = activeArtifactActions,
+                            onDownload = { artifactId -> viewModel.downloadArtifact(record.job.jobId, artifactId) },
+                            onInstall = { artifactId -> viewModel.installArtifact(record.job.jobId, artifactId) },
+                            manifestWarning = buildManifestWarnings[record.job.jobId]?.message,
+                            onRefreshManifest = { viewModel.refreshJob(record.job.jobId) },
+                            sourceScanWarning = sourceScanWarnings[record.job.jobId]?.message,
+                            sandboxWarning = sandboxWarnings[record.job.jobId],
+                            onContinueSourceScan = { digest ->
+                                viewModel.continueSourceScan(record.job.jobId, digest)
                             },
                         )
-                    },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = revision,
-                    onValueChange = { revision = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Revision") },
-                    singleLine = true,
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    RevisionType.entries.forEach { candidate ->
-                        RadioButton(
-                            selected = revisionType == candidate,
-                            onClick = { revisionType = candidate },
-                        )
-                        Text(candidate.name)
-                    }
-                }
-                if (executionMode == ExecutionMode.SIMULATED) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        SimulationOutcome.entries.forEach { candidate ->
-                            RadioButton(
-                                selected = outcome == candidate,
-                                onClick = { outcome = candidate },
-                            )
-                            Text(candidate.name)
-                        }
-                    }
-                } else {
-                    Text(
-                        "Creation resolves the allowlisted ref only. Build execution requires a separate commit and RCE confirmation for the Runner-selected sandbox mode.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Button(
-                    enabled = !isSubmitting,
-                    onClick = {
-                        viewModel.createJob(executionMode, repositoryUrl, revisionType, revision, outcome)
-                    },
-                ) {
-                    Text(if (isSubmitting) "Creating…" else "Create job")
-                }
-
-                message?.let { currentMessage ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(currentMessage, modifier = Modifier.weight(1f))
-                            TextButton(onClick = viewModel::clearMessage) { Text("Dismiss") }
-                        }
-                    }
-                }
-
-                HorizontalDivider()
-                if (jobs.isEmpty()) {
-                    Text("No persisted jobs.")
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(jobs, key = { it.job.jobId }) { record ->
-                            JobCard(
-                                record = record,
-                                onCancel = { viewModel.cancelJob(record.job.jobId) },
-                                onRetry = { viewModel.retryJob(record.job.jobId) },
-                                onConfirm = { commit ->
-                                    viewModel.confirmRealBuild(record.job.jobId, commit)
-                                },
-                                activeArtifactActions = activeArtifactActions,
-                                onDownload = { artifactId ->
-                                    viewModel.downloadArtifact(record.job.jobId, artifactId)
-                                },
-                                onInstall = { artifactId ->
-                                    viewModel.installArtifact(record.job.jobId, artifactId)
-                                },
-                                manifestWarning = buildManifestWarnings[record.job.jobId]?.message,
-                                onRefreshManifest = { viewModel.refreshJob(record.job.jobId) },
-                                sourceScanWarning = sourceScanWarnings[record.job.jobId]?.message,
-                                sandboxWarning = sandboxWarnings[record.job.jobId],
-                                onContinueSourceScan = { digest ->
-                                    viewModel.continueSourceScan(record.job.jobId, digest)
-                                },
-                            )
-                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun JobRadioChoice(selected: Boolean, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().selectable(selected = selected, onClick = onClick, role = Role.RadioButton),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Text(label, modifier = Modifier.padding(end = 8.dp))
     }
 }
 
@@ -240,43 +242,62 @@ internal fun JobCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(state.name, style = MaterialTheme.typography.titleMedium)
-                Text("${job.progressPercent}%")
+                Text(jobStateLabel(state), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.jobs_progress, job.progressPercent))
             }
             LinearProgressIndicator(
                 progress = { job.progressPercent / 100f },
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                "Job ID: ${job.jobId}",
+                stringResource(R.string.jobs_job_id, job.jobId),
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
             )
             Text(job.repositoryUrl, style = MaterialTheme.typography.bodySmall)
             Text(
-                "${job.executionMode} · ${job.revisionType.lowercase()} ${job.revisionValue}" +
-                    (job.simulationOutcome?.let { " · $it" } ?: ""),
+                stringResource(
+                    R.string.jobs_identity_summary,
+                    executionModeNameLabel(job.executionMode),
+                    revisionTypeNameLabel(job.revisionType),
+                    job.revisionValue,
+                    job.simulationOutcome?.let { " · ${simulationOutcomeNameLabel(it)}" }.orEmpty(),
+                ),
                 style = MaterialTheme.typography.bodySmall,
             )
             job.resolvedCommitSha?.let { commit ->
-                Text("Resolved commit: $commit", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.jobs_resolved_commit, commit), style = MaterialTheme.typography.bodySmall)
             }
             job.effectiveBuildRoot?.let { buildRoot ->
                 Text(
-                    "Fixed build: $buildRoot · ${job.effectiveBuildTasks.orEmpty().replace('\n', ' ')}",
+                    stringResource(
+                        R.string.jobs_fixed_build,
+                        buildRoot,
+                        job.effectiveBuildTasks.orEmpty().replace('\n', ' '),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    "Dependency pinning: ${dependencyPinningLabel(job.effectiveDependencyPinning)}",
+                    stringResource(
+                        R.string.jobs_dependency_pinning,
+                        dependencyPinningLabel(job.effectiveDependencyPinning),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    "Determinism controls: ${determinismSummary(job.effectiveSourceDateEpoch, job.effectiveNoBuildCache, job.effectiveFixedLocale)}",
+                    stringResource(
+                        R.string.jobs_determinism_controls,
+                        determinismSummary(
+                            job.effectiveSourceDateEpoch,
+                            job.effectiveNoBuildCache,
+                            job.effectiveFixedLocale,
+                        ),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 if (job.effectiveDependencyPinning == "LOCKFILE_OFFLINE") {
                     Text(
-                        "Gradle offline resolution is not network isolation.",
+                        stringResource(R.string.jobs_offline_not_isolation),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -291,23 +312,35 @@ internal fun JobCard(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text("Pre-build source scan", style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(R.string.jobs_source_scan_title), style = MaterialTheme.typography.titleSmall)
                         Text(
                             if (evidence.scan.findingCount == 0) {
-                                "No configured detector findings"
+                                stringResource(R.string.jobs_source_scan_clean)
                             } else {
-                                "${evidence.scan.findingCount} configured detector findings"
+                                pluralStringResource(
+                                    R.plurals.jobs_source_scan_findings,
+                                    evidence.scan.findingCount,
+                                    evidence.scan.findingCount,
+                                )
                             },
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "${evidence.scan.scannedFiles} files · ${evidence.scan.scannedBytes} bytes · " +
-                                "${evidence.scan.skippedBinaryFiles} binary skipped · " +
-                                "${evidence.scan.skippedSymlinks} symlinks skipped",
+                            stringResource(
+                                R.string.jobs_source_scan_summary,
+                                evidence.scan.scannedFiles,
+                                evidence.scan.scannedBytes,
+                                evidence.scan.skippedBinaryFiles,
+                                evidence.scan.skippedSymlinks,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Scanner ${evidence.scan.scannerVersion} · result ${evidence.scan.resultSha256}",
+                            stringResource(
+                                R.string.jobs_scanner_result,
+                                evidence.scan.scannerVersion,
+                                evidence.scan.resultSha256,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
                         )
@@ -327,12 +360,16 @@ internal fun JobCard(
                         }
                         if (evidence.findings.size > MAX_SOURCE_SCAN_FINDINGS_IN_JOB_UI) {
                             Text(
-                                "Additional findings: ${evidence.findings.size - MAX_SOURCE_SCAN_FINDINGS_IN_JOB_UI}",
+                                pluralStringResource(
+                                    R.plurals.jobs_additional_findings,
+                                    evidence.findings.size - MAX_SOURCE_SCAN_FINDINGS_IN_JOB_UI,
+                                    evidence.findings.size - MAX_SOURCE_SCAN_FINDINGS_IN_JOB_UI,
+                                ),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
                         Text(
-                            "Static indicators only; this is not a safe/malicious verdict.",
+                            stringResource(R.string.jobs_scan_not_verdict),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -348,28 +385,47 @@ internal fun JobCard(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text("Build environment", style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(R.string.jobs_build_environment), style = MaterialTheme.typography.titleSmall)
                         Text(sandboxManifestText(evidence.manifest.sandboxJson), style = MaterialTheme.typography.bodySmall)
                         Text(
-                            "Java ${evidence.manifest.javaVersion} (${evidence.manifest.javaVendor})",
+                            stringResource(
+                                R.string.jobs_java_environment,
+                                evidence.manifest.javaVersion,
+                                evidence.manifest.javaVendor,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Gradle ${evidence.manifest.gradleVersion} · validated SDK API " +
-                                "${evidence.manifest.androidSdkApiLevel} · Build Tools ${evidence.manifest.buildToolsVersion}",
+                            stringResource(
+                                R.string.jobs_gradle_environment,
+                                evidence.manifest.gradleVersion,
+                                evidence.manifest.androidSdkApiLevel,
+                                evidence.manifest.buildToolsVersion,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "APK SHA-256 ${evidence.manifest.apkSha256}",
+                            stringResource(R.string.jobs_apk_sha256, evidence.manifest.apkSha256),
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
                         )
                         Text(
-                            "${evidence.dependencies.size} dependency records · retrieved ${evidence.manifest.retrievedAt}",
+                            stringResource(
+                                R.string.jobs_dependency_records,
+                                evidence.dependencies.size,
+                                evidence.manifest.retrievedAt,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Determinism controls: ${determinismSummary(evidence.manifest.sourceDateEpoch, evidence.manifest.noBuildCache, evidence.manifest.fixedLocale)}",
+                            stringResource(
+                                R.string.jobs_determinism_controls,
+                                determinismSummary(
+                                    evidence.manifest.sourceDateEpoch,
+                                    evidence.manifest.noBuildCache,
+                                    evidence.manifest.fixedLocale,
+                                ),
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -380,9 +436,11 @@ internal fun JobCard(
             }
             Text(sandboxSelectionText(job), style = MaterialTheme.typography.bodySmall)
             sandboxWarning?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            if (sandboxWarning != null) TextButton(onClick = onRefreshManifest) { Text("Refresh sandbox state") }
+            if (sandboxWarning != null) {
+                TextButton(onClick = onRefreshManifest) { Text(stringResource(R.string.jobs_refresh_sandbox)) }
+            }
             if (state == JobState.SUCCEEDED && job.executionMode == ExecutionMode.REAL_TRUSTED.name) {
-                TextButton(onClick = onRefreshManifest) { Text("Refresh build manifest") }
+                TextButton(onClick = onRefreshManifest) { Text(stringResource(R.string.jobs_refresh_manifest)) }
             }
 
             record.artifacts.forEach { artifact ->
@@ -403,14 +461,15 @@ internal fun JobCard(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("Arbitrary-code-execution warning", style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(R.string.jobs_rce_title), style = MaterialTheme.typography.titleSmall)
                         Text(
-                            if (job.sandboxMode == "DOCKER")
-                                "Gradle plugins and build scripts execute arbitrary code inside an opt-in Docker build container. " +
-                                    "Bridge networking does not establish host/LAN isolation. There is no hard Job disk quota. " +
-                                    "The host Runner controls Docker; this is not third-party attestation or proof of safe source."
-                            else "Gradle plugins and build scripts at the resolved commit can execute arbitrary code on the Runner host. " +
-                                "The allowlist and Wrapper checksum checks do not provide a sandbox.",
+                            stringResource(
+                                if (job.sandboxMode == "DOCKER") {
+                                    R.string.jobs_rce_docker_body
+                                } else {
+                                    R.string.jobs_rce_host_body
+                                },
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
@@ -419,13 +478,13 @@ internal fun JobCard(
                                 checked = riskAcknowledged,
                                 onCheckedChange = { riskAcknowledged = it },
                             )
-                            Text("I accept this risk for the displayed commit.")
+                            Text(stringResource(R.string.jobs_rce_acknowledgement))
                         }
                         Button(
                             enabled = sandboxValid && riskAcknowledged && job.resolvedCommitSha != null,
                             onClick = { job.resolvedCommitSha?.let(onConfirm) },
                         ) {
-                            Text("Confirm and run fixed build")
+                            Text(stringResource(R.string.jobs_rce_confirm))
                         }
                     }
                 }
@@ -438,9 +497,9 @@ internal fun JobCard(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("Source scan review required", style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(R.string.jobs_scan_review_title), style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Review every displayed indicator before continuing. This acknowledgement is separate from the earlier build RCE confirmation.",
+                            stringResource(R.string.jobs_scan_review_body),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
@@ -449,14 +508,14 @@ internal fun JobCard(
                                 checked = sourceScanAcknowledged,
                                 onCheckedChange = { sourceScanAcknowledged = it },
                             )
-                            Text("I reviewed these findings for this result digest.")
+                            Text(stringResource(R.string.jobs_scan_acknowledgement))
                         }
                         Button(
                             enabled = sandboxValid && sourceScanAcknowledged &&
                                 (sourceScan?.scan?.let { it.requiresReview && !it.reviewed } == true),
                             onClick = { sourceScan?.scan?.resultSha256?.let(onContinueSourceScan) },
                         ) {
-                            Text("Acknowledge findings and continue")
+                            Text(stringResource(R.string.jobs_scan_continue))
                         }
                     }
                 }
@@ -464,7 +523,7 @@ internal fun JobCard(
 
             val recentLogs = record.logs.sortedBy { it.sequence }.takeLast(6)
             if (recentLogs.isNotEmpty()) {
-                Text("Logs", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.jobs_logs), style = MaterialTheme.typography.labelLarge)
                 recentLogs.forEach { log ->
                     Text(
                         "${log.sequence.toString().padStart(3, '0')} ${log.level} ${log.message}",
@@ -476,9 +535,9 @@ internal fun JobCard(
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!state.isTerminal) {
-                    TextButton(onClick = onCancel) { Text("Cancel") }
+                    TextButton(onClick = onCancel) { Text(stringResource(R.string.action_cancel)) }
                 } else {
-                    TextButton(onClick = onRetry) { Text("Retry as new job") }
+                    TextButton(onClick = onRetry) { Text(stringResource(R.string.jobs_retry)) }
                 }
             }
         }
@@ -514,14 +573,14 @@ private fun ArtifactCard(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            Text("APK: ${artifact.fileName}", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.jobs_artifact_apk, artifact.fileName), style = MaterialTheme.typography.titleSmall)
             Text(
-                "Runner: ${artifact.sizeBytes} bytes · SHA-256 ${artifact.sha256}",
+                stringResource(R.string.jobs_runner_artifact, artifact.sizeBytes, artifact.sha256),
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
             )
             if (executionMode != ExecutionMode.REAL_TRUSTED.name) {
-                Text("Simulated metadata has no downloadable APK content.", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.jobs_simulated_no_apk), style = MaterialTheme.typography.bodySmall)
                 return@Column
             }
             if (jobState != JobState.SUCCEEDED) return@Column
@@ -536,10 +595,10 @@ private fun ArtifactCard(
                 ) {
                     Text(
                         when {
-                            actionInProgress -> "Downloading and verifying…"
-                            downloadStatus == ArtifactDownloadStatus.DOWNLOADING -> "Retry interrupted download"
-                            downloadStatus == ArtifactDownloadStatus.FAILED -> "Retry download"
-                            else -> "Download and verify APK"
+                            actionInProgress -> stringResource(R.string.jobs_downloading_verifying)
+                            downloadStatus == ArtifactDownloadStatus.DOWNLOADING -> stringResource(R.string.jobs_retry_interrupted_download)
+                            downloadStatus == ArtifactDownloadStatus.FAILED -> stringResource(R.string.jobs_retry_download)
+                            else -> stringResource(R.string.jobs_download_verify)
                         },
                     )
                 }
@@ -550,30 +609,33 @@ private fun ArtifactCard(
                 !artifact.currentSignerSha256.isNullOrBlank()
             Text(
                 if (hasVerifiedSigner) {
-                    "🟡 Buildable · official APK comparison not performed"
+                    stringResource(R.string.jobs_buildable_not_compared)
                 } else {
-                    "Comparison-only artifact · unsigned"
+                    stringResource(R.string.jobs_comparison_only_unsigned)
                 },
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
-                "Android SHA-256: ${artifact.downloadedSha256}",
+                stringResource(R.string.jobs_android_sha256, artifact.downloadedSha256.orEmpty()),
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
             )
             Text(
-                "Package: ${artifact.packageName}\n" +
-                    "Candidate: ${artifact.versionName.ifBlank { "(none)" }} (${artifact.versionCode})",
+                stringResource(
+                    R.string.jobs_package_candidate,
+                    artifact.packageName.orEmpty(),
+                    artifact.versionName.ifBlank { stringResource(R.string.value_none) },
+                    artifact.versionCode,
+                ),
                 style = MaterialTheme.typography.bodySmall,
             )
-            Text("Signing certificate SHA-256", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.jobs_signing_certificate), style = MaterialTheme.typography.labelLarge)
             artifact.signingCertificateSha256.orEmpty().lineSequence().filter(String::isNotBlank).forEach { fingerprint ->
                 Text(fingerprint, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
             }
             if (!hasVerifiedSigner) {
                 Text(
-                    "This unsigned release artifact is retained only for reproducibility comparison. " +
-                        "It cannot be passed to the installer.",
+                    stringResource(R.string.jobs_unsigned_artifact_body),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -581,20 +643,25 @@ private fun ArtifactCard(
             }
             when (artifact.existingInstallStatus) {
                 ExistingInstallStatus.NOT_INSTALLED_OR_NOT_VISIBLE.name -> Text(
-                    "No installed package with this package name was found in the current Android profile.",
+                    stringResource(R.string.jobs_no_installed_package),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 ExistingInstallStatus.SIGNER_MATCH.name -> Text(
-                    "Installed: ${artifact.installedVersionName?.ifBlank { "(none)" } ?: "(none)"} " +
-                        "(${artifact.installedVersionCode ?: "unknown"})\n" +
-                        "The installed package has the same current signer fingerprint.",
+                    stringResource(
+                        R.string.jobs_installed_signer_match,
+                        artifact.installedVersionName?.ifBlank { stringResource(R.string.value_none) }
+                            ?: stringResource(R.string.value_none),
+                        artifact.installedVersionCode?.toString() ?: stringResource(R.string.value_unknown),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 ExistingInstallStatus.SIGNER_MISMATCH.name -> Text(
-                    "Installed: ${artifact.installedVersionName?.ifBlank { "(none)" } ?: "(none)"} " +
-                        "(${artifact.installedVersionCode ?: "unknown"})\n" +
-                        "Installed package signer mismatch: Android will normally reject an update. " +
-                        "ReproDroid will not uninstall the existing app or bypass signature checks.",
+                    stringResource(
+                        R.string.jobs_installed_signer_mismatch,
+                        artifact.installedVersionName?.ifBlank { stringResource(R.string.value_none) }
+                            ?: stringResource(R.string.value_none),
+                        artifact.installedVersionCode?.toString() ?: stringResource(R.string.value_unknown),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -603,7 +670,7 @@ private fun ArtifactCard(
                 enabled = !actionInProgress && !installPending,
                 onClick = onDownload,
             ) {
-                Text("Download and verify again")
+                Text(stringResource(R.string.jobs_download_again))
             }
 
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -612,7 +679,7 @@ private fun ArtifactCard(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Text(
-                        "This APK is only Buildable. Its contents have not been compared with an official APK. Installation may also be blocked by Android Developer Verification.",
+                        stringResource(R.string.jobs_install_risk_body),
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -620,7 +687,7 @@ private fun ArtifactCard(
                             checked = installRiskAcknowledged,
                             onCheckedChange = { installRiskAcknowledged = it },
                         )
-                        Text("I understand and want to use Android's standard installer.")
+                        Text(stringResource(R.string.jobs_install_acknowledgement))
                     }
                     Button(
                         enabled = installRiskAcknowledged && !actionInProgress && !installPending,
@@ -634,15 +701,15 @@ private fun ArtifactCard(
                     ) {
                         Text(
                             when {
-                                actionInProgress -> "Preparing installer…"
-                                installPending -> "Waiting for installer result…"
-                                else -> "Install with system installer"
+                                actionInProgress -> stringResource(R.string.jobs_preparing_installer)
+                                installPending -> stringResource(R.string.jobs_waiting_installer)
+                                else -> stringResource(R.string.jobs_install_system)
                             },
                         )
                     }
                     if (!context.packageManager.canRequestPackageInstalls()) {
                         Text(
-                            "The first tap opens this app's ‘Install unknown apps’ setting. Return here and tap Install again after allowing it.",
+                            stringResource(R.string.jobs_unknown_sources_help),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -650,9 +717,12 @@ private fun ArtifactCard(
             }
 
             latestAttempt?.let { attempt ->
-                Text("Latest install result: ${attempt.status}", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    stringResource(R.string.jobs_latest_install_result, installAttemptStatusLabel(attempt.status)),
+                    style = MaterialTheme.typography.labelLarge,
+                )
                 attempt.packageInstallerStatus?.let { status ->
-                    Text("PackageInstaller status: $status", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.jobs_package_installer_status, status), style = MaterialTheme.typography.bodySmall)
                 }
                 attempt.statusMessage?.let { statusMessage ->
                     Text(statusMessage, style = MaterialTheme.typography.bodySmall)
@@ -673,3 +743,48 @@ private fun openUnknownAppSources(context: Context) {
         context.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
     }
 }
+
+@Composable
+private fun executionModeLabel(value: ExecutionMode): String = executionModeNameLabel(value.name)
+
+@Composable
+private fun executionModeNameLabel(value: String): String = stringResource(
+    when (value) {
+        ExecutionMode.SIMULATED.name -> R.string.jobs_execution_simulated
+        ExecutionMode.REAL_TRUSTED.name -> R.string.jobs_execution_trusted
+        else -> R.string.value_unknown
+    },
+)
+
+@Composable
+private fun revisionTypeLabel(value: RevisionType): String = revisionTypeNameLabel(value.name)
+
+@Composable
+private fun revisionTypeNameLabel(value: String): String = stringResource(
+    when (value) {
+        RevisionType.BRANCH.name -> R.string.jobs_revision_branch
+        RevisionType.TAG.name -> R.string.jobs_revision_tag
+        RevisionType.COMMIT.name -> R.string.jobs_revision_commit
+        else -> R.string.value_unknown
+    },
+)
+
+@Composable
+private fun simulationOutcomeLabel(value: SimulationOutcome): String = simulationOutcomeNameLabel(value.name)
+
+@Composable
+private fun simulationOutcomeNameLabel(value: String): String = stringResource(
+    when (value) {
+        SimulationOutcome.SUCCESS.name -> R.string.state_success
+        SimulationOutcome.FAILURE.name -> R.string.state_error
+        else -> R.string.value_unknown
+    },
+)
+
+@Composable
+private fun jobStateLabel(value: JobState): String =
+    statusLabelResource(value.name)?.let { stringResource(it) } ?: value.name.lowercase().replace('_', ' ')
+
+@Composable
+private fun installAttemptStatusLabel(value: String): String =
+    statusLabelResource(value)?.let { stringResource(it) } ?: value.lowercase().replace('_', ' ')

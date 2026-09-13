@@ -58,7 +58,7 @@ class ReproDroidApplication : Application() {
         DatabaseMigrationGate.prepare(
             context = applicationContext,
             databaseName = "reprodroid.sqlite3",
-            targetVersion = 22,
+            targetVersion = 23,
         )
         val database = Room.databaseBuilder(
             applicationContext,
@@ -86,6 +86,7 @@ class ReproDroidApplication : Application() {
             ReproDroidDatabase.MIGRATION_19_20,
             ReproDroidDatabase.MIGRATION_20_21,
             ReproDroidDatabase.MIGRATION_21_22,
+            ReproDroidDatabase.MIGRATION_22_23,
         ).build()
         storageManager = AndroidStorageManager(applicationContext, database)
         cleanupManager = AndroidCleanupManager(applicationContext, database)
