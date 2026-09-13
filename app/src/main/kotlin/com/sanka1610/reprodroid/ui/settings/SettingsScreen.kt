@@ -357,7 +357,7 @@ internal fun UiRSettingsScreen(
                 }
             }
         }
-        item { Spacer(Modifier.height(16.dp)) }
+        item { Spacer(Modifier.height(72.dp)) }
     }
     if (showHintsInfo) {
         AlertDialog(
