@@ -56,7 +56,7 @@ import com.sanka1610.reprodroid.data.provider.ProviderAssetCandidate
 import com.sanka1610.reprodroid.data.provider.ReleaseMetadataException
 import com.sanka1610.reprodroid.data.provider.canonicalProviderId
 import com.sanka1610.reprodroid.data.provider.SavedAssetSelection
-import com.sanka1610.reprodroid.ui.navigation.ReproDroidRoute
+import com.sanka1610.reprodroid.ui.navigation.releaseNotificationRoute
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -1217,7 +1217,7 @@ class ReleaseCheckRepository(
         ) {
             throw SecurityException("Notification permission is not granted.")
         }
-        val route = ReproDroidRoute.AppInformation(app.registeredAppId).encode()
+        val route = releaseNotificationRoute(app.registeredAppId)
         val intent = Intent(context, MainActivity::class.java)
             .putExtra(MainActivity.EXTRA_ROUTE, route)
             .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)

@@ -114,7 +114,10 @@ import com.sanka1610.reprodroid.data.repository.AppDeletionPreview
 import com.sanka1610.reprodroid.data.connection.ManualPairingPayloadParser
 import com.sanka1610.reprodroid.data.connection.RunnerConnectionPhase
 import com.sanka1610.reprodroid.data.connection.RunnerConnectionStatus
+import com.sanka1610.reprodroid.ui.navigation.ReproDroidBackContext
 import com.sanka1610.reprodroid.ui.navigation.ReproDroidRoute
+import com.sanka1610.reprodroid.ui.navigation.backDestination
+import com.sanka1610.reprodroid.ui.navigation.missingAppDestination
 import com.sanka1610.reprodroid.ui.theme.ReproDroidTheme
 
 @Composable
@@ -190,44 +193,13 @@ fun ReproDroidApp(
         encodedRoute = destination.encode()
     }
 
-    fun backDestination(current: ReproDroidRoute): ReproDroidRoute = when (current) {
-        ReproDroidRoute.InactiveApps,
-        ReproDroidRoute.DataManagement,
-        ReproDroidRoute.RunnerSettings,
-        ReproDroidRoute.UpdateSettings,
-        ReproDroidRoute.Authentication,
-        ReproDroidRoute.LogExport,
-        ReproDroidRoute.Licenses,
-        -> ReproDroidRoute.Settings
-        ReproDroidRoute.DataStorage,
-        ReproDroidRoute.DataInactive,
-        -> ReproDroidRoute.DataManagement
-        ReproDroidRoute.RunnerStorage,
-        ReproDroidRoute.Toolchains,
-        ReproDroidRoute.Jobs,
-        -> ReproDroidRoute.RunnerSettings
-        ReproDroidRoute.GitHubStarsImport,
-        ReproDroidRoute.AddAnalysis,
-        -> ReproDroidRoute.AddSource
-        ReproDroidRoute.AddOptions -> ReproDroidRoute.AddAnalysis
-        ReproDroidRoute.AddConfirm -> ReproDroidRoute.AddOptions
-        is ReproDroidRoute.AppEdit,
-        is ReproDroidRoute.AppSettings,
-        is ReproDroidRoute.AppTechnical,
-        -> ReproDroidRoute.AppInformation(requireNotNull(current.appId))
-        is ReproDroidRoute.AppInformation ->
-            if (routeApp?.app?.trackingState == AppTrackingState.INACTIVE.name) {
-                ReproDroidRoute.parse(inactiveReturnRoute)
-            } else {
-                ReproDroidRoute.Apps
-            }
-        is ReproDroidRoute.Comparison -> comparisonRouteApp?.let {
-            ReproDroidRoute.AppInformation(it.app.registeredAppId)
-        } ?: ReproDroidRoute.Apps
-        else -> current
-    }
+    val backContext = ReproDroidBackContext(
+        currentAppIsInactive = routeApp?.app?.trackingState == AppTrackingState.INACTIVE.name,
+        inactiveReturnRoute = inactiveReturnRoute,
+        comparisonOwnerAppId = comparisonRouteApp?.app?.registeredAppId,
+    )
 
-    BackHandler(enabled = !route.isRoot) { navigate(backDestination(route)) }
+    BackHandler(enabled = !route.isRoot) { navigate(backDestination(route, backContext)) }
 
     LaunchedEffect(preview.repository, route) {
         if (route == ReproDroidRoute.AddSource && preview.repository != null) {
@@ -254,8 +226,13 @@ fun ReproDroidApp(
     ) { destination -> destination?.let(managedViewModel::exportAppLogs) }
 
     LaunchedEffect(route, routeApp?.app?.trackingState, appCatalogLoaded) {
-        if (appCatalogLoaded && route.appId != null && routeApp == null) {
-            navigate(ReproDroidRoute.Apps)
+        val missingDestination = missingAppDestination(
+            current = route,
+            appCatalogLoaded = appCatalogLoaded,
+            appRecordPresent = routeApp != null,
+        )
+        if (missingDestination != null) {
+            navigate(missingDestination)
         } else if (
             routeApp?.app?.trackingState == AppTrackingState.INACTIVE.name &&
             (route is ReproDroidRoute.AppEdit ||
@@ -2860,28 +2837,31 @@ private fun knownPackageName(record: RegisteredAppRecord): String? =
 private fun String.humanize(): String = lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
 @Composable
-private fun statusLabel(value: String?): String = when (value) {
-    "ACTIVE" -> stringResource(R.string.state_active)
-    "INACTIVE" -> stringResource(R.string.state_inactive)
-    "NOT_CHECKED", "NOT_EVALUATED" -> stringResource(R.string.state_not_checked)
-    "CHECKING", "RESOLVING", "SCANNING_TREE" -> stringResource(R.string.state_checking)
-    "PENDING", "QUEUED" -> stringResource(R.string.state_pending)
-    "RUNNING", "BUILDING" -> stringResource(R.string.state_running)
-    "AVAILABLE", "UP_TO_DATE", "SUCCESS", "COMPLETE", "COMPLETED" -> stringResource(R.string.state_success)
-    "UPDATE_AVAILABLE" -> stringResource(R.string.state_update_available)
-    "NOT_INSTALLED" -> stringResource(R.string.state_not_installed)
-    "REPRODUCIBLE", "EQUIVALENT" -> stringResource(R.string.state_reproducible)
-    "MATCH" -> stringResource(R.string.state_match)
-    "BUILDABLE" -> stringResource(R.string.state_buildable)
-    "DIFFERENT" -> stringResource(R.string.state_different)
-    "INCOMPARABLE" -> stringResource(R.string.state_incomparable)
-    "FAILED", "ERROR" -> stringResource(R.string.state_error)
-    "CANCELLED" -> stringResource(R.string.state_cancelled)
-    "INTERRUPTED" -> stringResource(R.string.state_interrupted)
-    "AWAITING_ASSET_SELECTION" -> stringResource(R.string.state_awaiting_selection)
-    "OLDER_THAN_INSTALLED" -> stringResource(R.string.state_older_than_installed)
-    "UNKNOWN", null -> stringResource(R.string.value_unknown)
-    else -> value.humanize()
+private fun statusLabel(value: String?): String = statusLabelResource(value)?.let { stringResource(it) }
+    ?: requireNotNull(value).humanize()
+
+internal fun statusLabelResource(value: String?): Int? = when (value) {
+    "ACTIVE" -> R.string.state_active
+    "INACTIVE" -> R.string.state_inactive
+    "NOT_CHECKED", "NOT_EVALUATED" -> R.string.state_not_checked
+    "CHECKING", "RESOLVING", "SCANNING_TREE" -> R.string.state_checking
+    "PENDING", "QUEUED" -> R.string.state_pending
+    "RUNNING", "BUILDING" -> R.string.state_running
+    "AVAILABLE", "UP_TO_DATE", "SUCCESS", "COMPLETE", "COMPLETED" -> R.string.state_success
+    "UPDATE_AVAILABLE" -> R.string.state_update_available
+    "NOT_INSTALLED" -> R.string.state_not_installed
+    "REPRODUCIBLE", "EQUIVALENT" -> R.string.state_reproducible
+    "MATCH" -> R.string.state_match
+    "BUILDABLE" -> R.string.state_buildable
+    "DIFFERENT" -> R.string.state_different
+    "INCOMPARABLE" -> R.string.state_incomparable
+    "FAILED", "ERROR" -> R.string.state_error
+    "CANCELLED" -> R.string.state_cancelled
+    "INTERRUPTED" -> R.string.state_interrupted
+    "AWAITING_ASSET_SELECTION" -> R.string.state_awaiting_selection
+    "OLDER_THAN_INSTALLED" -> R.string.state_older_than_installed
+    "UNKNOWN", null -> R.string.value_unknown
+    else -> null
 }
 
 @Composable
