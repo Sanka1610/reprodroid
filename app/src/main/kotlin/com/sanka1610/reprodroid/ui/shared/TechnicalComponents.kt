@@ -14,6 +14,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,6 +44,7 @@ import com.sanka1610.reprodroid.data.local.SourceScanWithDetails
 
 
 import com.sanka1610.reprodroid.ui.*
+import com.sanka1610.reprodroid.ui.theme.LocalSelectionBoxOutlines
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun <T> DropdownSetting(
@@ -52,44 +54,63 @@ internal fun <T> DropdownSetting(
     onSelect: (T) -> Unit,
     enabled: Boolean = true,
     supportingText: String? = null,
+    showOutline: Boolean? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val outlined = showOutline ?: LocalSelectionBoxOutlines.current
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { if (enabled) expanded = !expanded },
     ) {
-        Column(
-            modifier = Modifier
-                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
-                .fillMaxWidth(),
-        ) {
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+        if (outlined) {
+            OutlinedTextField(
+                value = options[value] ?: value.toString(),
+                onValueChange = {},
+                modifier = Modifier
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
+                    .fillMaxWidth(),
+                enabled = enabled,
+                readOnly = true,
+                singleLine = false,
+                maxLines = 2,
+                label = { Text(label) },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                supportingText = supportingText?.let { text -> { Text(text) } },
+            )
+        } else {
+            Column(
+                modifier = Modifier
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
+                    .fillMaxWidth(),
             ) {
-                Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                Text(
-                    options[value] ?: value.toString(),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (enabled) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    },
-                    textAlign = TextAlign.End,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                ExposedDropdownMenuDefaults.TrailingIcon(expanded)
-            }
-            supportingText?.let { text ->
-                Text(
-                    text,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Text(
+                        options[value] ?: value.toString(),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (enabled) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        },
+                        textAlign = TextAlign.End,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded)
+                }
+                supportingText?.let { text ->
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

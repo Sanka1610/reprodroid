@@ -175,12 +175,58 @@ class ManagedAppRepository(
 
     fun observeAvailability(): Flow<List<ResourceAvailabilityEntity>> = database.storageDao().observeAvailability()
 
-    suspend fun ensureSettings() {
-        if (dao.getGlobalSettings() == null) dao.upsertGlobalSettings(defaultSettings())
+    suspend fun ensureSettings(initializeSelfRegistration: Boolean = false) {
+        database.withTransaction {
+            val settings = dao.getGlobalSettings() ?: defaultSettings().also { dao.upsertGlobalSettings(it) }
+            if (initializeSelfRegistration && !settings.selfRegistrationInitialized) {
+                if (dao.getRegisteredApps().isEmpty()) seedSelfRegistration(settings)
+                dao.upsertGlobalSettings(
+                    settings.copy(
+                        selfRegistrationInitialized = true,
+                        updatedAt = Instant.now().toString(),
+                    ),
+                )
+            }
+        }
         dao.interruptRunningSourceDiscoveries(Instant.now().toString())
         storageManager.reconcileAvailability()
         cleanupManager.reconcileInterruptedRuns()
         retentionCoordinator?.syncCurrentComparisonHolds()
+    }
+
+    private suspend fun seedSelfRegistration(settings: GlobalSettingsEntity) {
+        val now = Instant.now().toString()
+        val registeredAppId = UUID.nameUUIDFromBytes(SELF_REGISTRATION_KEY.toByteArray()).toString()
+        dao.upsertRegisteredApp(
+            RegisteredAppEntity(
+                registeredAppId = registeredAppId,
+                displayName = SELF_DISPLAY_NAME,
+                repositoryUrl = SELF_REPOSITORY_URL,
+                canonicalRepositoryUrl = SELF_REPOSITORY_URL,
+                provider = PROVIDER_GITHUB_RELEASES,
+                managementMode = settings.defaultManagementMode,
+                installationSource = settings.defaultInstallationSource,
+                releaseVariantPreference = ReleaseVariantPreference.RELEASE.name,
+                preferredAbi = settings.defaultPreferredAbi,
+                maxApkSizeBytes = settings.defaultMaxApkSizeBytes,
+                useGlobalReleaseVariant = false,
+                useGlobalPreferredAbi = true,
+                useGlobalMaxApkSize = true,
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
+        dao.upsertRepositoryBinding(
+            AppRepositoryBindingEntity(
+                registeredAppId = registeredAppId,
+                provider = PROVIDER_GITHUB,
+                instance = GITHUB_INSTANCE,
+                providerRepositoryId = SELF_PROVIDER_REPOSITORY_ID,
+                identityStatus = RepositoryIdentityStatus.VERIFIED.name,
+                registrationSlot = PRIMARY_REGISTRATION_SLOT,
+                verifiedAt = now,
+            ),
+        )
     }
 
     fun observeApp(registeredAppId: String): Flow<RegisteredAppRecord?> =
@@ -647,10 +693,10 @@ class ManagedAppRepository(
             provider = releaseProviderName(identity.provider),
             managementMode = mode.name,
             installationSource = installationSource.name,
-            releaseVariantPreference = settings.defaultReleaseVariantPreference,
+            releaseVariantPreference = ReleaseVariantPreference.RELEASE.name,
             preferredAbi = settings.defaultPreferredAbi,
             maxApkSizeBytes = settings.defaultMaxApkSizeBytes,
-            useGlobalReleaseVariant = true,
+            useGlobalReleaseVariant = false,
             useGlobalPreferredAbi = true,
             useGlobalMaxApkSize = true,
             releaseDiscoveryStatus = ReleaseDiscoveryStatus.NOT_CHECKED.name,
@@ -943,10 +989,10 @@ class ManagedAppRepository(
             provider = PROVIDER_GITHUB_RELEASES,
             managementMode = mode.name,
             installationSource = installationSource.name,
-            releaseVariantPreference = settings.defaultReleaseVariantPreference,
+            releaseVariantPreference = ReleaseVariantPreference.RELEASE.name,
             preferredAbi = settings.defaultPreferredAbi,
             maxApkSizeBytes = settings.defaultMaxApkSizeBytes,
-            useGlobalReleaseVariant = true,
+            useGlobalReleaseVariant = false,
             useGlobalPreferredAbi = true,
             useGlobalMaxApkSize = true,
             releaseDiscoveryStatus = ReleaseDiscoveryStatus.AVAILABLE.name,
@@ -3298,6 +3344,10 @@ class ManagedAppRepository(
         const val PROVIDER_CODEBERG = "CODEBERG"
         const val GITHUB_INSTANCE = "github.com"
         const val PRIMARY_REGISTRATION_SLOT = "PRIMARY"
+        const val SELF_DISPLAY_NAME = "ReproDroid"
+        const val SELF_REPOSITORY_URL = "https://github.com/Sanka1610/reprodroid"
+        const val SELF_PROVIDER_REPOSITORY_ID = "1340628011"
+        const val SELF_REGISTRATION_KEY = "reprodroid:self:github:$SELF_PROVIDER_REPOSITORY_ID"
         const val COMPARISON_PROFILE_NOT_SUPPORTED_REASON = "COMPARISON_PROFILE_NOT_SUPPORTED"
         const val MICROG_REPOSITORY = "https://github.com/morpheapp/microg-re"
         const val MICROG_RELEASE_TAG = "6.1.4"

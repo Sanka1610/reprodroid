@@ -94,10 +94,12 @@ object ReleaseCheckScheduler {
             return
         }
         val delay = Duration.between(Instant.now(), dueAt).toMillis().coerceAtLeast(0L)
+        val requiresCharging = repository.allScheduledChecksRequireCharging()
         val request = OneTimeWorkRequestBuilder<ReleaseCheckWorker>()
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .setRequiresCharging(requiresCharging)
                     .build(),
             )
             .setInitialDelay(delay, TimeUnit.MILLISECONDS)

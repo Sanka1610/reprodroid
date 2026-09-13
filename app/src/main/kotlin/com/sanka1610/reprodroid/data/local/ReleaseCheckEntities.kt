@@ -1,5 +1,6 @@
 package com.sanka1610.reprodroid.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -36,6 +37,7 @@ enum class ReleaseCheckWaitingReason {
     INACTIVE,
     DEFERRED_NETWORK,
     DEFERRED_BATTERY,
+    DEFERRED_CHARGING,
     PROVIDER_COOLDOWN,
     RETRY_BACKOFF,
     INVALID_STATE,
@@ -93,6 +95,10 @@ data class ReleaseCheckSettingsEntity(
     val releaseChannel: String = ReleaseCheckChannel.STABLE_ONLY.name,
     val networkPolicy: String = ReleaseCheckNetworkPolicy.UNMETERED_ONLY.name,
     val batteryPolicy: String = ReleaseCheckBatteryPolicy.ANY.name,
+    @ColumnInfo(defaultValue = "0")
+    val requiresCharging: Boolean = false,
+    @ColumnInfo(defaultValue = "1")
+    val releaseNotificationsEnabled: Boolean = true,
     val revision: Long = 1,
     val updatedAt: String,
 ) {
@@ -124,6 +130,7 @@ data class AppReleaseCheckOverrideEntity(
     val releaseChannel: String? = null,
     val networkPolicy: String? = null,
     val batteryPolicy: String? = null,
+    val requiresCharging: Boolean? = null,
     val notificationMuted: Boolean = false,
     val revision: Long = 1,
     val updatedAt: String,

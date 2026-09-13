@@ -22,6 +22,7 @@ enum class ThemeMode {
     SYSTEM,
     LIGHT,
     DARK,
+    PURE_BLACK,
 }
 
 enum class AppTrackingState {
@@ -179,6 +180,18 @@ data class GlobalSettingsEntity(
     val dynamicColorEnabled: Boolean = true,
     @ColumnInfo(defaultValue = "1")
     val showOperationHints: Boolean = true,
+    @ColumnInfo(defaultValue = "1")
+    val showSettingsDividers: Boolean = true,
+    @ColumnInfo(defaultValue = "1")
+    val showSelectionBoxOutlines: Boolean = true,
+    @ColumnInfo(defaultValue = "''")
+    val settingsExpandedSections: String = "",
+    @ColumnInfo(defaultValue = "0")
+    val notificationPermissionPrompted: Boolean = false,
+    // A constructed fresh settings row explicitly writes false. The SQL default is true so
+    // migrated databases never receive a new implicit self-registration.
+    @ColumnInfo(defaultValue = "1")
+    val selfRegistrationInitialized: Boolean = false,
     val defaultManagementMode: String = ManagementMode.VERIFICATION.name,
     val defaultInstallationSource: String = InstallationSource.OFFICIAL_RELEASE.name,
     val defaultReleaseVariantPreference: String = ReleaseVariantPreference.RELEASE.name,

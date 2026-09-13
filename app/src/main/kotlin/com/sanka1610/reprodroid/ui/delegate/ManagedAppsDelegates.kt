@@ -163,7 +163,7 @@ internal class AppsDelegate(
     }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), AppsUiState())
 
     suspend fun initialize() {
-        repository.ensureSettings()
+        repository.ensureSettings(initializeSelfRegistration = true)
         repository.recoverInterruptedDownloads()
         repository.recoverOrphanedReleaseInstallAttempts()
     }

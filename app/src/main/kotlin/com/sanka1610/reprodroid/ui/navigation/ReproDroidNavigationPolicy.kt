@@ -23,6 +23,7 @@ internal fun backDestination(
     ReproDroidRoute.Authentication,
     ReproDroidRoute.LogExport,
     ReproDroidRoute.Licenses,
+    ReproDroidRoute.ThirdPartyNotices,
     -> ReproDroidRoute.Settings
     ReproDroidRoute.DataStorage,
     ReproDroidRoute.DataInactive,

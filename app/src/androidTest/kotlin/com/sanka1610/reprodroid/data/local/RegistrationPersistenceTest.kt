@@ -42,6 +42,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -52,6 +53,38 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class RegistrationPersistenceTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @Test
+    fun freshApplicationStateRegistersReproDroidExactlyOnceWithoutNetworkWork() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val runnerApi = RunnerApiClient("", MockEngine { error("Unexpected Runner request") })
+            val repository = ManagedAppRepository(context, database, JobRepository(context, database, runnerApi))
+
+            repository.ensureSettings(initializeSelfRegistration = true)
+            repository.ensureSettings(initializeSelfRegistration = true)
+
+            val apps = database.managedAppDao().getRegisteredApps()
+            assertEquals(1, apps.size)
+            val app = apps.single()
+            assertEquals("ReproDroid", app.displayName)
+            assertEquals("https://github.com/Sanka1610/reprodroid", app.canonicalRepositoryUrl)
+            assertEquals("RELEASE", app.releaseVariantPreference)
+            assertFalse(app.useGlobalReleaseVariant)
+            val binding = requireNotNull(database.managedAppDao().getRepositoryBinding(app.registeredAppId))
+            assertEquals("GITHUB", binding.provider)
+            assertEquals("github.com", binding.instance)
+            assertEquals("1340628011", binding.providerRepositoryId)
+            assertEquals("VERIFIED", binding.identityStatus)
+            assertTrue(requireNotNull(database.managedAppDao().getGlobalSettings()).selfRegistrationInitialized)
+            assertEquals(0, rowCount(database, "jobs"))
+            assertEquals(0, rowCount(database, "release_snapshots"))
+        } finally {
+            database.close()
+        }
+    }
 
     @Test
     fun sourceOnlyRegistrationAndConfigurationDoNotCreateReleaseApkOrJobState() = runBlocking {
@@ -74,6 +107,8 @@ class RegistrationPersistenceTest {
                     InstallationSource.OFFICIAL_RELEASE,
                 )
                 val record = requireNotNull(database.managedAppDao().getRegisteredAppRecord(appId))
+                assertEquals("RELEASE", record.app.releaseVariantPreference)
+                assertFalse(record.app.useGlobalReleaseVariant)
                 assertEquals("VERIFIED", record.repositoryBinding?.identityStatus)
                 assertEquals("COMPLETE", record.latestSourceDiscovery?.state)
                 assertEquals(1, record.latestSourceDiscovery?.candidateCount)

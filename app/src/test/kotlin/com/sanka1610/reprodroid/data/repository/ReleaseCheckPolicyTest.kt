@@ -168,6 +168,45 @@ class ReleaseCheckPolicyTest {
         )
     }
 
+    @Test
+    fun `charging gate is inherited overridden and fail closed when state is unknown`() {
+        val global = settings(requiresCharging = true)
+
+        assertTrue(ReleaseCheckPolicy.effective(global, null).requiresCharging)
+        assertFalse(
+            ReleaseCheckPolicy.effective(
+                global,
+                AppReleaseCheckOverrideEntity(
+                    registeredAppId = "app",
+                    requiresCharging = false,
+                    updatedAt = NOW.toString(),
+                ),
+            ).requiresCharging,
+        )
+
+        val effective = ReleaseCheckPolicy.effective(global, null)
+        assertEquals(
+            "DEFERRED_CHARGING",
+            ReleaseCheckPolicy.deferReason(
+                effective,
+                ReleaseCheckDeviceState(true, false, 100, isCharging = null),
+            ),
+        )
+        assertEquals(
+            "DEFERRED_CHARGING",
+            ReleaseCheckPolicy.deferReason(
+                effective,
+                ReleaseCheckDeviceState(true, false, 100, isCharging = false),
+            ),
+        )
+        assertNull(
+            ReleaseCheckPolicy.deferReason(
+                effective,
+                ReleaseCheckDeviceState(true, false, 100, isCharging = true),
+            ),
+        )
+    }
+
     private fun settings(
         enabled: Boolean = true,
         scheduleMode: String = ReleaseCheckScheduleMode.INTERVAL.name,
@@ -176,6 +215,7 @@ class ReleaseCheckPolicyTest {
         releaseChannel: String = ReleaseCheckChannel.STABLE_ONLY.name,
         networkPolicy: String = ReleaseCheckNetworkPolicy.UNMETERED_ONLY.name,
         batteryPolicy: String = ReleaseCheckBatteryPolicy.ANY.name,
+        requiresCharging: Boolean = false,
     ) = ReleaseCheckSettingsEntity(
         enabled = enabled,
         scheduleMode = scheduleMode,
@@ -184,6 +224,7 @@ class ReleaseCheckPolicyTest {
         releaseChannel = releaseChannel,
         networkPolicy = networkPolicy,
         batteryPolicy = batteryPolicy,
+        requiresCharging = requiresCharging,
         updatedAt = NOW.toString(),
     )
 

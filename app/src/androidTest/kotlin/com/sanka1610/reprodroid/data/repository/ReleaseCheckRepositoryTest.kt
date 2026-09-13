@@ -14,7 +14,12 @@ import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
 import com.sanka1610.reprodroid.data.local.RegisteredAppEntity
 import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateState
+import com.sanka1610.reprodroid.data.local.ReleaseCandidateEntity
 import com.sanka1610.reprodroid.data.local.ReleaseCheckOutcome
+import com.sanka1610.reprodroid.data.local.ReleaseCheckSettingsEntity
+import com.sanka1610.reprodroid.data.local.ReleaseNotificationType
+import com.sanka1610.reprodroid.data.local.NotificationOutboxEntity
+import com.sanka1610.reprodroid.data.local.NotificationOutboxState
 import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
 import com.sanka1610.reprodroid.data.local.ReproDroidDatabase
 import com.sanka1610.reprodroid.data.local.RepositoryIdentityStatus
@@ -45,6 +50,85 @@ class ReleaseCheckRepositoryTest {
     @After
     fun tearDown() {
         databases.forEach(ReproDroidDatabase::close)
+    }
+
+    @Test
+    fun disablingReleaseNotificationsSuppressesDeliveryButPreservesCandidate() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        databases += database
+        val appId = "notification-app"
+        val candidateId = "notification-candidate"
+        database.managedAppDao().upsertRegisteredApp(
+            RegisteredAppEntity(
+                registeredAppId = appId,
+                displayName = "Notification example",
+                repositoryUrl = "https://github.com/example/project",
+                canonicalRepositoryUrl = "https://github.com/example/project",
+                provider = "PUBLIC_GITHUB_RELEASES",
+                managementMode = ManagementMode.ACQUISITION.name,
+                trackingState = AppTrackingState.ACTIVE.name,
+                createdAt = now.toString(),
+                updatedAt = now.toString(),
+            ),
+        )
+        database.releaseCheckDao().upsertSettings(
+            ReleaseCheckSettingsEntity(
+                releaseNotificationsEnabled = false,
+                updatedAt = now.toString(),
+            ),
+        )
+        database.releaseCheckDao().upsertCandidate(
+            ReleaseCandidateEntity(
+                candidateId = candidateId,
+                registeredAppId = appId,
+                provider = "GITHUB",
+                instance = "github.com",
+                providerRepositoryId = "42",
+                providerReleaseId = "100",
+                tagName = "v1",
+                resolvedCommitSha = "c".repeat(40),
+                releaseName = "Version 1",
+                releaseUrl = "https://github.com/example/project/releases/tag/v1",
+                targetCommitishRaw = "main",
+                isPrerelease = false,
+                isImmutable = false,
+                releaseCreatedAt = now.toString(),
+                publishedAt = now.toString(),
+                assetsJson = "[]",
+                observationSha256 = "a".repeat(64),
+                state = ReleaseCandidateState.NEW_RELEASE_DISCOVERED.name,
+                firstSeenAt = now.toString(),
+                lastSeenAt = now.toString(),
+            ),
+        )
+        database.releaseCheckDao().upsertOutbox(
+            NotificationOutboxEntity(
+                outboxId = "outbox",
+                candidateId = candidateId,
+                registeredAppId = appId,
+                notificationType = ReleaseNotificationType.NEW_RELEASE.name,
+                notificationId = 100,
+                createdAt = now.toString(),
+            ),
+        )
+
+        val processed = ReleaseCheckRepository(
+            context = context,
+            database = database,
+            clock = Clock.fixed(now, ZoneOffset.UTC),
+        ).deliverPendingNotifications()
+
+        assertEquals(1, processed)
+        assertNotNull(database.releaseCheckDao().getCandidate(candidateId))
+        database.openHelper.readableDatabase.query(
+            "SELECT state, errorCode FROM notification_outbox WHERE outboxId = 'outbox'",
+        ).use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(NotificationOutboxState.SUPPRESSED_MUTED.name, cursor.getString(0))
+            assertEquals("RELEASE_NOTIFICATIONS_DISABLED", cursor.getString(1))
+        }
     }
 
     @Test
