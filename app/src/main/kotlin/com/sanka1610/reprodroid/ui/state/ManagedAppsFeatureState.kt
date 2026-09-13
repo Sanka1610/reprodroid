@@ -34,11 +34,15 @@ data class AppsUiState(
     val groups: List<AppGroupEntity> = emptyList(),
     val settings: GlobalSettingsEntity = GlobalSettingsEntity(updatedAt = java.time.Instant.EPOCH.toString()),
     val activeAppIds: Set<String> = emptySet(),
+    val message: ManagedUiMessage? = null,
+    val results: List<ManagedUiResult> = emptyList(),
 )
 
 data class RegistrationUiState(
     val preview: RepositoryPreviewState = RepositoryPreviewState(),
     val sourceEditPreview: SourceEditPreviewState = SourceEditPreviewState(),
+    val message: ManagedUiMessage? = null,
+    val results: List<ManagedUiResult> = emptyList(),
 )
 
 data class AppDetailUiState(
@@ -48,6 +52,8 @@ data class AppDetailUiState(
     val sourceScanWarnings: Map<String, SourceScanWarning> = emptyMap(),
     val sandboxWarnings: Map<String, String> = emptyMap(),
     val availability: List<ResourceAvailabilityEntity> = emptyList(),
+    val message: ManagedUiMessage? = null,
+    val results: List<ManagedUiResult> = emptyList(),
 )
 
 data class ReleaseUiState(
@@ -55,6 +61,8 @@ data class ReleaseUiState(
     val overrides: List<AppReleaseCheckOverrideEntity> = emptyList(),
     val schedules: List<ReleaseScheduleStateEntity> = emptyList(),
     val candidates: List<ReleaseCandidateEntity> = emptyList(),
+    val message: ManagedUiMessage? = null,
+    val results: List<ManagedUiResult> = emptyList(),
 )
 
 data class StorageUiState(
@@ -66,18 +74,26 @@ data class StorageUiState(
     val appLogExport: AppLogExportResult? = null,
     val runnerCleanupPreview: V2CleanupPreviewResponse? = null,
     val runnerCleanupRun: V2CleanupRunResponse? = null,
+    val message: ManagedUiMessage? = null,
+    val results: List<ManagedUiResult> = emptyList(),
 )
 
 data class RunnerUiState(
     val status: RunnerConnectionStatus = RunnerConnectionStatus(),
     val connections: List<RunnerConnectionEntity> = emptyList(),
+    val message: ManagedUiMessage? = null,
+    val results: List<ManagedUiResult> = emptyList(),
 )
 
 data class ToolchainFeatureUiState(
     val coordinator: ToolchainUiState = ToolchainUiState(),
+    val message: ManagedUiMessage? = null,
+    val results: List<ManagedUiResult> = emptyList(),
 )
 
 data class DeletionExportUiState(
     val preview: AppDeletionPreview? = null,
     val result: AppDeletionResult? = null,
+    val message: ManagedUiMessage? = null,
+    val results: List<ManagedUiResult> = emptyList(),
 )

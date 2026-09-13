@@ -94,6 +94,9 @@ import com.sanka1610.reprodroid.ui.shared.BackScaffoldTitle
 import com.sanka1610.reprodroid.ui.shared.MAX_VISIBLE_ERROR_LENGTH
 import com.sanka1610.reprodroid.ui.shared.MissingRecordScreen
 import com.sanka1610.reprodroid.ui.shared.knownPackageName
+import com.sanka1610.reprodroid.ui.state.ManagedUiMessage
+import com.sanka1610.reprodroid.ui.state.ManagedUiMessageCode
+import com.sanka1610.reprodroid.ui.state.relevantDisposition
 import com.sanka1610.reprodroid.ui.theme.ReproDroidTheme
 
 @Composable
@@ -110,7 +113,6 @@ fun ReproDroidApp(
     val runnerState by managedViewModel.runnerUiState.collectAsStateWithLifecycle()
     val toolchainFeatureState by managedViewModel.toolchainUiState.collectAsStateWithLifecycle()
     val deletionState by managedViewModel.deletionExportUiState.collectAsStateWithLifecycle()
-    val message by managedViewModel.message.collectAsStateWithLifecycle()
     val apps = appsState.apps
     val inactiveApps = appsState.inactiveApps
     val appCatalogLoaded = appsState.catalogLoaded
@@ -143,6 +145,20 @@ fun ReproDroidApp(
     val runnerConnections = runnerState.connections
     val releaseCheckSettings = releaseState.settings
         ?: ReleaseCheckSettingsEntity(updatedAt = java.time.Instant.EPOCH.toString())
+    val message = listOfNotNull(
+        appsState.message,
+        registrationState.message,
+        appDetailState.message,
+        releaseState.message,
+        storageState.message,
+        runnerState.message,
+        toolchainFeatureState.message,
+        deletionState.message,
+    ).firstOrNull()
+    val pendingResults =
+        appsState.results + registrationState.results + appDetailState.results + releaseState.results +
+            storageState.results + runnerState.results + toolchainFeatureState.results + deletionState.results
+    val orderedPendingResults = pendingResults.sortedBy { it.id }
 
     var encodedRoute by rememberSaveable(initialRoute) {
         mutableStateOf(ReproDroidRoute.parse(initialRoute).encode())
@@ -159,6 +175,7 @@ fun ReproDroidApp(
         }
     }
     var removalTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingCandidateId by remember { mutableStateOf<String?>(null) }
     var addRepositoryUrl by rememberSaveable { mutableStateOf("") }
     var addModeName by rememberSaveable(globalSettings.updatedAt) {
         mutableStateOf(globalSettings.defaultManagementMode)
@@ -177,20 +194,34 @@ fun ReproDroidApp(
         encodedRoute = destination.encode()
     }
 
+    LaunchedEffect(orderedPendingResults, route, removalTargetId, pendingCandidateId) {
+        val result = orderedPendingResults.firstOrNull() ?: return@LaunchedEffect
+        val disposition = result.relevantDisposition(route, removalTargetId, pendingCandidateId)
+        if (disposition != null) {
+            if (disposition.resetRegistrationDraft) {
+                addRepositoryUrl = ""
+                addRiskConfirmed = false
+                addSeparateTarget = false
+            }
+            if (disposition.clearRemovalTarget) removalTargetId = null
+            navigate(disposition.destination)
+        }
+        if (result.candidateId != null && result.candidateId == pendingCandidateId) pendingCandidateId = null
+        managedViewModel.acknowledgeResult(result.id)
+    }
+
     val activityResults = rememberAppActivityResultCoordinator(
         onUninstallResult = { target ->
-            val onConfirmed = {
-                removalTargetId = null
-                if (target.stopTracking) {
-                    navigate(ReproDroidRoute.Apps)
-                } else {
-                    navigate(ReproDroidRoute.AppInformation(target.registeredAppId))
-                }
-            }
             if (target.stopTracking) {
-                managedViewModel.stopTrackingAfterConfirmedUninstall(target.registeredAppId, onConfirmed)
+                managedViewModel.stopTrackingAfterConfirmedUninstall(
+                    target.registeredAppId,
+                    ReproDroidRoute.AppInformation(target.registeredAppId).encode(),
+                )
             } else {
-                managedViewModel.confirmUninstall(target.registeredAppId, onConfirmed)
+                managedViewModel.confirmUninstall(
+                    target.registeredAppId,
+                    ReproDroidRoute.AppInformation(target.registeredAppId).encode(),
+                )
             }
         },
         onLogDestination = managedViewModel::exportAppLogs,
@@ -274,18 +305,10 @@ fun ReproDroidApp(
                 onCancelPreview = managedViewModel::clearPreview,
                 onNavigate = ::navigate,
                 onResume = { id ->
-                    managedViewModel.resumeTracking(id) {
-                        managedViewModel.clearPreview()
-                        navigate(ReproDroidRoute.AppInformation(id))
-                    }
+                    managedViewModel.resumeRegistration(id, destination.encode())
                 },
                 onRegister = { mode, source, confirmed, separateTarget ->
-                    managedViewModel.register(mode, source, confirmed, separateTarget) { id ->
-                        addRepositoryUrl = ""
-                        addRiskConfirmed = false
-                        addSeparateTarget = false
-                        navigate(ReproDroidRoute.AppInformation(id))
-                    }
+                    managedViewModel.register(mode, source, confirmed, separateTarget, destination.encode())
                 },
             )
             ReproDroidRoute.Settings -> UiRSettingsScreen(
@@ -377,7 +400,11 @@ fun ReproDroidApp(
                         .fillMaxSize()
                         .padding(contentPadding),
                 ) {
-                    message?.let { UiRMessageBanner(it, managedViewModel::clearMessage) }
+                    message?.let { currentMessage ->
+                        UiRMessageBanner(currentMessage) {
+                            managedViewModel.acknowledgeMessage(currentMessage.id)
+                        }
+                    }
                     if (route.isRoot) {
                         AnimatedContent(
                             targetState = route,
@@ -415,9 +442,7 @@ fun ReproDroidApp(
                             deletionPreview = deletionPreview,
                             deletionResult = deletionResult,
                             onDelete = {
-                                managedViewModel.executeCompleteDeletion {
-                                    navigate(ReproDroidRoute.InactiveApps)
-                                }
+                                managedViewModel.executeCompleteDeletion(route.encode())
                             },
                             onDismissDelete = managedViewModel::clearDeletionState,
                         )
@@ -457,18 +482,10 @@ fun ReproDroidApp(
                             onCancelPreview = managedViewModel::clearPreview,
                             onNavigate = ::navigate,
                             onResume = { id ->
-                                managedViewModel.resumeTracking(id) {
-                                    managedViewModel.clearPreview()
-                                    navigate(ReproDroidRoute.AppInformation(id))
-                                }
+                                managedViewModel.resumeRegistration(id, route.encode())
                             },
                             onRegister = { mode, source, confirmed, separateTarget ->
-                                managedViewModel.register(mode, source, confirmed, separateTarget) { id ->
-                                    addRepositoryUrl = ""
-                                    addRiskConfirmed = false
-                                    addSeparateTarget = false
-                                    navigate(ReproDroidRoute.AppInformation(id))
-                                }
+                                managedViewModel.register(mode, source, confirmed, separateTarget, route.encode())
                             },
                         )
                         ReproDroidRoute.Settings -> UiRSettingsScreen(
@@ -506,7 +523,7 @@ fun ReproDroidApp(
                             onPreviewDelete = managedViewModel::previewCompleteDeletion,
                             deletionPreview = deletionPreview,
                             deletionResult = deletionResult,
-                            onDelete = { managedViewModel.executeCompleteDeletion() },
+                            onDelete = { managedViewModel.executeCompleteDeletion(route.encode()) },
                             onDismissDelete = managedViewModel::clearDeletionState,
                         )
                         ReproDroidRoute.DataStorage -> StorageScreen(
@@ -595,12 +612,12 @@ fun ReproDroidApp(
                             onUpdateOverride = managedViewModel::updateReleaseCheckOverride,
                             onCheckNow = managedViewModel::checkReleaseMetadataNow,
                             onOpenCandidate = { candidate ->
+                                pendingCandidateId = candidate.candidateId
                                 managedViewModel.openReleaseCandidate(
                                     candidate.registeredAppId,
                                     candidate.candidateId,
-                                ) {
-                                    navigate(ReproDroidRoute.AppTechnical(candidate.registeredAppId))
-                                }
+                                    route.encode(),
+                                )
                             },
                             onRequestNotifications = activityResults::requestNotificationPermission,
                             onBack = {
@@ -649,12 +666,12 @@ fun ReproDroidApp(
                                     managedViewModel.checkReleaseMetadataNow(record.app.registeredAppId)
                                 },
                                 onOpenCandidate = { candidate ->
+                                    pendingCandidateId = candidate.candidateId
                                     managedViewModel.openReleaseCandidate(
                                         candidate.registeredAppId,
                                         candidate.candidateId,
-                                    ) {
-                                        navigate(ReproDroidRoute.AppTechnical(candidate.registeredAppId))
-                                    }
+                                        route.encode(),
+                                    )
                                 },
                                 onTechnical = {
                                     navigate(ReproDroidRoute.AppTechnical(record.app.registeredAppId))
@@ -663,9 +680,7 @@ fun ReproDroidApp(
                                     navigate(ReproDroidRoute.Comparison(comparisonId))
                                 },
                                 onResume = {
-                                    managedViewModel.resumeTracking(record.app.registeredAppId) {
-                                        navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId))
-                                    }
+                                    managedViewModel.resumeTracking(record.app.registeredAppId)
                                 },
                             )
                         } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
@@ -677,9 +692,7 @@ fun ReproDroidApp(
                                 saving = record.app.registeredAppId in activeAppIds,
                                 onBack = { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
                                 onSave = { update ->
-                                    managedViewModel.updateMetadata(record.app.registeredAppId, update) {
-                                        navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId))
-                                    }
+                                    managedViewModel.updateMetadata(record.app.registeredAppId, update, route.encode())
                                 },
                                 onInspectSource = { url ->
                                     managedViewModel.previewSourceEdit(
@@ -689,9 +702,7 @@ fun ReproDroidApp(
                                     )
                                 },
                                 onApplySource = {
-                                    managedViewModel.applySourceEdit(record.app.registeredAppId) {
-                                        navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId))
-                                    }
+                                    managedViewModel.applySourceEdit(record.app.registeredAppId, route.encode())
                                 },
                                 onClearSource = managedViewModel::clearSourceEditPreview,
                                 onRegisterSeparately = {
@@ -709,9 +720,7 @@ fun ReproDroidApp(
                                 saving = record.app.registeredAppId in activeAppIds,
                                 onBack = { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
                                 onSave = { update ->
-                                    managedViewModel.updatePreferences(record.app.registeredAppId, update) {
-                                        navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId))
-                                    }
+                                    managedViewModel.updatePreferences(record.app.registeredAppId, update, route.encode())
                                 },
                                 onSaveBuildConfiguration = { revision, input ->
                                     managedViewModel.saveBuildConfiguration(record.app.registeredAppId, revision, input)
@@ -793,10 +802,7 @@ fun ReproDroidApp(
                 } ?: 0,
                 onDismiss = { removalTargetId = null },
                 onStop = {
-                    managedViewModel.stopTracking(appId) {
-                        removalTargetId = null
-                        navigate(ReproDroidRoute.Apps)
-                    }
+                    managedViewModel.stopTracking(appId, route.encode())
                 },
                 onUninstall = { packageName, stopTracking ->
                     activityResults.uninstall(
@@ -944,16 +950,14 @@ private fun AppActionBar(
 }
 
 @Composable
-private fun UiRMessageBanner(message: String, onDismiss: () -> Unit) {
-    val visibleMessage = when {
-        message.contains("already registered as the primary", ignoreCase = true) ->
-            stringResource(R.string.error_already_registered)
-        message.contains("different repository", ignoreCase = true) ->
-            stringResource(R.string.error_different_repository)
-        message.contains("rate limit", ignoreCase = true) -> stringResource(R.string.error_rate_limit)
-        message.contains("not found", ignoreCase = true) -> stringResource(R.string.error_not_found)
-        message.contains("reload", ignoreCase = true) -> stringResource(R.string.error_stale)
-        else -> message.take(MAX_VISIBLE_ERROR_LENGTH)
+private fun UiRMessageBanner(message: ManagedUiMessage, onDismiss: () -> Unit) {
+    val visibleMessage = when (message.code) {
+        ManagedUiMessageCode.ALREADY_REGISTERED_PRIMARY -> stringResource(R.string.error_already_registered)
+        ManagedUiMessageCode.DIFFERENT_REPOSITORY -> stringResource(R.string.error_different_repository)
+        ManagedUiMessageCode.RATE_LIMIT -> stringResource(R.string.error_rate_limit)
+        ManagedUiMessageCode.NOT_FOUND -> stringResource(R.string.error_not_found)
+        ManagedUiMessageCode.STALE_STATE -> stringResource(R.string.error_stale)
+        ManagedUiMessageCode.OPERATION_FAILED -> message.text.take(MAX_VISIBLE_ERROR_LENGTH)
     }
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
