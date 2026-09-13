@@ -26,6 +26,7 @@ class ReproDroidRouteTest {
             ReproDroidRoute.Authentication,
             ReproDroidRoute.LogExport,
             ReproDroidRoute.Licenses,
+            ReproDroidRoute.ThirdPartyNotices,
             ReproDroidRoute.GitHubStarsImport,
         )
 

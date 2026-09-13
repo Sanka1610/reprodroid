@@ -52,7 +52,7 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         ProviderRepresentationEntity::class,
         RunnerConnectionEntity::class,
     ],
-    version = 23,
+    version = 24,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -64,6 +64,28 @@ abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun runnerConnectionDao(): RunnerConnectionDao
 
     companion object {
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                listOf(
+                    "showSettingsDividers INTEGER NOT NULL DEFAULT 1",
+                    "showSelectionBoxOutlines INTEGER NOT NULL DEFAULT 1",
+                    "settingsExpandedSections TEXT NOT NULL DEFAULT ''",
+                    "notificationPermissionPrompted INTEGER NOT NULL DEFAULT 0",
+                    // Existing users must never receive an implicit self-registration.
+                    "selfRegistrationInitialized INTEGER NOT NULL DEFAULT 1",
+                ).forEach { db.execSQL("ALTER TABLE global_settings ADD COLUMN $it") }
+                db.execSQL(
+                    "ALTER TABLE release_check_settings ADD COLUMN requiresCharging INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    "ALTER TABLE release_check_settings ADD COLUMN releaseNotificationsEnabled INTEGER NOT NULL DEFAULT 1",
+                )
+                db.execSQL(
+                    "ALTER TABLE app_release_check_overrides ADD COLUMN requiresCharging INTEGER",
+                )
+            }
+        }
+
         val MIGRATION_22_23 = object : Migration(22, 23) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

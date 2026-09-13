@@ -43,6 +43,7 @@ class Phase55PolishTest {
                                 group("two", "Second long group", 1),
                                 group("three", lastGroup, 2),
                             ),
+                            searchExpanded = true,
                             onSelect = {},
                             onAdd = {},
                             onCreateGroup = {},

@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.content.pm.PackageManager
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -13,6 +15,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import com.sanka1610.reprodroid.data.log.AppLogExportManager
 import com.sanka1610.reprodroid.ui.shared.AUDIT_MIME_TYPE
 
@@ -40,10 +44,13 @@ internal class AppActivityResultCoordinator(
 @Composable
 internal fun rememberAppActivityResultCoordinator(
     onUninstallResult: (UninstallActivityTarget) -> Unit,
+    onNotificationPermissionResult: (Boolean) -> Unit,
     onLogDestination: (Uri) -> Unit,
     onAuditDestination: (Uri) -> Unit,
 ): AppActivityResultCoordinator {
+    val context = LocalContext.current
     val currentUninstallResult by rememberUpdatedState(onUninstallResult)
+    val currentNotificationResult by rememberUpdatedState(onNotificationPermissionResult)
     val currentLogDestination by rememberUpdatedState(onLogDestination)
     val currentAuditDestination by rememberUpdatedState(onAuditDestination)
     var uninstallAppId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -71,7 +78,7 @@ internal fun rememberAppActivityResultCoordinator(
     }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { }
+    ) { granted -> currentNotificationResult(granted) }
     val logDestinationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(AppLogExportManager.MIME_TYPE),
     ) { destination -> destination?.let(currentLogDestination) }
@@ -96,8 +103,18 @@ internal fun rememberAppActivityResultCoordinator(
                 )
             },
             launchNotificationPermission = {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
+                ) {
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
                 }
             },
             launchLogDestination = {

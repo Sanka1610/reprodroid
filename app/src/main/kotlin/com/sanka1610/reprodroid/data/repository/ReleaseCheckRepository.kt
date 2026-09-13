@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
+import android.content.IntentFilter
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -99,10 +100,24 @@ class AndroidReleaseCheckEnvironment(private val context: Context) : ReleaseChec
         val battery = context.getSystemService(BatteryManager::class.java)
             ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
             ?.takeIf { it in 0..100 }
+        val batteryStatus = context.registerReceiver(null, IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+            ?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        val charging = batteryStatus?.let {
+            when (it) {
+                BatteryManager.BATTERY_STATUS_CHARGING,
+                BatteryManager.BATTERY_STATUS_FULL,
+                -> true
+                BatteryManager.BATTERY_STATUS_DISCHARGING,
+                BatteryManager.BATTERY_STATUS_NOT_CHARGING,
+                -> false
+                else -> null
+            }
+        }
         return ReleaseCheckDeviceState(
             networkAvailable = available,
             networkMetered = connectivity?.isActiveNetworkMetered ?: true,
             batteryPercent = battery,
+            isCharging = charging,
         )
     }
 }
@@ -311,6 +326,17 @@ class ReleaseCheckRepository(
         }
     }
 
+    suspend fun allScheduledChecksRequireCharging(): Boolean {
+        val settings = currentSettings()
+        if (!settings.enabled) return false
+        val effective = releaseDao.getActiveApps().mapNotNull { app ->
+            runCatching { ReleaseCheckPolicy.effective(settings, releaseDao.getOverride(app.registeredAppId)) }
+                .getOrNull()
+                ?.takeIf { it.enabled }
+        }
+        return effective.isNotEmpty() && effective.all { it.requiresCharging }
+    }
+
     suspend fun markCandidateSeen(candidateId: String) = releaseDao.markCandidateSeen(candidateId)
 
     suspend fun stageCandidateForManualAction(candidateId: String) {
@@ -420,6 +446,7 @@ class ReleaseCheckRepository(
 
     suspend fun deliverPendingNotifications(limit: Int = 20): Int {
         createNotificationChannel()
+        val releaseNotificationsEnabled = currentSettings().releaseNotificationsEnabled
         var processed = 0
         releaseDao.getPendingOutbox(limit.coerceIn(1, 100)).forEach { outbox ->
             val now = clock.instant()
@@ -429,6 +456,8 @@ class ReleaseCheckRepository(
             val terminal = when {
                 candidate == null || app == null || app.trackingState != AppTrackingState.ACTIVE.name ->
                     NotificationOutboxState.SUPPRESSED_INACTIVE to "INACTIVE_OR_MISSING"
+                !releaseNotificationsEnabled -> NotificationOutboxState.SUPPRESSED_MUTED to
+                    "RELEASE_NOTIFICATIONS_DISABLED"
                 override?.notificationMuted == true -> NotificationOutboxState.SUPPRESSED_MUTED to "APP_MUTED"
                 !notificationsAllowed() -> NotificationOutboxState.SUPPRESSED_PERMISSION to "PERMISSION_NOT_GRANTED"
                 else -> null
@@ -1258,6 +1287,7 @@ class ReleaseCheckRepository(
         private val OPERATIONAL_WAITING_REASONS = setOf(
             ReleaseCheckWaitingReason.DEFERRED_NETWORK,
             ReleaseCheckWaitingReason.DEFERRED_BATTERY,
+            ReleaseCheckWaitingReason.DEFERRED_CHARGING,
             ReleaseCheckWaitingReason.PROVIDER_COOLDOWN,
             ReleaseCheckWaitingReason.RETRY_BACKOFF,
         )

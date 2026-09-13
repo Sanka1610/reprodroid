@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,6 +52,7 @@ import com.sanka1610.reprodroid.ui.shared.*
 internal fun UiRAppsScreen(
     apps: List<RegisteredAppRecord>,
     groups: List<AppGroupEntity>,
+    searchExpanded: Boolean = false,
     onSelect: (String) -> Unit,
     onAdd: () -> Unit,
     onCreateGroup: (String) -> Unit,
@@ -60,6 +63,12 @@ internal fun UiRAppsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var selectedGroupId by rememberSaveable { mutableStateOf(ALL_GROUP_ID) }
     var showGroups by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(searchExpanded) {
+        if (!searchExpanded) {
+            query = ""
+            selectedGroupId = ALL_GROUP_ID
+        }
+    }
     LaunchedEffect(groups, selectedGroupId) {
         if (
             selectedGroupId != ALL_GROUP_ID &&
@@ -84,64 +93,71 @@ internal fun UiRAppsScreen(
         }
     }
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End,
-        ) {
-            TextButton(onClick = { showGroups = true }) { Text(stringResource(R.string.action_manage_groups)) }
-        }
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            placeholder = { Text(stringResource(R.string.apps_search_hint)) },
-            singleLine = true,
-        )
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .selectableGroup()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(
-                selected = selectedGroupId == ALL_GROUP_ID,
-                onClick = { selectedGroupId = ALL_GROUP_ID },
-                label = { Text(stringResource(R.string.group_all)) },
-            )
-            FilterChip(
-                selected = selectedGroupId == UNGROUPED_ID,
-                onClick = { selectedGroupId = UNGROUPED_ID },
-                label = { Text(stringResource(R.string.group_ungrouped)) },
-            )
-            groups.forEach { group ->
-                FilterChip(
-                    selected = selectedGroupId == group.groupId,
-                    onClick = { selectedGroupId = group.groupId },
-                    label = { Text(group.displayName) },
+        AnimatedVisibility(searchExpanded) {
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    placeholder = { Text(stringResource(R.string.apps_search_hint)) },
+                    singleLine = true,
                 )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .selectableGroup()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = selectedGroupId == ALL_GROUP_ID,
+                        onClick = { selectedGroupId = ALL_GROUP_ID },
+                        label = { Text(stringResource(R.string.group_all)) },
+                    )
+                    FilterChip(
+                        selected = selectedGroupId == UNGROUPED_ID,
+                        onClick = { selectedGroupId = UNGROUPED_ID },
+                        label = { Text(stringResource(R.string.group_ungrouped)) },
+                    )
+                    groups.forEach { group ->
+                        FilterChip(
+                            selected = selectedGroupId == group.groupId,
+                            onClick = { selectedGroupId = group.groupId },
+                            label = { Text(group.displayName) },
+                        )
+                    }
+                }
             }
         }
-        if (filtered.isEmpty()) {
-            EmptyState(
-                title = stringResource(if (apps.isEmpty()) R.string.apps_empty_title else R.string.apps_search_empty_title),
-                body = stringResource(if (apps.isEmpty()) R.string.apps_empty_body else R.string.apps_search_empty_body),
-                actionLabel = if (apps.isEmpty()) stringResource(R.string.action_add_app) else null,
-                onAction = onAdd,
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                item { Spacer(Modifier.height(4.dp)) }
-                items(filtered, key = { it.app.registeredAppId }) { record ->
-                    AppListCard(record, onSelect)
+        Box(Modifier.weight(1f)) {
+            if (filtered.isEmpty()) {
+                EmptyState(
+                    title = stringResource(if (apps.isEmpty()) R.string.apps_empty_title else R.string.apps_search_empty_title),
+                    body = stringResource(if (apps.isEmpty()) R.string.apps_empty_body else R.string.apps_search_empty_body),
+                    actionLabel = if (apps.isEmpty()) stringResource(R.string.action_add_app) else null,
+                    onAction = onAdd,
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item { Spacer(Modifier.height(4.dp)) }
+                    items(filtered, key = { it.app.registeredAppId }) { record ->
+                        AppListCard(record, onSelect)
+                    }
+                    item { Spacer(Modifier.height(8.dp)) }
                 }
-                item { Spacer(Modifier.height(16.dp)) }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 56.dp),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            TextButton(onClick = { showGroups = true }) {
+                Text(stringResource(R.string.action_manage_groups))
             }
         }
     }

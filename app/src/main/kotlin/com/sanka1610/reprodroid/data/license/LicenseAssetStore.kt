@@ -28,6 +28,12 @@ class LicenseAssetStore(private val context: Context) {
         }
     }
 
+    suspend fun loadReproDroidLicense(): List<LicenseDocument> =
+        loadDocuments().filter { it.assetPath == REPRODROID_LICENSE_ASSET }
+
+    suspend fun loadThirdPartyDocuments(): List<LicenseDocument> =
+        loadDocuments().filterNot { it.assetPath == REPRODROID_LICENSE_ASSET }
+
     private data class Descriptor(val title: String, val assetPath: String)
 
     companion object {

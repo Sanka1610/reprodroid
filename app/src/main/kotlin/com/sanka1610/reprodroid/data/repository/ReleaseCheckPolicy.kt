@@ -23,6 +23,7 @@ data class EffectiveReleaseCheckSettings(
     val releaseChannel: String,
     val networkPolicy: String,
     val batteryPolicy: String,
+    val requiresCharging: Boolean = false,
     val notificationMuted: Boolean,
 )
 
@@ -30,6 +31,7 @@ data class ReleaseCheckDeviceState(
     val networkAvailable: Boolean,
     val networkMetered: Boolean,
     val batteryPercent: Int?,
+    val isCharging: Boolean? = null,
 )
 
 object ReleaseCheckPolicy {
@@ -63,6 +65,7 @@ object ReleaseCheckPolicy {
             releaseChannel = override?.releaseChannel ?: global.releaseChannel,
             networkPolicy = override?.networkPolicy ?: global.networkPolicy,
             batteryPolicy = override?.batteryPolicy ?: global.batteryPolicy,
+            requiresCharging = override?.requiresCharging ?: global.requiresCharging,
             notificationMuted = override?.notificationMuted ?: false,
         ).also(::validateEffective)
     }
@@ -92,6 +95,7 @@ object ReleaseCheckPolicy {
         if (battery == ReleaseCheckBatteryPolicy.ABOVE_20_PERCENT && (state.batteryPercent == null || state.batteryPercent <= 20)) {
             return "DEFERRED_BATTERY"
         }
+        if (effective.requiresCharging && state.isCharging != true) return "DEFERRED_CHARGING"
         return null
     }
 

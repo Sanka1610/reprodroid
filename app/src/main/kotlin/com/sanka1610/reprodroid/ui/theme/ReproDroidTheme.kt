@@ -10,8 +10,10 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -53,6 +55,8 @@ private val ReproDroidLightColors: ColorScheme = lightColorScheme(
     error = Color(0xFFBA1A1A),
 )
 
+val LocalSelectionBoxOutlines = staticCompositionLocalOf { true }
+
 @Composable
 fun ReproDroidTheme(
     settings: GlobalSettingsEntity,
@@ -60,19 +64,31 @@ fun ReproDroidTheme(
 ) {
     val context = LocalContext.current
     val view = LocalView.current
-    val darkTheme = when (settings.themeMode.asThemeMode()) {
+    val themeMode = settings.themeMode.asThemeMode()
+    val darkTheme = when (themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
+        ThemeMode.PURE_BLACK -> true
     }
-    val colorScheme = remember(context, darkTheme, settings.dynamicColorEnabled) {
-        when {
+    val colorScheme = remember(context, darkTheme, themeMode, settings.dynamicColorEnabled) {
+        val base = when {
             settings.dynamicColorEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme ->
                 dynamicDarkColorScheme(context)
             settings.dynamicColorEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
                 dynamicLightColorScheme(context)
             darkTheme -> ReproDroidDarkColors
             else -> ReproDroidLightColors
+        }
+        if (themeMode == ThemeMode.PURE_BLACK) {
+            base.copy(
+                background = Color.Black,
+                surface = Color.Black,
+                surfaceVariant = Color(0xFF171717),
+                surfaceTint = Color.Transparent,
+            )
+        } else {
+            base
         }
     }
     if (!view.isInEditMode) {
@@ -84,10 +100,12 @@ fun ReproDroidTheme(
             }
         }
     }
-    MaterialTheme(
-        colorScheme = colorScheme,
-        content = content,
-    )
+    CompositionLocalProvider(LocalSelectionBoxOutlines provides settings.showSelectionBoxOutlines) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            content = content,
+        )
+    }
 }
 
 private fun String.asThemeMode(): ThemeMode = ThemeMode.entries.firstOrNull { it.name == this } ?: ThemeMode.SYSTEM

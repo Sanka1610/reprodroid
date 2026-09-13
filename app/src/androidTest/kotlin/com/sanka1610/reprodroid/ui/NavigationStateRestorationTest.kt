@@ -18,10 +18,13 @@ class NavigationStateRestorationTest {
     @Test
     fun selectedRootRouteSurvivesActivityRecreation() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val settings = context.getString(R.string.nav_settings)
+        val settings = context.getString(R.string.root_open_settings)
         val appearance = context.getString(R.string.settings_appearance)
 
-        compose.onNodeWithText(settings).performClick()
+        compose.waitUntil(timeoutMillis = 10_000) {
+            compose.onAllNodesWithContentDescription(settings).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onAllNodesWithContentDescription(settings)[0].performClick()
         compose.onNodeWithText(appearance).assertExists()
 
         compose.activityRule.scenario.recreate()
