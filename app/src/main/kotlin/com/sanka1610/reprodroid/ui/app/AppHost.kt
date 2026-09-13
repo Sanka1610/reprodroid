@@ -1,6 +1,7 @@
 package com.sanka1610.reprodroid.ui.app
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -25,8 +27,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
@@ -39,6 +40,9 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,6 +68,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -99,12 +105,12 @@ import com.sanka1610.reprodroid.ui.runner.ToolchainScreen
 import com.sanka1610.reprodroid.ui.settings.DataManagementScreen
 import com.sanka1610.reprodroid.ui.settings.LicenseScreen
 import com.sanka1610.reprodroid.ui.settings.LogExportScreen
-import com.sanka1610.reprodroid.ui.settings.ReleaseUpdateSettingsScreen
 import com.sanka1610.reprodroid.ui.settings.StorageScreen
 import com.sanka1610.reprodroid.ui.settings.UiRSettingsScreen
 import com.sanka1610.reprodroid.ui.shared.BackScaffoldTitle
 import com.sanka1610.reprodroid.ui.shared.MissingRecordScreen
 import com.sanka1610.reprodroid.ui.shared.knownPackageName
+import com.sanka1610.reprodroid.ui.shared.isSelfRegistration
 import com.sanka1610.reprodroid.ui.state.ManagedUiMessage
 import com.sanka1610.reprodroid.ui.state.ManagedUiMessageCode
 import com.sanka1610.reprodroid.ui.state.relevantDisposition
@@ -200,8 +206,8 @@ fun ReproDroidApp(
     var addRiskConfirmed by rememberSaveable { mutableStateOf(false) }
     var addSeparateTarget by rememberSaveable { mutableStateOf(false) }
     var inactiveReturnRoute by rememberSaveable { mutableStateOf(ReproDroidRoute.InactiveApps.encode()) }
-    var updateSettingsReturnRoute by rememberSaveable { mutableStateOf(ReproDroidRoute.Settings.encode()) }
     var appsSearchExpanded by rememberSaveable { mutableStateOf(false) }
+    var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val rootScope = rememberCoroutineScope()
     val rootPages = remember {
@@ -218,6 +224,10 @@ fun ReproDroidApp(
 
     LaunchedEffect(route) {
         if (route != ReproDroidRoute.Apps) appsSearchExpanded = false
+        if (route == ReproDroidRoute.UpdateSettings) navigate(ReproDroidRoute.Settings)
+        if (route is ReproDroidRoute.AppSettings && routeApp?.let(::isSelfRegistration) == true) {
+            navigate(ReproDroidRoute.AppInformation(requireNotNull(route.appId)))
+        }
         if (route.isRoot) {
             val targetPage = rootPageIndex(route)
             if (rootPagerState.currentPage != targetPage) rootPagerState.animateScrollToPage(targetPage)
@@ -307,7 +317,14 @@ fun ReproDroidApp(
     )
 
     BackHandler(enabled = drawerState.isOpen) { rootScope.launch { drawerState.close() } }
-    BackHandler(enabled = !route.isRoot && !drawerState.isOpen) { navigate(backDestination(route, backContext)) }
+    BackHandler(enabled = !drawerState.isOpen) {
+        when {
+            !route.isRoot -> navigate(backDestination(route, backContext))
+            route != ReproDroidRoute.Apps -> navigate(ReproDroidRoute.Apps)
+            appsSearchExpanded -> appsSearchExpanded = false
+            else -> showExitConfirmation = true
+        }
+    }
 
     LaunchedEffect(preview.repository, route) {
         if (route == ReproDroidRoute.AddSource && preview.repository != null) {
@@ -391,12 +408,7 @@ fun ReproDroidApp(
                 onUpdate = managedViewModel::updateGlobalSettings,
                 onUpdateReleaseSettings = managedViewModel::updateReleaseCheckSettings,
                 onRequestNotifications = activityResults::requestNotificationPermission,
-                onNavigate = { target ->
-                    if (target == ReproDroidRoute.UpdateSettings) {
-                        updateSettingsReturnRoute = ReproDroidRoute.Settings.encode()
-                    }
-                    navigate(target)
-                },
+                onNavigate = ::navigate,
             )
             else -> Unit
         }
@@ -406,6 +418,19 @@ fun ReproDroidApp(
     val density = LocalDensity.current
     val containerWidth = with(density) { LocalWindowInfo.current.containerSize.width.toDp() }
     val drawerWidth = (containerWidth * 0.58f).coerceIn(220.dp, 320.dp)
+    val snackbarHostState = remember { SnackbarHostState() }
+    val visibleMessage = message?.let { managedMessageText(it) }
+    val dismissMessageLabel = stringResource(R.string.action_dismiss)
+    LaunchedEffect(message?.id, visibleMessage) {
+        val currentMessage = message ?: return@LaunchedEffect
+        val text = visibleMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(
+            message = text,
+            actionLabel = dismissMessageLabel,
+            duration = SnackbarDuration.Long,
+        )
+        managedViewModel.acknowledgeMessage(currentMessage.id)
+    }
     ReproDroidTheme(globalSettings) {
         Surface(Modifier.fillMaxSize()) {
             ModalNavigationDrawer(
@@ -447,6 +472,12 @@ fun ReproDroidApp(
             ) {
                 Box(Modifier.fillMaxSize()) {
                 Scaffold(
+                snackbarHost = {
+                    SnackbarHost(
+                        hostState = snackbarHostState,
+                        modifier = Modifier.padding(bottom = if (showRootShell) 64.dp else 0.dp),
+                    )
+                },
                 topBar = {
                     if (showRootShell) {
                         RootTopBar(
@@ -469,6 +500,7 @@ fun ReproDroidApp(
                     if (route.appId != null && routeApp != null) AppActionBar(
                             route = route,
                             active = routeApp.app.trackingState == AppTrackingState.ACTIVE.name,
+                            showSettings = !isSelfRegistration(routeApp),
                             onNavigate = ::navigate,
                             onRemove = { removalTargetId = routeApp.app.registeredAppId },
                         )
@@ -479,11 +511,6 @@ fun ReproDroidApp(
                         .fillMaxSize()
                         .padding(contentPadding),
                 ) {
-                    message?.let { currentMessage ->
-                        UiRMessageBanner(currentMessage) {
-                            managedViewModel.acknowledgeMessage(currentMessage.id)
-                        }
-                    }
                     if (route.isRoot) {
                         HorizontalPager(
                             state = rootPagerState,
@@ -571,12 +598,7 @@ fun ReproDroidApp(
                             onUpdate = managedViewModel::updateGlobalSettings,
                             onUpdateReleaseSettings = managedViewModel::updateReleaseCheckSettings,
                             onRequestNotifications = activityResults::requestNotificationPermission,
-                            onNavigate = { destination ->
-                                if (destination == ReproDroidRoute.UpdateSettings) {
-                                    updateSettingsReturnRoute = ReproDroidRoute.Settings.encode()
-                                }
-                                navigate(destination)
-                            },
+                            onNavigate = ::navigate,
                         )
                         ReproDroidRoute.DataManagement -> DataManagementScreen(
                             onBack = { navigate(ReproDroidRoute.Settings) },
@@ -682,27 +704,14 @@ fun ReproDroidApp(
                             title = stringResource(R.string.settings_jobs),
                             onBack = { navigate(ReproDroidRoute.RunnerSettings) },
                         ) { JobScreen(jobViewModel) }
-                        ReproDroidRoute.UpdateSettings -> ReleaseUpdateSettingsScreen(
-                            settings = releaseCheckSettings,
-                            showDividers = globalSettings.showSettingsDividers,
-                            apps = apps,
-                            overrides = releaseCheckOverrides,
-                            schedules = releaseScheduleStates,
-                            candidates = releaseCandidates,
-                            onUpdateSettings = managedViewModel::updateReleaseCheckSettings,
-                            onUpdateOverride = managedViewModel::updateReleaseCheckOverride,
-                            onCheckNow = managedViewModel::checkReleaseMetadataNow,
-                            onOpenCandidate = { candidate ->
-                                pendingCandidateId = candidate.candidateId
-                                managedViewModel.openReleaseCandidate(
-                                    candidate.registeredAppId,
-                                    candidate.candidateId,
-                                    route.encode(),
-                                )
-                            },
-                            onBack = {
-                                navigate(ReproDroidRoute.parse(updateSettingsReturnRoute))
-                            },
+                        ReproDroidRoute.UpdateSettings -> UiRSettingsScreen(
+                            settings = globalSettings,
+                            releaseSettings = releaseCheckSettings,
+                            notificationsAllowed = notificationsAllowed,
+                            onUpdate = managedViewModel::updateGlobalSettings,
+                            onUpdateReleaseSettings = managedViewModel::updateReleaseCheckSettings,
+                            onRequestNotifications = activityResults::requestNotificationPermission,
+                            onNavigate = ::navigate,
                         )
                         ReproDroidRoute.Authentication -> RunnerAuthenticationScreen(
                             status = runnerConnectionStatus,
@@ -801,6 +810,13 @@ fun ReproDroidApp(
                             AppPreferencesScreen(
                                 record = record,
                                 globalSettings = globalSettings,
+                                releaseSettings = releaseCheckSettings,
+                                releaseOverride = releaseCheckOverrides.firstOrNull {
+                                    it.registeredAppId == record.app.registeredAppId
+                                } ?: com.sanka1610.reprodroid.data.local.AppReleaseCheckOverrideEntity(
+                                    registeredAppId = record.app.registeredAppId,
+                                    updatedAt = java.time.Instant.EPOCH.toString(),
+                                ),
                                 saving = record.app.registeredAppId in activeAppIds,
                                 onBack = { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
                                 onSave = { update ->
@@ -809,12 +825,7 @@ fun ReproDroidApp(
                                 onSaveBuildConfiguration = { revision, input ->
                                     managedViewModel.saveBuildConfiguration(record.app.registeredAppId, revision, input)
                                 },
-                                onOpenUpdateSettings = {
-                                    updateSettingsReturnRoute = ReproDroidRoute.AppSettings(
-                                        record.app.registeredAppId,
-                                    ).encode()
-                                    navigate(ReproDroidRoute.UpdateSettings)
-                                },
+                                onUpdateReleaseOverride = managedViewModel::updateReleaseCheckOverride,
                             )
                         } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
                         is ReproDroidRoute.AppTechnical -> routeApp?.let { record ->
@@ -822,6 +833,7 @@ fun ReproDroidApp(
                                 record = record,
                                 globalSettings = globalSettings,
                                 active = record.app.registeredAppId in activeAppIds,
+                                showSettings = !isSelfRegistration(record),
                                 onBack = { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
                                 onSettings = { navigate(ReproDroidRoute.AppSettings(record.app.registeredAppId)) },
                                 onRefresh = { managedViewModel.refresh(record.app.registeredAppId) },
@@ -887,26 +899,49 @@ fun ReproDroidApp(
 
     removalTargetId?.let { appId ->
         allApps.firstOrNull { it.app.registeredAppId == appId }?.let { record ->
-            RemoveTrackingDialog(
-                record = record,
-                otherPackageReferenceCount = knownPackageName(record)?.let { packageName ->
-                    allApps.count { candidate ->
-                        candidate.app.registeredAppId != record.app.registeredAppId &&
-                            knownPackageName(candidate) == packageName
+            ReproDroidTheme(globalSettings) {
+                val effectivePackageName = knownPackageName(record)
+                    ?: context.packageName.takeIf { isSelfRegistration(record) }
+                RemoveTrackingDialog(
+                    record = record,
+                    otherPackageReferenceCount = effectivePackageName?.let { packageName ->
+                        allApps.count { candidate ->
+                            candidate.app.registeredAppId != record.app.registeredAppId &&
+                                knownPackageName(candidate) == packageName
+                        }
+                    } ?: 0,
+                    onDismiss = { removalTargetId = null },
+                    onStop = {
+                        managedViewModel.stopTracking(appId, route.encode())
+                    },
+                    onUninstall = { packageName, stopTracking ->
+                        activityResults.uninstall(
+                            UninstallActivityTarget(
+                                registeredAppId = appId,
+                                packageName = packageName,
+                                stopTracking = stopTracking,
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+    }
+    if (showExitConfirmation) {
+        ReproDroidTheme(globalSettings) {
+            AlertDialog(
+                onDismissRequest = { showExitConfirmation = false },
+                title = { Text(stringResource(R.string.exit_title)) },
+                text = { Text(stringResource(R.string.exit_body)) },
+                dismissButton = {
+                    TextButton(onClick = { showExitConfirmation = false }) {
+                        Text(stringResource(R.string.action_cancel))
                     }
-                } ?: 0,
-                onDismiss = { removalTargetId = null },
-                onStop = {
-                    managedViewModel.stopTracking(appId, route.encode())
                 },
-                onUninstall = { packageName, stopTracking ->
-                    activityResults.uninstall(
-                        UninstallActivityTarget(
-                            registeredAppId = appId,
-                            packageName = packageName,
-                            stopTracking = stopTracking,
-                        ),
-                    )
+                confirmButton = {
+                    TextButton(onClick = { (context as? Activity)?.finish() }) {
+                        Text(stringResource(R.string.action_exit))
+                    }
                 },
             )
         }
@@ -939,7 +974,7 @@ private fun RootTopBar(
     onOpenSettings: () -> Unit,
 ) {
     val title = when {
-        route == ReproDroidRoute.Apps -> stringResource(R.string.nav_apps)
+        route == ReproDroidRoute.Apps -> stringResource(R.string.apps_title)
         route.isAddFlow || route == ReproDroidRoute.GitHubStarsImport -> stringResource(R.string.nav_add)
         else -> stringResource(R.string.nav_settings)
     }
@@ -982,8 +1017,22 @@ private fun RootPageIndicator(
         Triple(stringResource(R.string.nav_add), ReproDroidRoute.AddSource, Icons.Default.Add),
         Triple(stringResource(R.string.nav_settings), ReproDroidRoute.Settings, Icons.Default.Settings),
     )
-    Row(
-            modifier = modifier.padding(vertical = 4.dp),
+    Surface(
+        modifier = modifier.pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    awaitPointerEvent(PointerEventPass.Final).changes.forEach { change ->
+                        if (!change.isConsumed) change.consume()
+                    }
+                }
+            }
+        },
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 6.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1007,6 +1056,7 @@ private fun RootPageIndicator(
                     )
                 }
             }
+        }
     }
 }
 
@@ -1027,6 +1077,7 @@ private fun appNotificationsAllowed(context: Context): Boolean {
 private fun AppActionBar(
     route: ReproDroidRoute,
     active: Boolean,
+    showSettings: Boolean,
     onNavigate: (ReproDroidRoute) -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -1045,13 +1096,15 @@ private fun AppActionBar(
             icon = { Icon(Icons.Default.Edit, contentDescription = null) },
             label = { Text(stringResource(R.string.action_edit)) },
         )
-        NavigationBarItem(
-            selected = route is ReproDroidRoute.AppSettings,
-            enabled = active,
-            onClick = { onNavigate(ReproDroidRoute.AppSettings(appId)) },
-            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_settings)) },
-        )
+        if (showSettings) {
+            NavigationBarItem(
+                selected = route is ReproDroidRoute.AppSettings,
+                enabled = active,
+                onClick = { onNavigate(ReproDroidRoute.AppSettings(appId)) },
+                icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                label = { Text(stringResource(R.string.nav_settings)) },
+            )
+        }
         NavigationBarItem(
             selected = false,
             enabled = active,
@@ -1063,8 +1116,7 @@ private fun AppActionBar(
 }
 
 @Composable
-private fun UiRMessageBanner(message: ManagedUiMessage, onDismiss: () -> Unit) {
-    val visibleMessage = when (message.code) {
+private fun managedMessageText(message: ManagedUiMessage): String = when (message.code) {
         ManagedUiMessageCode.ALREADY_REGISTERED_PRIMARY -> stringResource(R.string.error_already_registered)
         ManagedUiMessageCode.DIFFERENT_REPOSITORY -> stringResource(R.string.error_different_repository)
         ManagedUiMessageCode.RATE_LIMIT -> stringResource(R.string.error_rate_limit)
@@ -1072,16 +1124,3 @@ private fun UiRMessageBanner(message: ManagedUiMessage, onDismiss: () -> Unit) {
         ManagedUiMessageCode.STALE_STATE -> stringResource(R.string.error_stale)
         ManagedUiMessageCode.OPERATION_FAILED -> stringResource(R.string.error_operation_failed)
     }
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(visibleMessage, Modifier.weight(1f))
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_dismiss)) }
-        }
-    }
-}

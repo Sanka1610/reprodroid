@@ -48,13 +48,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.net.toUri
+import androidx.core.graphics.drawable.toBitmap
 import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.AppSettingsUpdate
+import com.sanka1610.reprodroid.data.local.AppReleaseCheckOverrideEntity
 import com.sanka1610.reprodroid.data.local.ComparisonEligibility
 import com.sanka1610.reprodroid.data.local.ComparisonRunStatus
 import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
@@ -65,6 +68,7 @@ import com.sanka1610.reprodroid.data.local.ReleaseDiscoveryStatus
 import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
 import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
+import com.sanka1610.reprodroid.data.local.ReleaseCheckSettingsEntity
 import com.sanka1610.reprodroid.data.local.TrustLevel
 import com.sanka1610.reprodroid.data.local.UpdateStatus
 import com.sanka1610.reprodroid.data.local.ResourceAvailabilityEntity
@@ -85,6 +89,8 @@ import java.util.UUID
 
 
 import com.sanka1610.reprodroid.ui.*
+import com.sanka1610.reprodroid.ui.settings.AccordionSection
+import com.sanka1610.reprodroid.ui.settings.AppUpdateSettingsContent
 import com.sanka1610.reprodroid.ui.shared.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,6 +98,7 @@ internal fun AppDetailScreen(
     record: RegisteredAppRecord,
     globalSettings: GlobalSettingsEntity,
     active: Boolean,
+    showSettings: Boolean = true,
     onBack: () -> Unit,
     onSettings: () -> Unit,
     onRefresh: () -> Unit,
@@ -173,10 +180,12 @@ internal fun AppDetailScreen(
                 ) {
                     NavigationGlyph("↻")
                 }
-                IconButton(
-                    onClick = onSettings,
-                    modifier = Modifier.semantics { contentDescription = settingsContentDescription },
-                ) { NavigationGlyph("⚙") }
+                if (showSettings) {
+                    IconButton(
+                        onClick = onSettings,
+                        modifier = Modifier.semantics { contentDescription = settingsContentDescription },
+                    ) { NavigationGlyph("⚙") }
+                }
             },
         )
         if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -784,11 +793,13 @@ internal fun AppDetailScreen(
 internal fun AppPreferencesScreen(
     record: RegisteredAppRecord,
     globalSettings: GlobalSettingsEntity,
+    releaseSettings: ReleaseCheckSettingsEntity,
+    releaseOverride: AppReleaseCheckOverrideEntity,
     saving: Boolean,
     onBack: () -> Unit,
     onSave: (AppSettingsUpdate) -> Unit,
     onSaveBuildConfiguration: (Long?, BuildConfigurationInput) -> Unit,
-    onOpenUpdateSettings: () -> Unit,
+    onUpdateReleaseOverride: (AppReleaseCheckOverrideEntity) -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val appSettingsBackDescription = stringResource(R.string.action_back)
@@ -798,14 +809,8 @@ internal fun AppPreferencesScreen(
     var source by rememberSaveable(record.app.registeredAppId) {
         mutableStateOf(enumValue(record.app.installationSource, InstallationSource.OFFICIAL_RELEASE))
     }
-    var variantChoice by rememberSaveable(record.app.registeredAppId) {
-        mutableStateOf(if (record.app.useGlobalReleaseVariant) "GLOBAL" else record.app.releaseVariantPreference)
-    }
     var abiChoice by rememberSaveable(record.app.registeredAppId) {
         mutableStateOf(if (record.app.useGlobalPreferredAbi) "GLOBAL" else record.app.preferredAbi)
-    }
-    var limitChoice by rememberSaveable(record.app.registeredAppId) {
-        mutableStateOf(if (record.app.useGlobalMaxApkSize) -1L else record.app.maxApkSizeBytes)
     }
     var localRiskConfirmed by rememberSaveable(record.app.registeredAppId) {
         mutableStateOf(source == InstallationSource.LOCAL_BUILD)
@@ -854,6 +859,40 @@ internal fun AppPreferencesScreen(
     val numericBuildFieldsValid = listOf(javaMajor, compileSdk).all { value ->
         value.isBlank() || value.trim().toIntOrNull() != null
     }
+    var registrationExpanded by rememberSaveable(record.app.registeredAppId, "registration") {
+        mutableStateOf(false)
+    }
+    var updatesExpanded by rememberSaveable(record.app.registeredAppId, "updates") {
+        mutableStateOf(false)
+    }
+    var defaultsExpanded by rememberSaveable(record.app.registeredAppId, "defaults") {
+        mutableStateOf(false)
+    }
+    var buildExpanded by rememberSaveable(record.app.registeredAppId, "build") {
+        mutableStateOf(false)
+    }
+    val savePreferences = {
+        onSave(
+            AppSettingsUpdate(
+                managementMode = mode,
+                installationSource = source,
+                releaseVariantPreference = enumValue(
+                    record.app.releaseVariantPreference,
+                    ReleaseVariantPreference.RELEASE,
+                ),
+                useGlobalReleaseVariant = record.app.useGlobalReleaseVariant,
+                preferredAbi = enumValue(
+                    abiChoice.takeUnless { it == "GLOBAL" }
+                        ?: globalSettings.defaultPreferredAbi,
+                    PreferredAbi.ARM64_V8A,
+                ),
+                useGlobalPreferredAbi = abiChoice == "GLOBAL",
+                maxApkSizeBytes = record.app.maxApkSizeBytes,
+                useGlobalMaxApkSize = record.app.useGlobalMaxApkSize,
+                localBuildRiskConfirmed = localRiskConfirmed,
+            ),
+        )
+    }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(stringResource(R.string.app_settings_for, record.app.resolvedDisplayName)) },
@@ -869,241 +908,204 @@ internal fun AppPreferencesScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                SectionTitle(
-                    stringResource(R.string.app_settings_registration),
-                    stringResource(R.string.app_settings_registration_body),
-                )
-            }
-            item {
-                DropdownSetting(
-                    stringResource(R.string.settings_management_mode),
-                    mode,
-                    ManagementMode.entries
-                        .filter {
-                            !sourceLocked || source != InstallationSource.LOCAL_BUILD ||
-                                it == ManagementMode.VERIFICATION
-                        }
-                        .associateWith {
-                            stringResource(
-                                if (it == ManagementMode.VERIFICATION) {
-                                    R.string.mode_verification
-                                } else {
-                                    R.string.mode_acquisition
-                                },
-                            )
+                AccordionSection(
+                    title = stringResource(R.string.app_settings_registration),
+                    expanded = registrationExpanded,
+                    onToggle = { registrationExpanded = !registrationExpanded },
+                ) {
+                    Text(
+                        stringResource(R.string.app_settings_registration_body),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    DropdownSetting(
+                        stringResource(R.string.settings_management_mode),
+                        mode,
+                        ManagementMode.entries
+                            .filter {
+                                !sourceLocked || source != InstallationSource.LOCAL_BUILD ||
+                                    it == ManagementMode.VERIFICATION
+                            }
+                            .associateWith {
+                                stringResource(
+                                    if (it == ManagementMode.VERIFICATION) {
+                                        R.string.mode_verification
+                                    } else {
+                                        R.string.mode_acquisition
+                                    },
+                                )
+                            },
+                        onSelect = {
+                            mode = it
+                            if (it == ManagementMode.ACQUISITION && !sourceLocked) {
+                                source = InstallationSource.OFFICIAL_RELEASE
+                            }
                         },
-                    onSelect = {
-                        mode = it
-                        if (it == ManagementMode.ACQUISITION && !sourceLocked) {
-                            source = InstallationSource.OFFICIAL_RELEASE
-                        }
-                    },
-                )
-            }
-            item {
-                DropdownSetting(
-                    stringResource(R.string.settings_installation_source),
-                    source,
-                    InstallationSource.entries
-                        .filter { mode == ManagementMode.VERIFICATION || it == InstallationSource.OFFICIAL_RELEASE }
-                        .associateWith {
-                            stringResource(
-                                if (it == InstallationSource.OFFICIAL_RELEASE) {
-                                    R.string.installation_official
-                                } else {
-                                    R.string.installation_local
-                                },
-                            )
+                    )
+                    DropdownSetting(
+                        stringResource(R.string.settings_installation_source),
+                        source,
+                        InstallationSource.entries
+                            .filter {
+                                mode == ManagementMode.VERIFICATION ||
+                                    it == InstallationSource.OFFICIAL_RELEASE
+                            }
+                            .associateWith {
+                                stringResource(
+                                    if (it == InstallationSource.OFFICIAL_RELEASE) {
+                                        R.string.installation_official
+                                    } else {
+                                        R.string.installation_local
+                                    },
+                                )
+                            },
+                        onSelect = {
+                            source = it
+                            if (it == InstallationSource.LOCAL_BUILD) localRiskConfirmed = false
                         },
-                    onSelect = {
-                        source = it
-                        if (it == InstallationSource.LOCAL_BUILD) localRiskConfirmed = false
-                    },
-                    enabled = !sourceLocked,
-                    supportingText = if (sourceLocked) {
-                        stringResource(
-                            R.string.app_settings_source_locked,
-                            record.latestRelease?.selectedAsset?.packageName
-                                ?: stringResource(R.string.app_settings_target_package),
-                        )
-                    } else {
-                        stringResource(R.string.app_settings_source_help)
-                    },
-                )
-            }
-            if (source == InstallationSource.LOCAL_BUILD && !sourceLocked) {
-                item {
+                        enabled = !sourceLocked,
+                        supportingText = if (sourceLocked) {
+                            stringResource(
+                                R.string.app_settings_source_locked,
+                                record.latestRelease?.selectedAsset?.packageName
+                                    ?: stringResource(R.string.app_settings_target_package),
+                            )
+                        } else {
+                            stringResource(R.string.app_settings_source_help)
+                        },
+                    )
+                    if (source == InstallationSource.LOCAL_BUILD && !sourceLocked) {
                     Row(verticalAlignment = Alignment.Top) {
                         Checkbox(checked = localRiskConfirmed, onCheckedChange = { localRiskConfirmed = it })
                         Text(stringResource(R.string.app_settings_local_risk), Modifier.padding(top = 10.dp))
                     }
-                }
-            }
-            item { HorizontalDivider() }
-            item {
-                SectionTitle(
-                    stringResource(R.string.settings_updates),
-                    stringResource(R.string.planned_updates_body),
-                )
-            }
-            item {
-                OutlinedButton(onClick = onOpenUpdateSettings, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.settings_updates))
-                }
-            }
-            item { Text(stringResource(R.string.release_check_manual_only_body)) }
-            item { HorizontalDivider() }
-            item {
-                SectionTitle(
-                    stringResource(R.string.app_settings_inherited),
-                    stringResource(R.string.app_settings_inherited_body),
-                )
-            }
-            item {
-                DropdownSetting(
-                    stringResource(R.string.settings_release_variant),
-                    variantChoice,
-                    linkedMapOf(
-                        "GLOBAL" to
+                    }
+                    Button(
+                        enabled = !saving && (source != InstallationSource.LOCAL_BUILD || localRiskConfirmed),
+                        onClick = savePreferences,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
                             stringResource(
-                                R.string.app_settings_use_global,
-                                globalSettings.defaultReleaseVariantPreference.displayEnum(),
-                            ),
-                    ) + ReleaseVariantPreference.entries.associate { it.name to it.displayName() },
-                    onSelect = { variantChoice = it },
-                )
-            }
-            item {
-                DropdownSetting(
-                    stringResource(R.string.settings_abi),
-                    abiChoice,
-                    linkedMapOf(
-                        "GLOBAL" to stringResource(
-                            R.string.app_settings_use_global,
-                            globalSettings.defaultPreferredAbi.displayEnum(),
-                        ),
-                    ) + PreferredAbi.entries.associate { it.name to it.displayName() },
-                    onSelect = { abiChoice = it },
-                )
-            }
-            item {
-                DropdownSetting(
-                    stringResource(R.string.app_settings_apk_limit),
-                    limitChoice,
-                    linkedMapOf(
-                        -1L to stringResource(
-                            R.string.app_settings_use_global,
-                            "${globalSettings.defaultMaxApkSizeBytes / MIB} MiB",
-                        ),
-                    ) + APK_LIMITS.associateWith { "${it / MIB} MiB" },
-                    onSelect = { limitChoice = it },
-                )
-            }
-            item {
-                Text(
-                    stringResource(R.string.app_settings_selection_change),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    enabled = !saving && (source != InstallationSource.LOCAL_BUILD || localRiskConfirmed),
-                    onClick = {
-                        onSave(
-                            AppSettingsUpdate(
-                                managementMode = mode,
-                                installationSource = source,
-                                releaseVariantPreference = enumValue(
-                                    variantChoice.takeUnless { it == "GLOBAL" }
-                                        ?: globalSettings.defaultReleaseVariantPreference,
-                                    ReleaseVariantPreference.RELEASE,
-                                ),
-                                useGlobalReleaseVariant = variantChoice == "GLOBAL",
-                                preferredAbi = enumValue(
-                                    abiChoice.takeUnless { it == "GLOBAL" }
-                                        ?: globalSettings.defaultPreferredAbi,
-                                    PreferredAbi.ARM64_V8A,
-                                ),
-                                useGlobalPreferredAbi = abiChoice == "GLOBAL",
-                                maxApkSizeBytes = if (limitChoice == -1L) {
-                                    globalSettings.defaultMaxApkSizeBytes
-                                } else {
-                                    limitChoice
-                                },
-                                useGlobalMaxApkSize = limitChoice == -1L,
-                                localBuildRiskConfirmed = localRiskConfirmed,
+                                if (saving) R.string.app_settings_saving else R.string.app_settings_save,
                             ),
                         )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
+                    }
+                }
+            }
+            item {
+                AccordionSection(
+                    title = stringResource(R.string.settings_updates),
+                    expanded = updatesExpanded,
+                    onToggle = { updatesExpanded = !updatesExpanded },
                 ) {
-                    Text(
-                        stringResource(
-                            if (saving) R.string.app_settings_saving else R.string.app_settings_save,
-                        ),
+                    AppUpdateSettingsContent(
+                        global = releaseSettings,
+                        override = releaseOverride,
+                        showDividers = globalSettings.showSettingsDividers,
+                        onUpdate = onUpdateReleaseOverride,
                     )
                 }
             }
-            item { HorizontalDivider() }
             item {
-                SectionTitle(
-                    stringResource(R.string.app_settings_build_configuration),
-                    stringResource(R.string.app_settings_build_configuration_body),
-                )
-            }
-            item { BuildSettingField(stringResource(R.string.build_root), buildRoot, { buildRoot = it }, ". or relative path") }
-            item { BuildSettingField(stringResource(R.string.build_module_path), modulePath, { modulePath = it }, ":app") }
-            item { BuildSettingField(stringResource(R.string.build_variant), buildVariant, { buildVariant = it }, "release") }
-            item {
-                OutlinedTextField(
-                    value = buildTasks,
-                    onValueChange = { buildTasks = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.build_tasks)) },
-                    supportingText = { Text(":app:assembleRelease") },
-                    minLines = 2,
-                )
-            }
-            item { BuildSettingField(stringResource(R.string.build_java_major), javaMajor, { javaMajor = it }, "21") }
-            item { BuildSettingField(stringResource(R.string.build_gradle_version), gradleVersion, { gradleVersion = it }, "9.1.0") }
-            item { BuildSettingField("compileSdk", compileSdk, { compileSdk = it }, "36") }
-            item { BuildSettingField(stringResource(R.string.build_tools_version), buildToolsVersion, { buildToolsVersion = it }, "36.0.0") }
-            item { BuildSettingField(stringResource(R.string.build_ndk_version), ndkVersion, { ndkVersion = it }, "") }
-            item { BuildSettingField(stringResource(R.string.build_cmake_version), cmakeVersion, { cmakeVersion = it }, "") }
-            item {
-                Button(
-                    enabled = !saving && numericBuildFieldsValid,
-                    onClick = {
-                        fun optional(value: String) = value.trim().takeIf(String::isNotEmpty)
-                        onSaveBuildConfiguration(
-                            record.selectedBuildConfiguration?.revision,
-                            BuildConfigurationInput(
-                                buildRoot = optional(buildRoot),
-                                modulePath = optional(modulePath),
-                                variant = optional(buildVariant),
-                                tasks = buildTasks.lines().map(String::trim).filter(String::isNotEmpty),
-                                javaMajor = optional(javaMajor)?.toIntOrNull(),
-                                gradleVersion = optional(gradleVersion),
-                                compileSdk = optional(compileSdk)?.toIntOrNull(),
-                                buildToolsVersion = optional(buildToolsVersion),
-                                ndkVersion = optional(ndkVersion),
-                                cmakeVersion = optional(cmakeVersion),
-                            ),
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
+                AccordionSection(
+                    title = stringResource(R.string.app_settings_inherited),
+                    expanded = defaultsExpanded,
+                    onToggle = { defaultsExpanded = !defaultsExpanded },
                 ) {
                     Text(
-                        stringResource(
-                            if (saving) R.string.app_settings_saving else R.string.build_save_configuration,
-                        ),
-                    )
-                }
-                if (!numericBuildFieldsValid) {
-                    Text(
-                        stringResource(R.string.build_numeric_error),
-                        color = MaterialTheme.colorScheme.error,
+                        stringResource(R.string.app_settings_inherited_body),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    DropdownSetting(
+                        stringResource(R.string.settings_abi),
+                        abiChoice,
+                        linkedMapOf(
+                            "GLOBAL" to stringResource(
+                                R.string.app_settings_use_global,
+                                globalSettings.defaultPreferredAbi.displayEnum(),
+                            ),
+                        ) + PreferredAbi.entries.associate { it.name to it.displayName() },
+                        onSelect = { abiChoice = it },
+                    )
+                    Text(
+                        stringResource(R.string.app_settings_selection_change),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(
+                        enabled = !saving && (source != InstallationSource.LOCAL_BUILD || localRiskConfirmed),
+                        onClick = savePreferences,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            stringResource(
+                                if (saving) R.string.app_settings_saving else R.string.app_settings_save,
+                            ),
+                        )
+                    }
+                }
+            }
+            item {
+                AccordionSection(
+                    title = stringResource(R.string.app_settings_build_configuration),
+                    expanded = buildExpanded,
+                    onToggle = { buildExpanded = !buildExpanded },
+                ) {
+                    Text(
+                        stringResource(R.string.app_settings_build_configuration_body),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    BuildSettingField(stringResource(R.string.build_root), buildRoot, { buildRoot = it }, ". or relative path")
+                    BuildSettingField(stringResource(R.string.build_module_path), modulePath, { modulePath = it }, ":app")
+                    BuildSettingField(stringResource(R.string.build_variant), buildVariant, { buildVariant = it }, "release")
+                    OutlinedTextField(
+                        value = buildTasks,
+                        onValueChange = { buildTasks = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.build_tasks)) },
+                        supportingText = { Text(":app:assembleRelease") },
+                        minLines = 2,
+                    )
+                    BuildSettingField(stringResource(R.string.build_java_major), javaMajor, { javaMajor = it }, "21")
+                    BuildSettingField(stringResource(R.string.build_gradle_version), gradleVersion, { gradleVersion = it }, "9.1.0")
+                    BuildSettingField("compileSdk", compileSdk, { compileSdk = it }, "36")
+                    BuildSettingField(stringResource(R.string.build_tools_version), buildToolsVersion, { buildToolsVersion = it }, "36.0.0")
+                    BuildSettingField(stringResource(R.string.build_ndk_version), ndkVersion, { ndkVersion = it }, "")
+                    BuildSettingField(stringResource(R.string.build_cmake_version), cmakeVersion, { cmakeVersion = it }, "")
+                    Button(
+                        enabled = !saving && numericBuildFieldsValid,
+                        onClick = {
+                            fun optional(value: String) = value.trim().takeIf(String::isNotEmpty)
+                            onSaveBuildConfiguration(
+                                record.selectedBuildConfiguration?.revision,
+                                BuildConfigurationInput(
+                                    buildRoot = optional(buildRoot),
+                                    modulePath = optional(modulePath),
+                                    variant = optional(buildVariant),
+                                    tasks = buildTasks.lines().map(String::trim).filter(String::isNotEmpty),
+                                    javaMajor = optional(javaMajor)?.toIntOrNull(),
+                                    gradleVersion = optional(gradleVersion),
+                                    compileSdk = optional(compileSdk)?.toIntOrNull(),
+                                    buildToolsVersion = optional(buildToolsVersion),
+                                    ndkVersion = optional(ndkVersion),
+                                    cmakeVersion = optional(cmakeVersion),
+                                ),
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            stringResource(
+                                if (saving) R.string.app_settings_saving else R.string.build_save_configuration,
+                            ),
+                        )
+                    }
+                    if (!numericBuildFieldsValid) {
+                        Text(
+                            stringResource(R.string.build_numeric_error),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
             item { Spacer(Modifier.height(12.dp)) }
@@ -1129,7 +1131,7 @@ private fun BuildSettingField(
 }
 
 @Composable
-internal fun ManagedAppIcon(record: RegisteredAppRecord) {
+internal fun ManagedAppIcon(record: RegisteredAppRecord, size: Dp = 52.dp) {
     val context = LocalContext.current
     val assetId = record.latestRelease?.selectedAsset
         ?.takeIf { it.downloadStatus == ReferenceDownloadStatus.VERIFIED.name }
@@ -1139,11 +1141,21 @@ internal fun ManagedAppIcon(record: RegisteredAppRecord) {
         safeId?.let { File(context.filesDir, "reference-icons/$it.png") }
     }
     val lastModified = iconFile?.takeIf(File::isFile)?.lastModified() ?: 0L
-    val image = remember(iconFile?.absolutePath, lastModified) {
+    val storedImage = remember(iconFile?.absolutePath, lastModified) {
         iconFile?.takeIf(File::isFile)?.let { BitmapFactory.decodeFile(it.absolutePath) }?.asImageBitmap()
     }
+    val selfImage = remember(context.packageName, record.app.registeredAppId) {
+        if (isSelfRegistration(record)) {
+            context.packageManager.getApplicationIcon(context.applicationInfo)
+                .toBitmap(width = 192, height = 192)
+                .asImageBitmap()
+        } else {
+            null
+        }
+    }
+    val image = storedImage ?: selfImage
     Surface(
-        modifier = Modifier.size(52.dp),
+        modifier = Modifier.size(size),
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.primaryContainer,
     ) {

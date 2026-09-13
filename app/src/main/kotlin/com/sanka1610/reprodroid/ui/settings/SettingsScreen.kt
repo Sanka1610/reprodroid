@@ -3,6 +3,7 @@ package com.sanka1610.reprodroid.ui.settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -51,6 +52,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.local.AppReleaseCheckOverrideEntity
@@ -122,6 +124,7 @@ internal fun UiRSettingsScreen(
         onUpdate(settings.copy(settingsExpandedSections = SETTINGS_SECTION_KEYS.filter(updated::contains).joinToString(",")))
     }
     var showHintsInfo by rememberSaveable { mutableStateOf(false) }
+    var showBatteryInfo by rememberSaveable { mutableStateOf(false) }
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -190,13 +193,6 @@ internal fun UiRSettingsScreen(
                 )
                 SettingDivider(settings.showSettingsDividers)
                 DropdownSetting(
-                    stringResource(R.string.app_settings_apk_limit),
-                    settings.defaultMaxApkSizeBytes,
-                    UI_R_APK_LIMITS.associateWith { "${it / MEBIBYTE} MiB" },
-                    { onUpdate(settings.copy(defaultMaxApkSizeBytes = it)) },
-                )
-                SettingDivider(settings.showSettingsDividers)
-                DropdownSetting(
                     stringResource(R.string.settings_management_mode),
                     settings.defaultManagementMode,
                     linkedMapOf(
@@ -240,10 +236,12 @@ internal fun UiRSettingsScreen(
         }
         item {
             AccordionSection(stringResource(R.string.settings_updates), UPDATES_SECTION in expandedSections, { toggleSection(UPDATES_SECTION) }) {
-                Text(stringResource(R.string.planned_updates_body), style = MaterialTheme.typography.bodySmall)
-                SettingsLink(stringResource(R.string.settings_updates)) {
-                    onNavigate(ReproDroidRoute.UpdateSettings)
-                }
+                GlobalUpdateSettingsContent(
+                    settings = releaseSettings,
+                    showDividers = settings.showSettingsDividers,
+                    onUpdate = onUpdateReleaseSettings,
+                    onBatteryInfo = { showBatteryInfo = true },
+                )
             }
         }
         item {
@@ -375,10 +373,22 @@ internal fun UiRSettingsScreen(
             },
         )
     }
+    if (showBatteryInfo) {
+        AlertDialog(
+            onDismissRequest = { showBatteryInfo = false },
+            title = { Text(stringResource(R.string.release_check_battery_info_title)) },
+            text = { Text(stringResource(R.string.release_check_battery_info_body)) },
+            confirmButton = {
+                TextButton(onClick = { showBatteryInfo = false }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+        )
+    }
 }
 
 @Composable
-private fun SwitchSetting(
+internal fun SwitchSetting(
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
@@ -413,15 +423,214 @@ private fun SwitchSetting(
 }
 
 @Composable
-private fun SettingDivider(visible: Boolean) {
+internal fun SettingDivider(visible: Boolean) {
     if (visible) HorizontalDivider()
 }
 
 @Composable
 private fun ExternalSettingsLink(label: String, onClick: () -> Unit) {
     OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Text(label, modifier = Modifier.weight(1f))
-        Text("↗", style = MaterialTheme.typography.titleMedium)
+        Box(Modifier.fillMaxWidth()) {
+            Text(label, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+            Text("↗", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterEnd))
+        }
+    }
+}
+
+@Composable
+private fun GlobalUpdateSettingsContent(
+    settings: ReleaseCheckSettingsEntity,
+    showDividers: Boolean,
+    onUpdate: (ReleaseCheckSettingsEntity) -> Unit,
+    onBatteryInfo: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(R.string.future_update_schedule))
+            Text(stringResource(R.string.release_check_scope_body), style = MaterialTheme.typography.bodySmall)
+        }
+        Switch(checked = settings.enabled, onCheckedChange = { onUpdate(settings.copy(enabled = it)) })
+    }
+    SettingDivider(showDividers)
+    DropdownSetting(
+        stringResource(R.string.release_check_schedule_mode),
+        settings.scheduleMode,
+        linkedMapOf(
+            ReleaseCheckScheduleMode.INTERVAL.name to stringResource(R.string.release_check_interval_mode),
+            ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name to stringResource(R.string.release_check_daily_mode),
+        ),
+        { onUpdate(settings.copy(scheduleMode = it)) },
+    )
+    SettingDivider(showDividers)
+    DropdownSetting(
+        stringResource(R.string.future_update_interval),
+        settings.intervalHours,
+        (1..24).associateWith { pluralStringResource(R.plurals.release_check_hours, it, it) },
+        { onUpdate(settings.copy(intervalHours = it)) },
+        enabled = settings.scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
+    )
+    SettingDivider(showDividers)
+    DailyMinuteSetting(
+        minute = settings.dailyLocalMinute,
+        onSave = { onUpdate(settings.copy(dailyLocalMinute = it)) },
+        enabled = settings.scheduleMode == ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name,
+    )
+    SettingDivider(showDividers)
+    SwitchSetting(
+        label = stringResource(R.string.release_check_include_metered),
+        checked = settings.networkPolicy == ReleaseCheckNetworkPolicy.ANY_AVAILABLE.name,
+        onCheckedChange = {
+            onUpdate(
+                settings.copy(
+                    networkPolicy = if (it) ReleaseCheckNetworkPolicy.ANY_AVAILABLE.name
+                    else ReleaseCheckNetworkPolicy.UNMETERED_ONLY.name,
+                ),
+            )
+        },
+    )
+    SettingDivider(showDividers)
+    SwitchSetting(
+        label = stringResource(R.string.release_check_include_low_battery),
+        checked = settings.batteryPolicy == ReleaseCheckBatteryPolicy.ANY.name,
+        onCheckedChange = {
+            onUpdate(
+                settings.copy(
+                    batteryPolicy = if (it) ReleaseCheckBatteryPolicy.ANY.name
+                    else ReleaseCheckBatteryPolicy.ABOVE_20_PERCENT.name,
+                ),
+            )
+        },
+        infoAction = onBatteryInfo,
+    )
+    SettingDivider(showDividers)
+    SwitchSetting(
+        label = stringResource(R.string.release_check_charging_only),
+        checked = settings.requiresCharging,
+        onCheckedChange = { onUpdate(settings.copy(requiresCharging = it)) },
+    )
+}
+
+@Composable
+internal fun AppUpdateSettingsContent(
+    global: ReleaseCheckSettingsEntity,
+    override: AppReleaseCheckOverrideEntity,
+    showDividers: Boolean,
+    onUpdate: (AppReleaseCheckOverrideEntity) -> Unit,
+) {
+    var showBatteryInfo by rememberSaveable { mutableStateOf(false) }
+    val scheduleMode = override.scheduleMode ?: global.scheduleMode
+    SwitchSetting(
+        label = stringResource(R.string.release_check_app_enabled),
+        checked = override.enabled ?: global.enabled,
+        onCheckedChange = { onUpdate(override.copy(enabled = it)) },
+    )
+    SettingDivider(showDividers)
+    SwitchSetting(
+        label = stringResource(R.string.release_check_mute),
+        checked = override.notificationMuted,
+        onCheckedChange = { onUpdate(override.copy(notificationMuted = it)) },
+    )
+    SettingDivider(showDividers)
+    DropdownSetting(
+        stringResource(R.string.release_check_schedule_mode),
+        scheduleMode,
+        linkedMapOf(
+            ReleaseCheckScheduleMode.INTERVAL.name to stringResource(R.string.release_check_interval_mode),
+            ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name to stringResource(R.string.release_check_daily_mode),
+        ),
+        { onUpdate(override.copy(scheduleMode = it)) },
+    )
+    SettingDivider(showDividers)
+    DropdownSetting(
+        stringResource(R.string.future_update_interval),
+        override.intervalHours ?: global.intervalHours,
+        (1..24).associateWith { pluralStringResource(R.plurals.release_check_hours, it, it) },
+        { onUpdate(override.copy(intervalHours = it)) },
+        enabled = scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
+    )
+    SettingDivider(showDividers)
+    DailyMinuteSetting(
+        minute = override.dailyLocalMinute ?: global.dailyLocalMinute,
+        onSave = { onUpdate(override.copy(dailyLocalMinute = it)) },
+        enabled = scheduleMode == ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name,
+    )
+    SettingDivider(showDividers)
+    SwitchSetting(
+        label = stringResource(R.string.release_check_include_prerelease_toggle),
+        checked = (override.releaseChannel ?: global.releaseChannel) ==
+            ReleaseCheckChannel.INCLUDE_PRERELEASE.name,
+        onCheckedChange = {
+            onUpdate(
+                override.copy(
+                    releaseChannel = if (it) ReleaseCheckChannel.INCLUDE_PRERELEASE.name
+                    else ReleaseCheckChannel.STABLE_ONLY.name,
+                ),
+            )
+        },
+    )
+    SettingDivider(showDividers)
+    SwitchSetting(
+        label = stringResource(R.string.release_check_include_metered),
+        checked = (override.networkPolicy ?: global.networkPolicy) ==
+            ReleaseCheckNetworkPolicy.ANY_AVAILABLE.name,
+        onCheckedChange = {
+            onUpdate(
+                override.copy(
+                    networkPolicy = if (it) ReleaseCheckNetworkPolicy.ANY_AVAILABLE.name
+                    else ReleaseCheckNetworkPolicy.UNMETERED_ONLY.name,
+                ),
+            )
+        },
+    )
+    SettingDivider(showDividers)
+    SwitchSetting(
+        label = stringResource(R.string.release_check_include_low_battery),
+        checked = (override.batteryPolicy ?: global.batteryPolicy) == ReleaseCheckBatteryPolicy.ANY.name,
+        onCheckedChange = {
+            onUpdate(
+                override.copy(
+                    batteryPolicy = if (it) ReleaseCheckBatteryPolicy.ANY.name
+                    else ReleaseCheckBatteryPolicy.ABOVE_20_PERCENT.name,
+                ),
+            )
+        },
+        infoAction = { showBatteryInfo = true },
+    )
+    SettingDivider(showDividers)
+    SwitchSetting(
+        label = stringResource(R.string.release_check_charging_only),
+        checked = override.requiresCharging ?: global.requiresCharging,
+        onCheckedChange = { onUpdate(override.copy(requiresCharging = it)) },
+    )
+    SettingDivider(showDividers)
+    OutlinedButton(
+        onClick = {
+            onUpdate(
+                override.copy(
+                    enabled = null,
+                    scheduleMode = null,
+                    intervalHours = null,
+                    dailyLocalMinute = null,
+                    releaseChannel = null,
+                    networkPolicy = null,
+                    batteryPolicy = null,
+                    requiresCharging = null,
+                ),
+            )
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text(stringResource(R.string.release_check_use_global)) }
+    if (showBatteryInfo) {
+        AlertDialog(
+            onDismissRequest = { showBatteryInfo = false },
+            title = { Text(stringResource(R.string.release_check_battery_info_title)) },
+            text = { Text(stringResource(R.string.release_check_battery_info_body)) },
+            confirmButton = {
+                TextButton(onClick = { showBatteryInfo = false }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+        )
     }
 }
 
@@ -687,7 +896,7 @@ internal fun ReleaseUpdateSettingsScreen(
 }
 
 @Composable
-private fun DailyMinuteSetting(minute: Int, onSave: (Int) -> Unit, enabled: Boolean = true) {
+internal fun DailyMinuteSetting(minute: Int, onSave: (Int) -> Unit, enabled: Boolean = true) {
     val initial = "%02d:%02d".format(minute / 60, minute % 60)
     var value by rememberSaveable(minute) { mutableStateOf(initial) }
     val parsed = remember(value) {
@@ -719,7 +928,7 @@ private fun DailyMinuteSetting(minute: Int, onSave: (Int) -> Unit, enabled: Bool
 }
 
 @Composable
-private fun AccordionSection(
+internal fun AccordionSection(
     title: String,
     expanded: Boolean,
     onToggle: () -> Unit,

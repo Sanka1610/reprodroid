@@ -143,6 +143,12 @@ internal fun knownPackageName(record: RegisteredAppRecord): String? =
             .mapNotNull { it.packageName }
             .firstOrNull()
 
+internal fun isSelfRegistration(record: RegisteredAppRecord): Boolean =
+    record.app.canonicalRepositoryUrl.equals(
+        "https://github.com/Sanka1610/reprodroid",
+        ignoreCase = true,
+    ) && record.repositoryBinding?.providerRepositoryId == "1340628011"
+
 internal fun String.humanize(): String = lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
 @Composable

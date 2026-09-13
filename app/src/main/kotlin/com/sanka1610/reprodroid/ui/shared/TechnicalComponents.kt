@@ -27,7 +27,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sanka1610.reprodroid.R
@@ -61,56 +60,62 @@ internal fun <T> DropdownSetting(
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { if (enabled) expanded = !expanded },
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        if (outlined) {
-            OutlinedTextField(
-                value = options[value] ?: value.toString(),
-                onValueChange = {},
-                modifier = Modifier
-                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
-                    .fillMaxWidth(),
-                enabled = enabled,
-                readOnly = true,
-                singleLine = false,
-                maxLines = 2,
-                label = { Text(label) },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                supportingText = supportingText?.let { text -> { Text(text) } },
-            )
-        } else {
-            Column(
-                modifier = Modifier
-                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
-                    .fillMaxWidth(),
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                    Text(
-                        options[value] ?: value.toString(),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (enabled) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        },
-                        textAlign = TextAlign.End,
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(0.68f),
+                )
+                if (outlined) {
+                    OutlinedTextField(
+                        value = options[value] ?: value.toString(),
+                        onValueChange = {},
+                        modifier = Modifier
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
+                            .weight(0.32f),
+                        enabled = enabled,
+                        readOnly = true,
+                        singleLine = false,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
                     )
-                    ExposedDropdownMenuDefaults.TrailingIcon(expanded)
+                } else {
+                    Row(
+                        Modifier
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
+                            .weight(0.32f)
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            options[value] ?: value.toString(),
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (enabled) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            },
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded)
+                    }
                 }
-                supportingText?.let { text ->
-                    Text(
-                        text,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            }
+            supportingText?.let { text ->
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
