@@ -6,7 +6,7 @@
 - Date: 2026-09-08 (Phase 4.7 Runner addendum; foundation baseline 2026-09-05)
 - Decision: [ADR-0018](../adr/0018-phase-4-operational-foundation.md); Phase 4.7 addendum: [ADR-0025](../adr/0025-phase-4-codeberg-provider-and-apk-selection.md)
 - Domain and authority: [Phase 4.0 contract](../design/phase-4-foundation-contract.md)
-- Implemented baseline: [API v1](runner-api.md) remains available; API v2 paired／development modes use Runner SQLite12 / Android Room22
+- Implemented baseline: [API v1](runner-api.md) remains available; API v2 paired／development modes use Runner SQLite12 / Android Room24
 
 ## 1. Version boundary
 
