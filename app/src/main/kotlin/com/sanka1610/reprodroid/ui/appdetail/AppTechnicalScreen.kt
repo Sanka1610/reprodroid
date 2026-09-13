@@ -199,7 +199,7 @@ internal fun AppDetailScreen(
             item {
                 DetailCard(stringResource(R.string.technical_repository)) {
                     DetailValue(stringResource(R.string.label_provider), record.app.provider)
-                    DetailValue(stringResource(R.string.label_source_url), record.app.canonicalRepositoryUrl)
+                    DetailValue(stringResource(R.string.label_source_url), record.app.canonicalRepositoryUrl, true)
                     DetailValue(stringResource(R.string.technical_repository_id), record.repositoryBinding?.providerRepositoryId ?: stringResource(R.string.value_unknown), true)
                     DetailValue(stringResource(R.string.technical_identity), record.repositoryBinding?.identityStatus ?: stringResource(R.string.value_not_available))
                     record.latestSourceDiscovery?.let { discovery ->
@@ -210,8 +210,12 @@ internal fun AppDetailScreen(
                     }
                     record.selectedBuildConfiguration?.let { configuration ->
                         DetailValue(
-                            "Build settings",
-                            "revision ${configuration.revision} · ${configuration.validationState}",
+                            stringResource(R.string.technical_build_settings),
+                            stringResource(
+                                R.string.technical_build_settings_summary,
+                                configuration.revision,
+                                configuration.validationState,
+                            ),
                         )
                         DetailValue(stringResource(R.string.technical_settings_sha256), configuration.contentSha256, true)
                     }
@@ -237,7 +241,10 @@ internal fun AppDetailScreen(
                         DetailValue(stringResource(R.string.technical_tag), release.snapshot.tagName)
                         DetailValue(stringResource(R.string.technical_resolved_commit), release.snapshot.resolvedCommitSha, true)
                         DetailValue(stringResource(R.string.technical_target_commitish), release.snapshot.targetCommitishRaw)
-                        DetailValue(stringResource(R.string.technical_published), release.snapshot.publishedAt ?: "Not supplied")
+                        DetailValue(
+                            stringResource(R.string.technical_published),
+                            release.snapshot.publishedAt ?: stringResource(R.string.technical_not_supplied),
+                        )
                     }
                 }
             }
@@ -282,11 +289,15 @@ internal fun AppDetailScreen(
                                             stringResource(R.string.technical_provider_created),
                                             candidate.providerCreatedAt ?: stringResource(R.string.value_not_available),
                                         )
-                                        DetailValue(stringResource(R.string.technical_content_type), candidate.contentType ?: "Not supplied")
+                                        DetailValue(
+                                            stringResource(R.string.technical_content_type),
+                                            candidate.contentType ?: stringResource(R.string.technical_not_supplied),
+                                        )
                                         DetailValue(stringResource(R.string.technical_filename_hints), releaseCandidateHints(candidate.assetName))
                                         DetailValue(
-                                            "Provider SHA-256",
-                                            candidate.providerDigestSha256 ?: "Not supplied",
+                                            stringResource(R.string.technical_provider_sha256),
+                                            candidate.providerDigestSha256
+                                                ?: stringResource(R.string.technical_not_supplied),
                                             monospace = true,
                                         )
                                     }
@@ -337,9 +348,9 @@ internal fun AppDetailScreen(
                         DetailValue(stringResource(R.string.label_package), current.packageName ?: stringResource(R.string.value_unknown))
                         DetailValue(stringResource(R.string.technical_version), current.versionName ?: stringResource(R.string.value_not_available))
                         DetailValue(
-                            "Installed",
+                            stringResource(R.string.technical_installed),
                             current.installedVersionName?.let { "$it (${current.installedVersionCode})" }
-                                ?: "Not installed",
+                                ?: stringResource(R.string.state_not_installed),
                         )
                         DetailValue(stringResource(R.string.label_update), updateLabel(current.updateStatus))
                         DetailValue(stringResource(R.string.technical_signer_relation), signerLabel(current.existingInstallStatus))
@@ -370,7 +381,7 @@ internal fun AppDetailScreen(
                                         it.resourceKind == "REFERENCE_APK" &&
                                         it.resourceId == selected.releaseAssetId
                                 }?.state
-                            } ?: "UNKNOWN"
+                            } ?: stringResource(R.string.value_unknown)
                             HorizontalDivider()
                             DetailValue(stringResource(R.string.technical_release), "${observation.snapshot.tagName} · ${observation.snapshot.publishedAt}")
                             DetailValue(stringResource(R.string.technical_observation), observation.snapshot.observationSha256, monospace = true)
@@ -434,8 +445,7 @@ internal fun AppDetailScreen(
                                 )
                                 if (comparison.runnerDependencyPinning != comparison.repeatRunnerDependencyPinning) {
                                     Text(
-                                        "Build A and Build B used different dependency-pinning policies. " +
-                                            "This is advisory evidence and does not change comparison, trust, update, or install decisions.",
+                                        stringResource(R.string.technical_dependency_policy_mismatch),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error,
                                     )
@@ -489,30 +499,38 @@ internal fun AppDetailScreen(
                                 }
                                 buildAManifest?.let { evidence ->
                                     DetailValue(
-                                        "Build A environment",
-                                        "Java ${evidence.manifest.javaVersion} (${evidence.manifest.javaVendor}), " +
-                                            "Gradle ${evidence.manifest.gradleVersion}, SDK API " +
-                                            "${evidence.manifest.androidSdkApiLevel}, Build Tools " +
-                                            "${evidence.manifest.buildToolsVersion}; determinism: " +
+                                        stringResource(R.string.technical_build_environment, "A"),
+                                        stringResource(
+                                            R.string.technical_build_environment_value,
+                                            evidence.manifest.javaVersion,
+                                            evidence.manifest.javaVendor,
+                                            evidence.manifest.gradleVersion,
+                                            evidence.manifest.androidSdkApiLevel,
+                                            evidence.manifest.buildToolsVersion,
                                             determinismSummary(
                                                 evidence.manifest.sourceDateEpoch,
                                                 evidence.manifest.noBuildCache,
                                                 evidence.manifest.fixedLocale,
                                             ),
+                                        ),
                                     )
                                 }
                                 buildBManifest?.let { evidence ->
                                     DetailValue(
-                                        "Build B environment",
-                                        "Java ${evidence.manifest.javaVersion} (${evidence.manifest.javaVendor}), " +
-                                            "Gradle ${evidence.manifest.gradleVersion}, SDK API " +
-                                            "${evidence.manifest.androidSdkApiLevel}, Build Tools " +
-                                            "${evidence.manifest.buildToolsVersion}; determinism: " +
+                                        stringResource(R.string.technical_build_environment, "B"),
+                                        stringResource(
+                                            R.string.technical_build_environment_value,
+                                            evidence.manifest.javaVersion,
+                                            evidence.manifest.javaVendor,
+                                            evidence.manifest.gradleVersion,
+                                            evidence.manifest.androidSdkApiLevel,
+                                            evidence.manifest.buildToolsVersion,
                                             determinismSummary(
                                                 evidence.manifest.sourceDateEpoch,
                                                 evidence.manifest.noBuildCache,
                                                 evidence.manifest.fixedLocale,
                                             ),
+                                        ),
                                     )
                                 }
                                 buildManifestWarnings[comparison.runnerJobId]?.let { warning ->
@@ -523,10 +541,14 @@ internal fun AppDetailScreen(
                                 }
                                 if (environmentComparison.comparable) {
                                     DetailValue(
-                                        "Dependency multiset",
-                                        "same ${environmentComparison.sameCount}, changed ${environmentComparison.changedCount}, " +
-                                            "Build A only ${environmentComparison.buildAOnlyCount}, " +
-                                            "Build B only ${environmentComparison.buildBOnlyCount}",
+                                        stringResource(R.string.technical_dependency_multiset),
+                                        stringResource(
+                                            R.string.technical_dependency_multiset_value,
+                                            environmentComparison.sameCount,
+                                            environmentComparison.changedCount,
+                                            environmentComparison.buildAOnlyCount,
+                                            environmentComparison.buildBOnlyCount,
+                                        ),
                                     )
                                     environmentComparison.differences.asSequence()
                                         .filter { it.kind != DependencyDifferenceKind.SAME }
@@ -535,10 +557,10 @@ internal fun AppDetailScreen(
                                             DetailValue(
                                                 difference.fileName,
                                                 when (difference.kind) {
-                                                    DependencyDifferenceKind.CHANGED -> "changed"
-                                                    DependencyDifferenceKind.BUILD_A_ONLY -> "Build A only"
-                                                    DependencyDifferenceKind.BUILD_B_ONLY -> "Build B only"
-                                                    DependencyDifferenceKind.SAME -> "same"
+                                                    DependencyDifferenceKind.CHANGED -> stringResource(R.string.technical_difference_changed)
+                                                    DependencyDifferenceKind.BUILD_A_ONLY -> stringResource(R.string.technical_difference_build_a_only)
+                                                    DependencyDifferenceKind.BUILD_B_ONLY -> stringResource(R.string.technical_difference_build_b_only)
+                                                    DependencyDifferenceKind.SAME -> stringResource(R.string.technical_difference_same)
                                                 },
                                             )
                                         }
@@ -554,8 +576,7 @@ internal fun AppDetailScreen(
                                     buildAManifest?.manifest?.fixedLocale != buildBManifest?.manifest?.fixedLocale
                                 ) {
                                     Text(
-                                        "Build recipe, variant, Java, or determinism controls differ. " +
-                                            "This is advisory evidence and is not presented as a cause or used to change raw outcomes.",
+                                        stringResource(R.string.technical_environment_mismatch),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error,
                                     )
@@ -566,18 +587,23 @@ internal fun AppDetailScreen(
                             record.currentAdvancedComparisonSummaries.forEach { summary ->
                                 Text(
                                     when (summary.axis) {
-                                        "OFFICIAL_PRIMARY" -> "Advanced evidence: Official vs Build A"
-                                        "OFFICIAL_REPEAT" -> "Advanced evidence: Official vs Build B"
-                                        "LOCAL_REPEATABILITY" -> "Advanced evidence: Build A vs Build B"
-                                        else -> "Advanced evidence: ${summary.axis}"
+                                        "OFFICIAL_PRIMARY" -> stringResource(R.string.technical_advanced_official_primary)
+                                        "OFFICIAL_REPEAT" -> stringResource(R.string.technical_advanced_official_repeat)
+                                        "LOCAL_REPEATABILITY" -> stringResource(R.string.technical_advanced_local_repeatability)
+                                        else -> stringResource(R.string.technical_advanced_other, summary.axis)
                                     },
                                     style = MaterialTheme.typography.titleSmall,
                                 )
                                 DetailValue(stringResource(R.string.technical_apk_entries), "${summary.inventoryOutcome} (${summary.entryCount})")
                                 DetailValue(
-                                    "Entry changes",
-                                    "same ${summary.sameCount}, changed ${summary.changedCount}, " +
-                                        "added ${summary.addedCount}, missing ${summary.missingCount}",
+                                    stringResource(R.string.technical_entry_changes),
+                                    stringResource(
+                                        R.string.technical_entry_changes_value,
+                                        summary.sameCount,
+                                        summary.changedCount,
+                                        summary.addedCount,
+                                        summary.missingCount,
+                                    ),
                                 )
                                 DetailValue(stringResource(R.string.technical_dex_structure), summary.dexStructuralOutcome)
                                 DetailValue(stringResource(R.string.technical_manifest_meaning), summary.manifestSemanticOutcome)
@@ -607,7 +633,7 @@ internal fun AppDetailScreen(
                                         if (confirmationJob?.sandboxMode == "DOCKER") {
                                         stringResource(
                                             R.string.technical_repeat_docker_warning,
-                                            confirmationJob.sandboxProfileId ?: "unknown",
+                                            confirmationJob.sandboxProfileId ?: stringResource(R.string.value_unknown),
                                         )
                                         } else if (comparison.status == ComparisonRunStatus.AWAITING_REPEAT_CONFIRMATION.name) {
                                             stringResource(R.string.technical_repeat_build_warning)
@@ -1143,6 +1169,7 @@ private fun PreferredAbi.displayName(): String = when (this) {
     PreferredAbi.UNIVERSAL -> "universal"
 }
 
+@Composable
 private fun releaseCandidateHints(assetName: String): String {
     val filename = assetName.lowercase()
     val abi = when {
@@ -1150,13 +1177,13 @@ private fun releaseCandidateHints(assetName: String): String {
         "armeabi-v7a" in filename || "armeabi_v7a" in filename || "arm-v7a" in filename -> "armeabi-v7a"
         "x86_64" in filename || "x86-64" in filename -> "x86_64"
         "universal" in filename -> "universal"
-        else -> "not inferred"
+        else -> stringResource(R.string.technical_not_inferred)
     }
     val variant = when {
         "debug" in filename -> "debug"
         "preview" in filename -> "preview"
         "release" in filename -> "release"
-        else -> "not inferred"
+        else -> stringResource(R.string.technical_not_inferred)
     }
-    return "ABI: $abi; variant: $variant (filename only)"
+    return stringResource(R.string.technical_filename_inference, abi, variant)
 }

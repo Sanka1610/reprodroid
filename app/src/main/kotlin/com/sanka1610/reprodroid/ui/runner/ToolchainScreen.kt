@@ -166,7 +166,10 @@ internal fun ToolchainScreen(
                             )
                             Column(Modifier.weight(1f)) {
                                 Text("${item.component.name.displayEnum()} ${item.version}", fontWeight = FontWeight.SemiBold)
-                                Text("${item.state} · ${formatBytes(item.installedBytes.toLong())}", style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    "${statusLabel(item.state)} · ${formatBytes(item.installedBytes.toLong())}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                             }
                         }
                     }

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.sanka1610.reprodroid.ReproDroidApplication
+import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.network.ExecutionMode
 import com.sanka1610.reprodroid.data.network.RevisionType
 import com.sanka1610.reprodroid.data.network.SimulationOutcome
@@ -83,7 +84,7 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         outcome: SimulationOutcome,
     ) {
         if (repositoryUrl.isBlank() || revisionValue.isBlank()) {
-            _message.value = "Repository URL and revision are required."
+            _message.value = getApplication<Application>().getString(R.string.jobs_input_required)
             return
         }
         viewModelScope.launch {
@@ -164,7 +165,8 @@ class JobViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun Throwable.userMessage(): String = message ?: "Runner synchronization failed."
+    private fun Throwable.userMessage(): String =
+        message ?: getApplication<Application>().getString(R.string.jobs_sync_failed)
 
     companion object {
         private const val VISIBLE_POLL_INTERVAL_MILLIS = 2_000L

@@ -23,15 +23,12 @@
     <string name="action_delete_group">Delete group</string>
     <string name="action_move_up">Move up</string>
     <string name="action_move_down">Move down</string>
-    <string name="action_stop_tracking">Stop tracking</string>
-    <string name="action_uninstall_stop_tracking">Uninstall and stop tracking</string>
     <string name="action_resume_tracking">Resume tracking</string>
     <string name="action_preview_deletion">Preview complete deletion</string>
     <string name="action_delete_permanently">Delete permanently</string>
     <string name="action_use_default">Reset to default</string>
     <string name="action_expand">Expand</string>
     <string name="action_collapse">Collapse</string>
-    <string name="apps_title">Tracked apps</string>
     <string name="apps_search_hint">Search apps or repositories</string>
     <string name="apps_empty_title">No tracked apps</string>
     <string name="apps_empty_body">Add an app from a source repository URL.</string>
@@ -43,9 +40,7 @@
     <string name="groups_title">Groups</string>
     <string name="groups_empty">No custom groups. Apps remain available under All and Ungrouped.</string>
     <string name="group_delete_explanation">Apps in this group will move to Ungrouped. Apps and history are not deleted.</string>
-    <string name="app_information_title">App information</string>
     <string name="app_edit_title">Edit app</string>
-    <string name="app_settings_title">App settings</string>
     <string name="app_settings_for">%1$s settings</string>
     <string name="app_settings_registration">Registration settings</string>
     <string name="app_settings_registration_body">Management mode and installation source are app-local values.</string>
@@ -73,13 +68,6 @@
     <string name="build_cmake_version">CMake version (optional)</string>
     <string name="build_save_configuration">Save build configuration</string>
     <string name="build_numeric_error">Java major and compileSdk must be decimal integers when supplied.</string>
-    <string name="app_settings_future">Future app controls</string>
-    <string name="app_settings_future_body">These routes are reserved without persistence, scheduling, notifications, or background work.</string>
-    <string name="app_settings_scheduled_checks">Scheduled update checks and constraints</string>
-    <string name="app_settings_release_channel">Release channel and prerelease</string>
-    <string name="app_settings_automatic_actions">Automatic download, build, comparison, and install</string>
-    <string name="app_settings_notifications">Update, build, comparison, and error notifications</string>
-    <string name="app_technical_title">Technical details</string>
     <string name="comparison_evidence_title">Comparison evidence</string>
     <string name="comparison_id">Comparison ID</string>
     <string name="comparison_reference_asset">Reference asset ID</string>
@@ -106,7 +94,6 @@
     <string name="technical_offline_warning">Gradle offline resolution is not network isolation.</string>
     <string name="technical_environment_evidence_body">This evidence explains build conditions only. It does not change raw APK outcomes, trust, or installation policy.</string>
     <string name="technical_repository_id">Repository ID</string>
-    <string name="technical_default_branch">Default branch</string>
     <string name="technical_identity">Identity</string>
     <string name="technical_source_discovery">Source discovery</string>
     <string name="technical_discovery_reason">Discovery reason</string>
@@ -123,6 +110,43 @@
     <string name="technical_file">File</string>
     <string name="technical_provider_size">Provider size</string>
     <string name="technical_provider_created">Provider asset created</string>
+    <string name="technical_build_settings">Build settings</string>
+    <string name="technical_build_settings_summary">Revision %1$d · %2$s</string>
+    <string name="technical_installed">Installed</string>
+    <string name="technical_not_supplied">Not supplied</string>
+    <string name="technical_source_scan_scope">%1$s scope</string>
+    <string name="technical_source_scan_boundary">Static indicators only; this is not a safe or malicious verdict and does not change comparison, trust, update, or install policy.</string>
+    <string name="technical_dependency_policy_mismatch">Build A and Build B used different dependency-pinning policies. This is advisory evidence and does not change comparison, trust, update, or install decisions.</string>
+    <string name="technical_build_environment">Build %1$s environment</string>
+    <string name="technical_build_environment_value">Java %1$s (%2$s), Gradle %3$s, SDK API %4$d, Build Tools %5$s; determinism: %6$s</string>
+    <string name="technical_dependency_multiset">Dependency multiset</string>
+    <string name="technical_dependency_multiset_value">Same %1$d, changed %2$d, Build A only %3$d, Build B only %4$d</string>
+    <string name="technical_difference_changed">Changed</string>
+    <string name="technical_difference_build_a_only">Build A only</string>
+    <string name="technical_difference_build_b_only">Build B only</string>
+    <string name="technical_difference_same">Same</string>
+    <string name="technical_environment_mismatch">Build recipe, variant, Java, or determinism controls differ. This is advisory evidence and is not presented as a cause or used to change raw outcomes.</string>
+    <string name="technical_advanced_official_primary">Advanced evidence: Official vs Build A</string>
+    <string name="technical_advanced_official_repeat">Advanced evidence: Official vs Build B</string>
+    <string name="technical_advanced_local_repeatability">Advanced evidence: Build A vs Build B</string>
+    <string name="technical_advanced_other">Advanced evidence: %1$s</string>
+    <string name="technical_entry_changes">Entry changes</string>
+    <string name="technical_entry_changes_value">Same %1$d, changed %2$d, added %3$d, missing %4$d</string>
+    <string name="technical_dependency_none">None</string>
+    <string name="technical_dependency_lockfile">Lockfile checked</string>
+    <string name="technical_dependency_lockfile_offline">Lockfile checked · Gradle offline resolution</string>
+    <string name="technical_determinism_not_configured">Not configured</string>
+    <string name="technical_determinism_epoch">SOURCE_DATE_EPOCH %1$d%2$s</string>
+    <string name="technical_determinism_no_build_cache">Gradle build cache disabled by Runner</string>
+    <string name="technical_determinism_locale">Process locale %1$s</string>
+    <string name="technical_signer_match">Signer match</string>
+    <string name="technical_signer_mismatch">Signer mismatch</string>
+    <string name="technical_signer_new_install">New install</string>
+    <string name="technical_signer_unknown">Signer unknown</string>
+    <string name="technical_official_release_apk">Official release APK</string>
+    <string name="technical_local_reprodroid_build">Local ReproDroid build</string>
+    <string name="technical_filename_inference">ABI: %1$s; variant: %2$s (filename only)</string>
+    <string name="technical_not_inferred">Not inferred</string>
     <string name="technical_download_content_type">Download response MIME</string>
     <string name="technical_content_type">Content type</string>
     <string name="technical_filename_hints">Filename hints</string>
@@ -222,6 +246,7 @@
     <string name="tracking_active">Active</string>
     <string name="tracking_inactive">Inactive</string>
     <string name="value_unknown">Unknown</string>
+    <string name="value_unknown_with_value">Unknown (%1$s)</string>
     <string name="value_never">Never</string>
     <string name="value_not_available">Not available</string>
     <string name="state_active">Active</string>
@@ -230,6 +255,10 @@
     <string name="state_checking">Checking</string>
     <string name="state_pending">Pending</string>
     <string name="state_running">In progress</string>
+    <string name="state_building">Building</string>
+    <string name="state_comparing">Comparing</string>
+    <string name="state_awaiting_confirmation">Confirmation required</string>
+    <string name="state_awaiting_scan_review">Source scan review required</string>
     <string name="state_success">Success</string>
     <string name="state_update_available">Update available</string>
     <string name="state_not_installed">Not installed</string>
@@ -251,10 +280,7 @@
     <string name="remove_independent_body">Uninstalling alone keeps this registration and tracking. Removing registration alone leaves the Android app installed.</string>
     <string name="remove_effect_uninstall">Android will show its uninstall confirmation. The package must be confirmed absent before this action succeeds.</string>
     <string name="remove_effect_registration">ReproDroid will stop tracking this registration while preserving its history.</string>
-    <string name="remove_uninstall_body">Android will show its system uninstall confirmation. Tracking is stopped only after the package is no longer installed.</string>
     <string name="remove_package_unknown">Uninstall is unavailable because the package is unknown or not currently installed.</string>
-    <string name="remove_final_tracking_body">Stop new tracking work for this registration?</string>
-    <string name="remove_final_uninstall_body">Open Android’s uninstall confirmation, then stop tracking only if the package is confirmed absent?</string>
     <string name="remove_other_references">Other registrations referring to this package</string>
     <string name="remove_history_preserved">Release, build, comparison, installation, and audit history is preserved. Complete deletion remains a separate Settings action.</string>
     <string name="inactive_apps_title">Tracking history</string>
@@ -264,7 +290,6 @@
     <string name="data_android_deletion_note">Complete Android registration deletion is available only for tracking-removed records and does not delete Runner data.</string>
     <string name="data_runner_separate">Runner storage and retention</string>
     <string name="data_runner_note">Runner cleanup is previewed and executed independently. Android and Runner deletion are never reported as one atomic result.</string>
-    <string name="data_log_export">Export Android operational logs</string>
     <string name="deletion_preview_title">Complete deletion preview</string>
     <string name="deletion_preview_body">This permanently deletes the selected local registration and its audit history. Runner data is managed separately.</string>
     <string name="deletion_release_count">Release observations: %1$d</string>
@@ -279,7 +304,6 @@
     <string name="deletion_result_bytes">Released bytes: %1$s</string>
     <string name="deletion_result_failed_files">Files still present: %1$s</string>
     <string name="deletion_result_cleanup_hint">These app-private orphans remain visible to storage reconciliation and are not reported as deleted.</string>
-    <string name="settings_title">Settings</string>
     <string name="settings_appearance">Appearance</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_theme_system">System</string>
@@ -440,6 +464,11 @@
     <string name="storage_protected">Protected: %1$s</string>
     <string name="storage_result">Result</string>
     <string name="storage_reason">Reason</string>
+    <string name="storage_unclassified">Unclassified</string>
+    <string name="storage_budget_no_automatic_delete">Lowering the budget below current usage never deletes files automatically.</string>
+    <string name="storage_runner_unavailable">Unavailable or incompatible Runner storage is never treated as empty. Local Android history remains available.</string>
+    <string name="storage_audit_boundary">Exports public allowlisted history only. APKs, source text, private manifests, raw logs, credentials, and storage paths are excluded.</string>
+    <string name="storage_scope_all_apps">All registered apps</string>
     <string name="planned_phase">Planned for Phase %1$s</string>
     <string name="planned_unavailable">Not available in UI-R</string>
     <string name="planned_updates_body">Configure scheduled metadata checks, release channels, constraints, and notifications here.</string>
@@ -451,8 +480,6 @@
     <string name="github_stars_body">Importing repositories from GitHub Stars is not available in this version.</string>
     <string name="future_update_schedule">Enable scheduled checks</string>
     <string name="future_update_interval">Check interval and daily time</string>
-    <string name="future_update_constraints">Network and battery constraints</string>
-    <string name="future_update_notifications">Update notifications and mute</string>
     <string name="release_check_global_settings">Scheduled release checks</string>
     <string name="release_check_scope_body">Checks public provider metadata only. They never download an APK, contact Runner, build, compare, or install.</string>
     <string name="release_check_schedule_mode">Schedule mode</string>
@@ -501,7 +528,6 @@
     <string name="licenses_intro">License texts and third-party attribution notices are bundled in this APK and can be read offline. The list is informational; verify the exact artifact metadata before redistribution.</string>
     <string name="licenses_loading">Loading bundled license texts…</string>
     <string name="licenses_load_error">The bundled license documents could not be read. No network fallback is used.</string>
-    <string name="future_stars_select_import">Select and import GitHub repositories</string>
     <string name="add_title">Add from source</string>
     <string name="add_source_phase">1. Source</string>
     <string name="add_analysis_phase">2. Analysis</string>
@@ -513,12 +539,11 @@
     <string name="add_supported_providers">Supported: https://github.com/{owner}/{repository} or https://codeberg.org/{owner}/{repository}</string>
     <string name="add_inspect_repository">Inspect repository</string>
     <string name="add_inspecting">Resolving repository identity and inspecting the bounded source tree…</string>
-    <string name="codeberg_provider_available">Codeberg repositories are available from Add Source.</string>
     <string name="add_repository_verified">Verified repository facts</string>
     <string name="add_repository_id">Immutable repository ID</string>
     <string name="add_discovery_state">Source discovery</string>
     <string name="add_gradle_candidates">Static Gradle candidates</string>
-    <string name="add_more_candidates">%1$d more candidates</string>
+    <plurals name="add_more_candidates"><item quantity="one">%1$d more candidate</item><item quantity="other">%1$d more candidates</item></plurals>
     <string name="add_options_copy_note">Initial values use the current global defaults. Supported fields can inherit later changes from App Settings.</string>
     <string name="add_separate_target">Create a separate management target for another package from this repository.</string>
     <string name="add_local_build_risk">I understand that a local build may use a different signer, cannot replace an installed official app, and is installable only when the compared artifact is signed.</string>
@@ -546,8 +571,8 @@
     <string name="error_rate_limit">The provider rate limit prevented this request. Try again after the provider reset time.</string>
     <string name="error_not_found">The requested record or repository was not found.</string>
     <string name="error_stale">The data changed while this screen was open. Reload it before trying again.</string>
+    <string name="error_operation_failed">The operation could not be completed. Review the current state and try again.</string>
     <string name="value_none">None</string>
-    <string name="jobs_title">Runner jobs</string>
     <string name="jobs_subtitle">Build and inspect Runner jobs</string>
     <string name="jobs_execution_simulated">Simulation</string>
     <string name="jobs_execution_trusted">Trusted source</string>
@@ -559,6 +584,8 @@
     <string name="jobs_revision_commit">Commit</string>
     <string name="jobs_creation_boundary">Creation resolves the allowlisted revision only. Build execution requires separate confirmation for the resolved commit and Runner-selected sandbox.</string>
     <string name="jobs_creating">Creating…</string>
+    <string name="jobs_input_required">Repository URL and revision are required.</string>
+    <string name="jobs_sync_failed">Runner synchronization failed.</string>
     <string name="jobs_create">Create job</string>
     <string name="jobs_empty">No saved jobs</string>
     <string name="jobs_progress">%1$d%%</string>
@@ -572,7 +599,10 @@
     <string name="jobs_source_scan_title">Pre-build source scan</string>
     <string name="jobs_source_scan_clean">No configured detector findings</string>
     <plurals name="jobs_source_scan_findings"><item quantity="one">%1$d configured detector finding</item><item quantity="other">%1$d configured detector findings</item></plurals>
-    <string name="jobs_source_scan_summary">%1$d files · %2$d bytes · %3$d binary skipped · %4$d symlinks skipped</string>
+    <plurals name="jobs_source_scan_files"><item quantity="one">%1$d file</item><item quantity="other">%1$d files</item></plurals>
+    <plurals name="jobs_source_scan_bytes"><item quantity="one">%1$d byte</item><item quantity="other">%1$d bytes</item></plurals>
+    <plurals name="jobs_source_scan_binary_skipped"><item quantity="one">%1$d binary skipped</item><item quantity="other">%1$d binaries skipped</item></plurals>
+    <plurals name="jobs_source_scan_symlinks_skipped"><item quantity="one">%1$d symlink skipped</item><item quantity="other">%1$d symlinks skipped</item></plurals>
     <string name="jobs_scanner_result">Scanner %1$s · result %2$s</string>
     <plurals name="jobs_additional_findings"><item quantity="one">%1$d additional finding</item><item quantity="other">%1$d additional findings</item></plurals>
     <string name="jobs_scan_not_verdict">Static indicators only; this is not a safe or malicious verdict.</string>
@@ -580,7 +610,7 @@
     <string name="jobs_java_environment">Java %1$s (%2$s)</string>
     <string name="jobs_gradle_environment">Gradle %1$s · validated SDK API %2$d · Build Tools %3$s</string>
     <string name="jobs_apk_sha256">APK SHA-256 %1$s</string>
-    <string name="jobs_dependency_records">%1$d dependency records · retrieved %2$s</string>
+    <plurals name="jobs_dependency_records"><item quantity="one">%1$d dependency record · retrieved %2$s</item><item quantity="other">%1$d dependency records · retrieved %2$s</item></plurals>
     <string name="jobs_refresh_sandbox">Refresh sandbox state</string>
     <string name="jobs_refresh_manifest">Refresh build manifest</string>
     <string name="jobs_rce_title">Build execution confirmation</string>
@@ -595,7 +625,7 @@
     <string name="jobs_logs">Logs</string>
     <string name="jobs_retry">Retry as new job</string>
     <string name="jobs_artifact_apk">APK: %1$s</string>
-    <string name="jobs_runner_artifact">Runner: %1$d bytes · SHA-256 %2$s</string>
+    <plurals name="jobs_runner_artifact"><item quantity="one">Runner: %1$d byte · SHA-256 %2$s</item><item quantity="other">Runner: %1$d bytes · SHA-256 %2$s</item></plurals>
     <string name="jobs_simulated_no_apk">Simulated metadata has no downloadable APK content.</string>
     <string name="jobs_downloading_verifying">Downloading and verifying…</string>
     <string name="jobs_retry_interrupted_download">Retry interrupted download</string>

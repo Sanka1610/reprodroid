@@ -330,13 +330,28 @@ internal fun JobCard(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            stringResource(
-                                R.string.jobs_source_scan_summary,
-                                evidence.scan.scannedFiles,
-                                evidence.scan.scannedBytes,
-                                evidence.scan.skippedBinaryFiles,
-                                evidence.scan.skippedSymlinks,
-                            ),
+                            listOf(
+                                pluralStringResource(
+                                    R.plurals.jobs_source_scan_files,
+                                    evidence.scan.scannedFiles,
+                                    evidence.scan.scannedFiles,
+                                ),
+                                pluralStringResource(
+                                    R.plurals.jobs_source_scan_bytes,
+                                    evidence.scan.scannedBytes.pluralQuantity(),
+                                    evidence.scan.scannedBytes,
+                                ),
+                                pluralStringResource(
+                                    R.plurals.jobs_source_scan_binary_skipped,
+                                    evidence.scan.skippedBinaryFiles,
+                                    evidence.scan.skippedBinaryFiles,
+                                ),
+                                pluralStringResource(
+                                    R.plurals.jobs_source_scan_symlinks_skipped,
+                                    evidence.scan.skippedSymlinks,
+                                    evidence.scan.skippedSymlinks,
+                                ),
+                            ).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
@@ -414,8 +429,9 @@ internal fun JobCard(
                             fontFamily = FontFamily.Monospace,
                         )
                         Text(
-                            stringResource(
-                                R.string.jobs_dependency_records,
+                            pluralStringResource(
+                                R.plurals.jobs_dependency_records,
+                                evidence.dependencies.size,
                                 evidence.dependencies.size,
                                 evidence.manifest.retrievedAt,
                             ),
@@ -579,7 +595,12 @@ private fun ArtifactCard(
         ) {
             Text(stringResource(R.string.jobs_artifact_apk, artifact.fileName), style = MaterialTheme.typography.titleSmall)
             Text(
-                stringResource(R.string.jobs_runner_artifact, artifact.sizeBytes, artifact.sha256),
+                pluralStringResource(
+                    R.plurals.jobs_runner_artifact,
+                    artifact.sizeBytes.pluralQuantity(),
+                    artifact.sizeBytes,
+                    artifact.sha256,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
             )
@@ -792,3 +813,5 @@ private fun jobStateLabel(value: JobState): String =
 @Composable
 private fun installAttemptStatusLabel(value: String): String =
     statusLabelResource(value)?.let { stringResource(it) } ?: value.lowercase().replace('_', ' ')
+
+private fun Long.pluralQuantity(): Int = coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
