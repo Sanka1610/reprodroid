@@ -235,7 +235,7 @@ internal fun UiRAddFlowScreen(
         ) {
             item { Spacer(Modifier.height(16.dp)) }
             item { content() }
-            item { Spacer(Modifier.height(16.dp)) }
+            item { Spacer(Modifier.height(72.dp)) }
         }
     } else {
         BackScaffoldTitle(
@@ -257,7 +257,7 @@ internal fun UiRAddFlowScreen(
             ) {
                 item { Spacer(Modifier.height(8.dp)) }
                 item { content() }
-                item { Spacer(Modifier.height(16.dp)) }
+                item { Spacer(Modifier.height(72.dp)) }
             }
         }
     }
