@@ -1,8 +1,8 @@
 # Unreleased Phase 5 changes
 
-- Status: Draft; no release candidate or public artifact exists
+- Status: Draft; candidate source identity fixed, no rebuilt or accepted release candidate exists
 - Updated: 2026-09-14
-- Intended Android identity: at least `0.1.0-alpha04` with a version code greater than 3, to be fixed during release-candidate work
+- Android candidate source identity: `0.1.0-alpha04`／`versionCode 4`
 - Runner: production source remains `0.1.0-alpha02` unless later release work changes its distribution
 
 These notes summarize locally integrated source changes after the frozen Phase 4 `0.1.0-alpha03` artifact. They are not a release announcement and do not provide an APK, checksum, signature, provenance, or publication authorization.
@@ -45,6 +45,6 @@ These notes summarize locally integrated source changes after the frozen Phase 4
 
 ## Before release
 
-Release-candidate work must assign a new monotonic Android version, rebuild every artifact from the final integrated source, run the required full regression and Android 16 journeys, bind source／artifact／SBOM／checksum／signer／compatibility identities, and perform a separate public-tree plus reachable-history audit. Any fix changes source identity and requires the affected artifacts and checks to be regenerated.
+Release-candidate work must rebuild every artifact from the final integrated source, run the required full regression and Android 16 journeys, bind source／artifact／SBOM／checksum／signer／compatibility identities, and perform a separate public-tree plus reachable-history audit. Any fix changes source identity and requires the affected artifacts and checks to be regenerated.
 
 See [Current status](../status/current.md) for known limitations, [Getting started](../guides/getting-started.md) for availability and pairing, and [Operations and recovery](../guides/operations.md) for safety and checksum handling.

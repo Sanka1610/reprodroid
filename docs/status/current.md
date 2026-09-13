@@ -1,9 +1,9 @@
 # Current status
 
 - Updated: 2026-09-14
-- Packaged application identity in source: `0.1.0-alpha03` / `versionCode 3`
+- Packaged application identity on the Phase 5.7 work branch: `0.1.0-alpha04` / `versionCode 4`
 - Integrated development state: Phase 5.6 documentation synchronized locally
-- Final Phase 5 release candidate: Not generated
+- Final Phase 5 release candidate: Not yet rebuilt, signed, or accepted
 - Publication: Not authorized
 
 ## Compatibility baseline
