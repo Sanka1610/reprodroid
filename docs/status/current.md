@@ -1,8 +1,8 @@
 # Current status
 
-- Updated: 2026-09-12
+- Updated: 2026-09-13
 - Candidate: `0.1.0-alpha03` / `versionCode 3`
-- Status: Phase 4.8 implementation and acceptance in progress
+- Status: Phase 4 complete; local release candidate accepted
 - Publication: Not authorized
 
 ## Compatibility baseline
@@ -17,7 +17,7 @@
 | Development／paired API | v2 |
 | Required v2 capabilities | `foundation@1`, `storage-retention@1`, `toolchain-install@1`, `generic-build@1`, `apk-comparison@1`, `runner-authentication@1`, `codeberg-source@1` |
 
-Exact release commitとartifact digestは、最終統合sourceから再生成・照合した後に固定します。作業branchのHEADや、以前生成したartifactをrelease identityとして扱いません。
+Exact release commitとartifact digestは、最終統合sourceから再生成・照合した内部release recordで固定します。作業branchのHEADや、以前生成したartifactをrelease identityとして扱いません。
 
 ## Implemented baseline
 
@@ -35,14 +35,8 @@ Exact release commitとartifact digestは、最終統合sourceから再生成・
 
 ## Acceptance boundary
 
-Phase 4.7までの個別受入記録は存在しますが、Phase 4.8と`0.1.0-alpha03`の最終release gateは完了していません。少なくとも次は未完了として扱います。
+Phase 4.8は、retained Phase 4 gap、独立したGitHub generic Build A／B、raw三軸比較、migration、log export、署名・配布物、license・privacy、互換性のローカル受入まで完了しました。大規模repositoryの未認証source discoveryはprovider quotaへ到達し得るため、上限到達時はfail closedで停止し、provider reset後の明示的な再試行を必要とします。
 
-- 最終統合commitの固定
-- 最終統合sourceからのAndroid／Runner artifact再生成
-- unsigned、signed、SBOM、source、toolchain provenanceのdigest対応付け
-- 最終secret scanと配布内容監査
-- 残るGitHub product comparison targetの完了
-- public repository payloadの監査
-- push、`main`統合、GitHub Releaseを含む公開承認
+公開前には、公開対象payloadだけを対象とした別の監査と明示承認が必要です。公開、push、`main`統合、GitHub Release作成はPhase 4完了に含めず、実施していません。
 
 この文書は公開可能な状態要約です。host path、Job ID、ADB serial、秘密情報、生log、検証archiveを含む内部証跡は非公開領域で管理します。
