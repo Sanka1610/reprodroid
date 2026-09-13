@@ -225,12 +225,9 @@ fun ReproDroidApp(
     LaunchedEffect(route) {
         if (route != ReproDroidRoute.Apps) appsSearchExpanded = false
         if (route == ReproDroidRoute.UpdateSettings) navigate(ReproDroidRoute.Settings)
-        if (route is ReproDroidRoute.AppSettings && routeApp?.let(::isSelfRegistration) == true) {
-            navigate(ReproDroidRoute.AppInformation(requireNotNull(route.appId)))
-        }
         if (route.isRoot) {
             val targetPage = rootPageIndex(route)
-            if (rootPagerState.currentPage != targetPage) rootPagerState.animateScrollToPage(targetPage)
+            if (rootPagerState.currentPage != targetPage) rootPagerState.scrollToPage(targetPage)
         }
     }
 
@@ -500,7 +497,6 @@ fun ReproDroidApp(
                     if (route.appId != null && routeApp != null) AppActionBar(
                             route = route,
                             active = routeApp.app.trackingState == AppTrackingState.ACTIVE.name,
-                            showSettings = !isSelfRegistration(routeApp),
                             onNavigate = ::navigate,
                             onRemove = { removalTargetId = routeApp.app.registeredAppId },
                         )
@@ -833,7 +829,6 @@ fun ReproDroidApp(
                                 record = record,
                                 globalSettings = globalSettings,
                                 active = record.app.registeredAppId in activeAppIds,
-                                showSettings = !isSelfRegistration(record),
                                 onBack = { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
                                 onSettings = { navigate(ReproDroidRoute.AppSettings(record.app.registeredAppId)) },
                                 onRefresh = { managedViewModel.refresh(record.app.registeredAppId) },
@@ -1077,7 +1072,6 @@ private fun appNotificationsAllowed(context: Context): Boolean {
 private fun AppActionBar(
     route: ReproDroidRoute,
     active: Boolean,
-    showSettings: Boolean,
     onNavigate: (ReproDroidRoute) -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -1096,15 +1090,13 @@ private fun AppActionBar(
             icon = { Icon(Icons.Default.Edit, contentDescription = null) },
             label = { Text(stringResource(R.string.action_edit)) },
         )
-        if (showSettings) {
-            NavigationBarItem(
-                selected = route is ReproDroidRoute.AppSettings,
-                enabled = active,
-                onClick = { onNavigate(ReproDroidRoute.AppSettings(appId)) },
-                icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_settings)) },
-            )
-        }
+        NavigationBarItem(
+            selected = route is ReproDroidRoute.AppSettings,
+            enabled = active,
+            onClick = { onNavigate(ReproDroidRoute.AppSettings(appId)) },
+            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+            label = { Text(stringResource(R.string.nav_settings)) },
+        )
         NavigationBarItem(
             selected = false,
             enabled = active,

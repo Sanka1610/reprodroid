@@ -98,7 +98,6 @@ internal fun AppDetailScreen(
     record: RegisteredAppRecord,
     globalSettings: GlobalSettingsEntity,
     active: Boolean,
-    showSettings: Boolean = true,
     onBack: () -> Unit,
     onSettings: () -> Unit,
     onRefresh: () -> Unit,
@@ -180,12 +179,10 @@ internal fun AppDetailScreen(
                 ) {
                     NavigationGlyph("↻")
                 }
-                if (showSettings) {
-                    IconButton(
-                        onClick = onSettings,
-                        modifier = Modifier.semantics { contentDescription = settingsContentDescription },
-                    ) { NavigationGlyph("⚙") }
-                }
+                IconButton(
+                    onClick = onSettings,
+                    modifier = Modifier.semantics { contentDescription = settingsContentDescription },
+                ) { NavigationGlyph("⚙") }
             },
         )
         if (active) LinearProgressIndicator(Modifier.fillMaxWidth())

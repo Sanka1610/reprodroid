@@ -32,7 +32,7 @@
     <string name="apps_search_hint">アプリまたはリポジトリを検索</string>
     <string name="apps_title">登録したアプリ</string>
     <string name="apps_author">作者: %1$s</string>
-    <string name="apps_trust_and_update">信頼度: %1$s · %2$s</string>
+    <string name="apps_trust_and_update">%1$s · %2$s</string>
     <string name="apps_status_time">%1$s: %2$s</string>
     <string name="apps_open_search">検索と絞り込みを開く</string>
     <string name="apps_close_search">検索を閉じて絞り込みを解除</string>
@@ -516,7 +516,7 @@
     <string name="release_check_battery_info_body">「低残量の場合も含む」がオフの場合、残量が20％以下または残量を取得できないときは確認しません。</string>
     <string name="release_check_notifications">リリース確認時の通知</string>
     <string name="release_check_manual_only_body">取得、build、比較、installは常に別の手動操作が必要です。</string>
-    <string name="release_check_app_enabled">このappの定期確認</string>
+    <string name="release_check_app_enabled">このアプリの定期確認</string>
     <string name="release_check_mute">リリース確認時の通知をミュート</string>
     <string name="release_check_use_global">全体のスケジュール既定値を使用</string>
     <string name="release_check_last_attempt">前回のmetadata確認</string>
@@ -591,8 +591,8 @@
     <string name="mode_verification">検証を含む</string>
     <string name="mode_acquisition">公式リリースから取得</string>
     <string name="action_more_information">詳しい情報</string>
-    <string name="installation_official">Official Release</string>
-    <string name="installation_local">Local Build</string>
+    <string name="installation_official">公式リリース</string>
+    <string name="installation_local">ローカルビルド</string>
     <string name="future_feature_content_description">利用できません。Phase %1$sで実装予定です。</string>
     <string name="error_already_registered">このリポジトリには既存の主登録があります。既存登録を開くか追跡を再開してください。</string>
     <string name="error_different_repository">解析したURLは別のリポジトリを示すため、この登録を置き換えられません。</string>

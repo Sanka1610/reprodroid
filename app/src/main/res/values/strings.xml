@@ -32,7 +32,7 @@
     <string name="apps_search_hint">Search apps or repositories</string>
     <string name="apps_title">Registered apps</string>
     <string name="apps_author">Author: %1$s</string>
-    <string name="apps_trust_and_update">Trust: %1$s · %2$s</string>
+    <string name="apps_trust_and_update">%1$s · %2$s</string>
     <string name="apps_status_time">%1$s: %2$s</string>
     <string name="apps_open_search">Open search and filters</string>
     <string name="apps_close_search">Close search and clear filters</string>
