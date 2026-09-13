@@ -1,6 +1,7 @@
 package com.sanka1610.reprodroid.ui
 
 import com.sanka1610.reprodroid.R
+import com.sanka1610.reprodroid.ui.shared.statusLabelResource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

@@ -9,7 +9,7 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.mutableStateOf
 import com.sanka1610.reprodroid.ui.JobViewModel
 import com.sanka1610.reprodroid.ui.ManagedAppsViewModel
-import com.sanka1610.reprodroid.ui.ReproDroidApp
+import com.sanka1610.reprodroid.ui.app.ReproDroidApp
 
 class MainActivity : ComponentActivity() {
     private val jobViewModel: JobViewModel by viewModels()
