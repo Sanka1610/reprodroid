@@ -84,7 +84,12 @@ fun ReproDroidTheme(
             base.copy(
                 background = Color.Black,
                 surface = Color.Black,
-                surfaceVariant = Color(0xFF171717),
+                surfaceVariant = Color.Black,
+                surfaceContainerLowest = Color.Black,
+                surfaceContainerLow = Color.Black,
+                surfaceContainer = Color.Black,
+                surfaceContainerHigh = Color.Black,
+                surfaceContainerHighest = Color.Black,
                 surfaceTint = Color.Transparent,
             )
         } else {

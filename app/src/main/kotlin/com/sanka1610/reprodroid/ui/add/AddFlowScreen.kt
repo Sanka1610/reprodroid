@@ -226,6 +226,7 @@ internal fun UiRAddFlowScreen(
             }
                 else -> Unit
             }
+            AddProgress(route)
         }
     }
     if (route == ReproDroidRoute.AddSource) {
@@ -259,6 +260,38 @@ internal fun UiRAddFlowScreen(
                 item { content() }
                 item { Spacer(Modifier.height(72.dp)) }
             }
+        }
+    }
+}
+
+@Composable
+private fun AddProgress(route: ReproDroidRoute) {
+    val current = when (route) {
+        ReproDroidRoute.AddSource -> 0
+        ReproDroidRoute.AddAnalysis -> 1
+        ReproDroidRoute.AddOptions -> 2
+        ReproDroidRoute.AddConfirm -> 3
+        else -> 0
+    }
+    val steps = listOf(
+        stringResource(R.string.add_step_search),
+        stringResource(R.string.add_step_review),
+        stringResource(R.string.add_step_options),
+        stringResource(R.string.add_step_confirm),
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.add_steps_title), style = MaterialTheme.typography.titleSmall)
+        steps.forEachIndexed { index, label ->
+            Text(
+                "${index + 1}. $label",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (index == current) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                fontWeight = if (index == current) FontWeight.SemiBold else FontWeight.Normal,
+            )
         }
     }
 }

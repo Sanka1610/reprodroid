@@ -99,7 +99,9 @@ internal fun AppInformationScreen(
                     Column(Modifier.padding(start = 14.dp)) {
                         Text(record.app.resolvedDisplayName, style = MaterialTheme.typography.titleLarge)
                         record.app.authorDisplayOverride?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                        Text(record.group?.displayName ?: stringResource(R.string.group_ungrouped))
+                        record.group?.displayName?.let {
+                            Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
@@ -152,10 +154,6 @@ internal fun AppInformationScreen(
                         onClick = onCheckMetadata,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(stringResource(R.string.release_check_now)) }
-                    Text(
-                        stringResource(R.string.release_check_manual_only_body),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
                     candidates.take(5).forEach { candidate ->
                         Card(
                             Modifier.fillMaxWidth().clickable { onOpenCandidate(candidate) },
@@ -412,7 +410,13 @@ internal fun RemoveTrackingDialog(
 ) {
     val context = LocalContext.current
     val packageName = knownPackageName(record)
+        ?: context.packageName.takeIf { isSelfRegistration(record) }
     val installedVersion = record.latestRelease?.selectedAsset?.installedVersionName
+        ?: packageName?.takeIf { it == context.packageName }?.let {
+            runCatching {
+                context.packageManager.getPackageInfo(it, 0).versionName
+            }.getOrNull()
+        }
     val canUninstall = remember(packageName) {
         packageName != null && isPackageInstalledForRemoval(context.packageManager, packageName)
     }
