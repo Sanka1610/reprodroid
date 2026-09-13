@@ -28,8 +28,8 @@ android {
         applicationId = "com.sanka1610.reprodroid"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.0-alpha03"
+        versionCode = 4
+        versionName = "0.1.0-alpha04"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "RUNNER_BASE_URL", buildConfigString(runnerBaseUrlOverride.orEmpty()))
