@@ -33,4 +33,24 @@ class NavigationStateRestorationTest {
         }
         compose.onNodeWithText(appearance).assertExists()
     }
+
+    @Test
+    fun rootNavigationKeepsSelectedPageAndContentInSync() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val settings = context.getString(R.string.root_open_settings)
+        val appearance = context.getString(R.string.settings_appearance)
+        val apps = context.getString(R.string.nav_apps)
+        val openApps = context.getString(R.string.root_page_open, apps)
+        val appsTitle = context.getString(R.string.apps_title)
+
+        compose.waitUntil(timeoutMillis = 10_000) {
+            compose.onAllNodesWithContentDescription(settings).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onAllNodesWithContentDescription(settings)[0].performClick()
+        compose.onNodeWithText(appearance).assertExists()
+
+        compose.onNodeWithContentDescription(openApps).performClick()
+        compose.onNodeWithText(appsTitle).assertExists()
+        compose.onNodeWithText(appearance).assertDoesNotExist()
+    }
 }

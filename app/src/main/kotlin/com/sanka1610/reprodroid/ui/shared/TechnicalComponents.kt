@@ -1,5 +1,6 @@
 package com.sanka1610.reprodroid.ui.shared
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,7 +15,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -71,26 +72,48 @@ internal fun <T> DropdownSetting(
                 Text(
                     label,
                     style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(0.68f),
+                    modifier = Modifier.weight(0.56f),
                 )
                 if (outlined) {
-                    OutlinedTextField(
-                        value = options[value] ?: value.toString(),
-                        onValueChange = {},
+                    Surface(
                         modifier = Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
-                            .weight(0.32f),
-                        enabled = enabled,
-                        readOnly = true,
-                        singleLine = false,
-                        maxLines = 2,
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                    )
+                            .weight(0.44f),
+                        color = Color.Transparent,
+                        contentColor = if (enabled) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            if (enabled) {
+                                MaterialTheme.colorScheme.outline
+                            } else {
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
+                            },
+                        ),
+                        shape = MaterialTheme.shapes.extraSmall,
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                options[value] ?: value.toString(),
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded)
+                        }
+                    }
                 } else {
                     Row(
                         Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
-                            .weight(0.32f)
+                            .weight(0.44f)
                             .padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -103,7 +126,7 @@ internal fun <T> DropdownSetting(
                             } else {
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                             },
-                            maxLines = 2,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         ExposedDropdownMenuDefaults.TrailingIcon(expanded)

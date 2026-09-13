@@ -1,6 +1,7 @@
 package com.sanka1610.reprodroid.ui.settings
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -75,6 +77,7 @@ import com.sanka1610.reprodroid.data.log.AppLogExportResult
 import com.sanka1610.reprodroid.ui.*
 import com.sanka1610.reprodroid.ui.navigation.ReproDroidRoute
 import com.sanka1610.reprodroid.ui.shared.*
+import kotlin.math.roundToInt
 
 private const val APPEARANCE_SECTION = "appearance"
 private const val DEFAULTS_SECTION = "defaults"
@@ -438,6 +441,41 @@ private fun ExternalSettingsLink(label: String, onClick: () -> Unit) {
 }
 
 @Composable
+private fun IntervalHoursSetting(
+    hours: Int,
+    enabled: Boolean,
+    onChange: (Int) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.38f),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.future_update_interval),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                pluralStringResource(R.plurals.release_check_hours, hours, hours),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        Slider(
+            value = hours.toFloat(),
+            onValueChange = { candidate ->
+                val rounded = candidate.roundToInt().coerceIn(1, 24)
+                if (rounded != hours) onChange(rounded)
+            },
+            enabled = enabled,
+            valueRange = 1f..24f,
+            steps = 22,
+        )
+    }
+}
+
+@Composable
 private fun GlobalUpdateSettingsContent(
     settings: ReleaseCheckSettingsEntity,
     showDividers: Boolean,
@@ -462,12 +500,10 @@ private fun GlobalUpdateSettingsContent(
         { onUpdate(settings.copy(scheduleMode = it)) },
     )
     SettingDivider(showDividers)
-    DropdownSetting(
-        stringResource(R.string.future_update_interval),
-        settings.intervalHours,
-        (1..24).associateWith { pluralStringResource(R.plurals.release_check_hours, it, it) },
-        { onUpdate(settings.copy(intervalHours = it)) },
+    IntervalHoursSetting(
+        hours = settings.intervalHours,
         enabled = settings.scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
+        onChange = { onUpdate(settings.copy(intervalHours = it)) },
     )
     SettingDivider(showDividers)
     DailyMinuteSetting(
@@ -541,12 +577,10 @@ internal fun AppUpdateSettingsContent(
         { onUpdate(override.copy(scheduleMode = it)) },
     )
     SettingDivider(showDividers)
-    DropdownSetting(
-        stringResource(R.string.future_update_interval),
-        override.intervalHours ?: global.intervalHours,
-        (1..24).associateWith { pluralStringResource(R.plurals.release_check_hours, it, it) },
-        { onUpdate(override.copy(intervalHours = it)) },
+    IntervalHoursSetting(
+        hours = override.intervalHours ?: global.intervalHours,
         enabled = scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
+        onChange = { onUpdate(override.copy(intervalHours = it)) },
     )
     SettingDivider(showDividers)
     DailyMinuteSetting(
@@ -680,12 +714,10 @@ internal fun ReleaseUpdateSettingsScreen(
                         { onUpdateSettings(settings.copy(scheduleMode = it)) },
                     )
                     SettingDivider(showDividers)
-                    DropdownSetting(
-                        stringResource(R.string.future_update_interval),
-                        settings.intervalHours,
-                        (1..24).associateWith { pluralStringResource(R.plurals.release_check_hours, it, it) },
-                        { onUpdateSettings(settings.copy(intervalHours = it)) },
+                    IntervalHoursSetting(
+                        hours = settings.intervalHours,
                         enabled = settings.scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
+                        onChange = { onUpdateSettings(settings.copy(intervalHours = it)) },
                     )
                     SettingDivider(showDividers)
                     DailyMinuteSetting(
@@ -764,13 +796,11 @@ internal fun ReleaseUpdateSettingsScreen(
                         { onUpdateOverride(override.copy(scheduleMode = it)) },
                     )
                     SettingDivider(showDividers)
-                    DropdownSetting(
-                        stringResource(R.string.future_update_interval),
-                        override.intervalHours ?: settings.intervalHours,
-                        (1..24).associateWith { pluralStringResource(R.plurals.release_check_hours, it, it) },
-                        { onUpdateOverride(override.copy(intervalHours = it)) },
+                    IntervalHoursSetting(
+                        hours = override.intervalHours ?: settings.intervalHours,
                         enabled = (override.scheduleMode ?: settings.scheduleMode) ==
                             ReleaseCheckScheduleMode.INTERVAL.name,
+                        onChange = { onUpdateOverride(override.copy(intervalHours = it)) },
                     )
                     SettingDivider(showDividers)
                     DailyMinuteSetting(
