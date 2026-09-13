@@ -1,4 +1,4 @@
-package com.sanka1610.reprodroid.ui
+package com.sanka1610.reprodroid.ui.jobs
 
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -43,6 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanka1610.reprodroid.R
+import com.sanka1610.reprodroid.ui.JobViewModel
+import com.sanka1610.reprodroid.ui.dependencyPinningLabel
+import com.sanka1610.reprodroid.ui.determinismSummary
+import com.sanka1610.reprodroid.ui.shared.statusLabelResource
 import com.sanka1610.reprodroid.data.local.JobRecord
 import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
 import com.sanka1610.reprodroid.data.local.ArtifactEntity

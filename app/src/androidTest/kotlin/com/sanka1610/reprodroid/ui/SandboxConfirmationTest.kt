@@ -1,5 +1,7 @@
 package com.sanka1610.reprodroid.ui
 
+import com.sanka1610.reprodroid.ui.jobs.JobCard
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
