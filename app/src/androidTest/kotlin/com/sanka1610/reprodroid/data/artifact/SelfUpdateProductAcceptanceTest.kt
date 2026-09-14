@@ -40,7 +40,7 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class SelfUpdateProductAcceptanceTest {
     @Test
-    fun productionSignedAlpha04PassesNormalGateAndUpdatesInstalledAlpha03() =
+    fun productionSignedAlpha05PassesNormalGateAndUpdatesInstalledAlpha04() =
         runBlocking(Dispatchers.IO) {
             val instrumentation = InstrumentationRegistry.getInstrumentation()
             val arguments = InstrumentationRegistry.getArguments()
@@ -93,10 +93,10 @@ class SelfUpdateProductAcceptanceTest {
                     ReleaseSnapshotEntity(
                         releaseSnapshotId = snapshotId,
                         registeredAppId = registeredAppId,
-                        providerReleaseId = "phase57-alpha04-local-acceptance",
-                        tagName = "v0.1.0-alpha04",
+                        providerReleaseId = "phase5-alpha05-local-acceptance",
+                        tagName = "v0.1.0-alpha05",
                         resolvedCommitSha = arguments.getString("expectedSourceCommit").orEmpty(),
-                        releaseName = "ReproDroid 0.1.0-alpha04",
+                        releaseName = "ReproDroid 0.1.0-alpha05",
                         releaseUrl = "https://github.com/Sanka1610/reprodroid/releases",
                         targetCommitishRaw = "develop",
                         isDraft = false,
@@ -107,14 +107,14 @@ class SelfUpdateProductAcceptanceTest {
                         fetchedAt = now,
                         observationSha256 = sha256(candidate),
                         lastObservedAt = now,
-                        selectedProviderAssetId = "phase57-alpha04-apk",
+                        selectedProviderAssetId = "phase5-alpha05-apk",
                     ),
                 )
                 val verifiedAsset = ReleaseAssetEntity(
                     releaseAssetId = assetId,
                     releaseSnapshotId = snapshotId,
-                    providerAssetId = "phase57-alpha04-apk",
-                    assetName = "reprodroid-0.1.0-alpha04.apk",
+                    providerAssetId = "phase5-alpha05-apk",
+                    assetName = "reprodroid-0.1.0-alpha05.apk",
                     stableAssetUrl = "https://github.com/Sanka1610/reprodroid/releases",
                     selectionReason = "MANUAL_RELEASE_ASSET",
                     contentType = "application/vnd.android.package-archive",
@@ -207,10 +207,10 @@ class SelfUpdateProductAcceptanceTest {
 
     private companion object {
         const val RUN_ARGUMENT = "runSelfUpdateProductAcceptance"
-        const val SHELL_CANDIDATE_PATH = "/data/local/tmp/reprodroid-phase57-self-update.apk"
+        const val SHELL_CANDIDATE_PATH = "/data/local/tmp/reprodroid-alpha05-self-update.apk"
         const val PRODUCTION_PACKAGE = "com.sanka1610.reprodroid"
-        const val EXPECTED_INSTALLED_VERSION_CODE = 3L
-        const val EXPECTED_CANDIDATE_VERSION_CODE = 4L
+        const val EXPECTED_INSTALLED_VERSION_CODE = 4L
+        const val EXPECTED_CANDIDATE_VERSION_CODE = 5L
         const val INSTALL_TIMEOUT_MILLIS = 120_000L
         const val PRODUCTION_SIGNER_SHA256 =
             "42e0382888f6ebbd22a25532ad6495cd385d54cd86b00e214ad1eacca4d19abd"
