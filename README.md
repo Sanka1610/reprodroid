@@ -3,7 +3,7 @@
 ReproDroidは、公開されているAndroidアプリの公式APKと、対応する公開ソースからPC側Runnerが生成したAPKを比較し、利用者が差異と来歴を確認できるようにするAndroidアプリです。
 
 > [!IMPORTANT]
-> Phase 5.7作業branchのsource identityは`0.1.0-alpha04`／`versionCode 4`です。最終release候補はまだ生成・署名・受入されていません。公開、push、`main`統合も別の承認対象です。ビルド成功、静的scan、意味比較の一致だけを、公式APKとの再現性や安全性の証明として扱いません。
+> 現在のcandidate source identityは`0.1.0-alpha05`／`versionCode 5`です。source checkoutだけではreleaseの公開、署名、受入を意味しません。配布物は、同じsource commitを指すGit tagとGitHub Releaseに添付されたAPK、checksum、署名identity、provenanceを照合してください。ビルド成功、静的scan、意味比較の一致だけを、公式APKとの再現性や安全性の証明として扱いません。
 
 ## Repository roles
 
@@ -68,6 +68,7 @@ release候補の生成・署名・公開は通常のdeveloper buildと分離し�
 - [UI architecture and navigation](docs/architecture/ui.md)
 - [Getting started](docs/guides/getting-started.md)
 - [Operations and recovery](docs/guides/operations.md)
+- [0.1.0-alpha05 release notes](docs/releases/0.1.0-alpha05.md)
 - [Unreleased notes](docs/releases/unreleased.md)
 - [ADR index](docs/adr/README.md)
 - [Runner API](docs/api/README.md)

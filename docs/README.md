@@ -9,7 +9,8 @@
 - [UI architecture and navigation](architecture/ui.md): screen map、route／back、state／event ownership
 - [Getting started](guides/getting-started.md): 導入状態、Runner pairing、初回登録
 - [Operations and recovery](guides/operations.md): build／comparison、更新、復旧、checksum
-- [Unreleased notes](releases/unreleased.md): 次のreleaseに向けた変更と未完了境界
+- [0.1.0-alpha05 release notes](releases/0.1.0-alpha05.md): alpha05の変更、安全境界、公開証拠の要件
+- [Unreleased notes](releases/unreleased.md): alpha05以後に割り当てられた変更
 - [Architecture Decision Records](adr/README.md): 公開する設計判断
 - [Runner API](api/README.md): API v1／v2の公開契約
 - [Feature contracts](design/README.md): 現在の機能別実装契約
