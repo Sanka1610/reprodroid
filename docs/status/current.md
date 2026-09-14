@@ -1,10 +1,10 @@
 # Current status
 
 - Updated: 2026-09-14
-- Packaged application identity on the Phase 5.7 work branch: `0.1.0-alpha04` / `versionCode 4`
-- Integrated development state: Phase 5.6 documentation synchronized locally
-- Final Phase 5 release candidate: Not yet rebuilt, signed, or accepted
-- Publication: Not authorized
+- Packaged application identity: `0.1.0-alpha05` / `versionCode 5`
+- Integrated development state: Phase 5 UI, architecture, Room24, and public documentation are present in the candidate source
+- Prior candidate: alpha04 was retained as pre-publication evidence and is not an alpha05 artifact
+- Publication authority: source alone does not announce a release; verify the matching public tag and GitHub Release
 
 ## Compatibility baseline
 
@@ -19,7 +19,7 @@
 | Development／paired API | v2 |
 | Required v2 capabilities | `foundation@1`, `storage-retention@1`, `toolchain-install@1`, `generic-build@1`, `apk-comparison@1`, `runner-authentication@1`, `codeberg-source@1` |
 
-Phase 5でAndroid UIとRoom schemaが変更されたため、Phase 4の`0.1.0-alpha03` artifactを現在のsourceから生成した候補として扱うことはできません。次のAndroid releaseは少なくとも新しいversion name／version codeを割り当て、最終統合sourceからartifact、SBOM、checksum、provenance、署名結果を再生成する必要があります。
+Phase 5でAndroid UIとRoom schemaが変更されたため、Phase 4の`0.1.0-alpha03` artifactとpre-publication alpha04 artifactを現在のsourceから生成したalpha05候補として扱うことはできません。alpha05のartifact、SBOM、checksum、provenance、署名結果、製品受入は、最終source commitに対して新たに生成・対応付ける必要があります。
 
 ## Implemented source baseline
 
@@ -37,24 +37,21 @@ Phase 4のprovider、download、build／comparison、安全境界に加え、現
 - fresh databaseでのoffline self-registration、Room14からRoom24へのmigration経路
 - English／Japanese resources、pure black、font scale 2.0を含むaccessibility polish
 
-## Verification ledger
+## Verification authority
 
-| Boundary | Current result | Limit |
+| Boundary | Publication evidence | Source-tree limit |
 |---|---|---|
-| Phase 5.5+ final unit／build／lint | `PASS` | local integrated sourceで完了。lintは0 errors、33 warnings |
-| Phase 5.5+ targeted Android instrumentation | `PASS` | root pageとcontent同期の2 tests |
-| Phase 5.5+ Android 16 product UI audit | `PASS` | 日英UI、self-registration、root pager、Settings、slider、app detail等の対象経路 |
-| Phase 5.5+ full connected suite | `NOT_RUN` | 直前のfull runは単独再実行で通ったisolated failureを含み、最終follow-upではfull rerunしていない |
-| Phase 5.6 documentation hygiene | `PASS` | offline local link、UTF-8、fence、private-reference、host-path、secret-pattern checks |
-| Final Phase 5 regression／product journeys | `NOT_RUN` | version更新後の最終統合sourceとproduction-signed candidateでPhase 5.7に再実行が必要 |
-| Final artifact／SBOM／checksum／provenance／signer binding | `NOT_RUN` | Phase 4 artifactやPhase 5 debug handoffを流用しない |
-| `main` integration／push／tag／GitHub Release／asset upload | `NOT_RUN` | 個別の明示承認が必要 |
+| Source and automated checks | CI run and sanitized provenance for the tagged full commit | checkoutや過去候補の結果から推測しない |
+| Signed Android artifact | signed APK digest, expected signer fingerprint, package／version inspection | APKやprivate signing inputをGit treeへ保存しない |
+| Android／Runner product acceptance | release manifestの対象version、結果、既知の限界 | alpha04以前の端末結果をalpha05へ読み替えない |
+| Runner compatibility | exact Runner tag／commit、ZIP digest、SBOM、API／schema | READMEのversion表記だけでartifact identityを推測しない |
+| Publication | matching immutable tag, GitHub Release, asset checksums | source commit、build成功、tag単体は公開済みassetを意味しない |
 
 この要約は生のlog、端末識別子、host path、Job ID、private evidenceを公開しません。過去の契約や検証記録にある当時の`PARTIAL`／`NOT_RUN`は、後続の結果で遡及変更しません。
 
 ## Known limitations
 
-- 公開済みのPhase 5 APKまたはproduction-signed release candidateはありません。source checkoutからのdebug buildはproduction releaseや通常upgradeの代替ではありません。
+- source checkoutからのdebug buildはproduction releaseや通常upgradeの代替ではありません。production APKはmatching GitHub Releaseのchecksumと公開署名identityを確認します。
 - public providerはGitHubとCodebergに限定され、private repository token、GitLab、任意Forgejo／Giteaには対応しません。
 - split APK、APKS、XAPK、APKM、AAB、silent／privileged installには対応しません。
 - generic buildは任意コード実行を伴います。Docker profileにも固定egress allowlistとhard disk／inode quotaはなく、安全なsourceの証明にはなりません。
@@ -62,4 +59,4 @@ Phase 4のprovider、download、build／comparison、安全境界に加え、現
 - scheduled release checkはmetadataと通知だけであり、APK download、toolchain導入、build、comparison、trust変更、installを自動開始しません。
 - build、scan、comparison、trust、signer、update relation、installabilityは独立した状態であり、一つの「安全」判定には統合しません。
 
-利用開始は[Getting started](../guides/getting-started.md)、通常操作と復旧は[Operations and recovery](../guides/operations.md)、次releaseの変更は[Unreleased notes](../releases/unreleased.md)を参照してください。
+利用開始は[Getting started](../guides/getting-started.md)、通常操作と復旧は[Operations and recovery](../guides/operations.md)、alpha05の変更は[release notes](../releases/0.1.0-alpha05.md)、その後の変更は[Unreleased notes](../releases/unreleased.md)を参照してください。

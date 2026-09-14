@@ -3,7 +3,7 @@
 - Status: Current development guide
 - Updated: 2026-09-14
 
-ReproDroid currently has no published Phase 5 APK or production-signed release candidate. Phase 5.7 work has assigned `0.1.0-alpha04`／`versionCode 4` to the candidate source, but the frozen Phase 4 alpha03 artifact remains the latest locally accepted production-signed artifact until the new candidate is rebuilt and accepted. Do not replace an installed production build with an arbitrary debug APK or treat a locally built APK as a published release.
+The current source identity is `0.1.0-alpha05`／`versionCode 5`. A source checkout or locally built APK is not a release announcement or a production-signed distribution. Obtain a production APK only from a GitHub Release whose tag resolves to the matching source commit, then verify its checksum and signer as described by the [release signing policy](../../release/README.md). Do not replace an installed production build with an arbitrary debug APK.
 
 ## 1. Requirements
 
