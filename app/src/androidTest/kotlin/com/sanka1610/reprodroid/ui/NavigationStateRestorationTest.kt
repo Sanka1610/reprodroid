@@ -1,5 +1,7 @@
 package com.sanka1610.reprodroid.ui
 
+import android.Manifest
+import android.os.Build
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -8,12 +10,27 @@ import com.sanka1610.reprodroid.MainActivity
 import com.sanka1610.reprodroid.R
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class NavigationStateRestorationTest {
+    private val notificationPermission = object : ExternalResource() {
+        override fun before() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val instrumentation = InstrumentationRegistry.getInstrumentation()
+                instrumentation.uiAutomation.grantRuntimePermission(
+                    instrumentation.targetContext.packageName,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                )
+            }
+        }
+    }
+    private val compose = createAndroidComposeRule<MainActivity>()
+
     @get:Rule
-    val compose = createAndroidComposeRule<MainActivity>()
+    val rules: RuleChain = RuleChain.outerRule(notificationPermission).around(compose)
 
     @Test
     fun selectedRootRouteSurvivesActivityRecreation() {
