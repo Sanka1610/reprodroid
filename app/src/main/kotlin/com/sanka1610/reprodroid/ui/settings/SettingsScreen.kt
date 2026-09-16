@@ -32,11 +32,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -77,11 +77,11 @@ import com.sanka1610.reprodroid.data.log.AppLogExportResult
 import com.sanka1610.reprodroid.ui.*
 import com.sanka1610.reprodroid.ui.navigation.ReproDroidRoute
 import com.sanka1610.reprodroid.ui.shared.*
-import kotlin.math.roundToInt
 
 private const val APPEARANCE_SECTION = "appearance"
 private const val DEFAULTS_SECTION = "defaults"
 private const val UPDATES_SECTION = "updates"
+private const val PERMISSIONS_SECTION = "permissions"
 private const val NOTIFICATIONS_SECTION = "notifications"
 private const val AUTHENTICATION_SECTION = "authentication"
 private const val INTEGRATIONS_SECTION = "integrations"
@@ -92,10 +92,13 @@ private const val DEBUG_SECTION = "debug"
 private const val ABOUT_SECTION = "about"
 private const val REPRODROID_GITHUB_URL = "https://github.com/Sanka1610/reprodroid"
 private const val AUTHOR_GITHUB_URL = "https://github.com/Sanka1610"
+private const val UPDATE_CHECK_DISABLED = "UPDATE_CHECK_DISABLED"
+private val INTERVAL_HOUR_OPTIONS = listOf(1, 2, 3, 4, 5, 6, 12, 24, 72, 120, 168)
 private val SETTINGS_SECTION_KEYS = listOf(
     APPEARANCE_SECTION,
     DEFAULTS_SECTION,
     UPDATES_SECTION,
+    PERMISSIONS_SECTION,
     NOTIFICATIONS_SECTION,
     AUTHENTICATION_SECTION,
     INTEGRATIONS_SECTION,
@@ -111,9 +114,11 @@ internal fun UiRSettingsScreen(
     settings: GlobalSettingsEntity,
     releaseSettings: ReleaseCheckSettingsEntity,
     notificationsAllowed: Boolean,
+    backgroundWorkAllowed: Boolean,
     onUpdate: (GlobalSettingsEntity) -> Unit,
     onUpdateReleaseSettings: (ReleaseCheckSettingsEntity) -> Unit,
     onRequestNotifications: () -> Unit,
+    onOpenBackgroundSettings: () -> Unit,
     onNavigate: (ReproDroidRoute) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -248,19 +253,23 @@ internal fun UiRSettingsScreen(
             }
         }
         item {
-            AccordionSection(stringResource(R.string.settings_notifications), NOTIFICATIONS_SECTION in expandedSections, { toggleSection(NOTIFICATIONS_SECTION) }) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.settings_allow_notifications), Modifier.weight(1f))
-                    OutlinedButton(enabled = !notificationsAllowed, onClick = onRequestNotifications) {
-                        Text(
-                            stringResource(
-                                if (notificationsAllowed) R.string.settings_notifications_allowed
-                                else R.string.settings_allow_notifications,
-                            ),
-                        )
-                    }
-                }
+            AccordionSection(stringResource(R.string.settings_permissions), PERMISSIONS_SECTION in expandedSections, { toggleSection(PERMISSIONS_SECTION) }) {
+                PermissionSetting(
+                    label = stringResource(R.string.settings_notification_permission),
+                    allowed = notificationsAllowed,
+                    onRequest = onRequestNotifications,
+                )
                 SettingDivider(settings.showSettingsDividers)
+                PermissionSetting(
+                    label = stringResource(R.string.settings_background_work),
+                    allowed = backgroundWorkAllowed,
+                    onRequest = onOpenBackgroundSettings,
+                    supportingText = stringResource(R.string.settings_background_work_body),
+                )
+            }
+        }
+        item {
+            AccordionSection(stringResource(R.string.settings_notifications), NOTIFICATIONS_SECTION in expandedSections, { toggleSection(NOTIFICATIONS_SECTION) }) {
                 SwitchSetting(
                     label = stringResource(R.string.release_check_notifications),
                     checked = releaseSettings.releaseNotificationsEnabled,
@@ -441,39 +450,83 @@ private fun ExternalSettingsLink(label: String, onClick: () -> Unit) {
 }
 
 @Composable
+private fun PermissionSetting(
+    label: String,
+    allowed: Boolean,
+    onRequest: () -> Unit,
+    supportingText: String? = null,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.titleSmall)
+            supportingText?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        OutlinedButton(enabled = !allowed, onClick = onRequest) {
+            Text(
+                stringResource(
+                    if (allowed) R.string.settings_permission_allowed else R.string.settings_allow_permission,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScheduleSetting(
+    enabled: Boolean,
+    scheduleMode: String,
+    onChange: (enabled: Boolean, scheduleMode: String) -> Unit,
+    supportingText: String? = null,
+) {
+    val selected = if (enabled) scheduleMode else UPDATE_CHECK_DISABLED
+    DropdownSetting(
+        label = stringResource(R.string.release_check_update_check),
+        value = selected,
+        options = linkedMapOf(
+            ReleaseCheckScheduleMode.INTERVAL.name to stringResource(R.string.release_check_interval_mode),
+            ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name to stringResource(R.string.release_check_daily_mode),
+            UPDATE_CHECK_DISABLED to stringResource(R.string.release_check_disabled_mode),
+        ),
+        onSelect = { value ->
+            if (value == UPDATE_CHECK_DISABLED) {
+                onChange(false, scheduleMode)
+            } else {
+                onChange(true, value)
+            }
+        },
+        supportingText = supportingText,
+    )
+}
+
+@Composable
 private fun IntervalHoursSetting(
     hours: Int,
     enabled: Boolean,
     onChange: (Int) -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .alpha(if (enabled) 1f else 0.38f),
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                stringResource(R.string.future_update_interval),
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                pluralStringResource(R.plurals.release_check_hours, hours, hours),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        Slider(
-            value = hours.toFloat(),
-            onValueChange = { candidate ->
-                val rounded = candidate.roundToInt().coerceIn(1, 24)
-                if (rounded != hours) onChange(rounded)
-            },
-            enabled = enabled,
-            valueRange = 1f..24f,
-            steps = 22,
-        )
+    val options = linkedMapOf<Int, String>().apply {
+        INTERVAL_HOUR_OPTIONS.forEach { candidate -> put(candidate, intervalLabel(candidate)) }
+        if (hours !in this) put(hours, intervalLabel(hours))
     }
+    DropdownSetting(
+        label = stringResource(R.string.future_update_interval),
+        value = hours,
+        options = options,
+        onSelect = onChange,
+        enabled = enabled,
+    )
 }
+
+@Composable
+private fun intervalLabel(hours: Int): String =
+    if (hours >= 24 && hours % 24 == 0) {
+        val days = hours / 24
+        pluralStringResource(R.plurals.release_check_days, days, days)
+    } else {
+        pluralStringResource(R.plurals.release_check_hours, hours, hours)
+    }
 
 @Composable
 private fun GlobalUpdateSettingsContent(
@@ -482,34 +535,23 @@ private fun GlobalUpdateSettingsContent(
     onUpdate: (ReleaseCheckSettingsEntity) -> Unit,
     onBatteryInfo: () -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(stringResource(R.string.future_update_schedule))
-            Text(stringResource(R.string.release_check_scope_body), style = MaterialTheme.typography.bodySmall)
-        }
-        Switch(checked = settings.enabled, onCheckedChange = { onUpdate(settings.copy(enabled = it)) })
-    }
-    SettingDivider(showDividers)
-    DropdownSetting(
-        stringResource(R.string.release_check_schedule_mode),
-        settings.scheduleMode,
-        linkedMapOf(
-            ReleaseCheckScheduleMode.INTERVAL.name to stringResource(R.string.release_check_interval_mode),
-            ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name to stringResource(R.string.release_check_daily_mode),
-        ),
-        { onUpdate(settings.copy(scheduleMode = it)) },
+    ScheduleSetting(
+        enabled = settings.enabled,
+        scheduleMode = settings.scheduleMode,
+        onChange = { enabled, mode -> onUpdate(settings.copy(enabled = enabled, scheduleMode = mode)) },
+        supportingText = stringResource(R.string.release_check_scope_body),
     )
     SettingDivider(showDividers)
     IntervalHoursSetting(
         hours = settings.intervalHours,
-        enabled = settings.scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
+        enabled = settings.enabled && settings.scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
         onChange = { onUpdate(settings.copy(intervalHours = it)) },
     )
     SettingDivider(showDividers)
     DailyMinuteSetting(
         minute = settings.dailyLocalMinute,
         onSave = { onUpdate(settings.copy(dailyLocalMinute = it)) },
-        enabled = settings.scheduleMode == ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name,
+        enabled = settings.enabled && settings.scheduleMode == ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name,
     )
     SettingDivider(showDividers)
     SwitchSetting(
@@ -556,37 +598,29 @@ internal fun AppUpdateSettingsContent(
     var showBatteryInfo by rememberSaveable { mutableStateOf(false) }
     val scheduleMode = override.scheduleMode ?: global.scheduleMode
     SwitchSetting(
-        label = stringResource(R.string.release_check_app_enabled),
-        checked = override.enabled ?: global.enabled,
-        onCheckedChange = { onUpdate(override.copy(enabled = it)) },
-    )
-    SettingDivider(showDividers)
-    SwitchSetting(
         label = stringResource(R.string.release_check_mute),
         checked = override.notificationMuted,
         onCheckedChange = { onUpdate(override.copy(notificationMuted = it)) },
     )
     SettingDivider(showDividers)
-    DropdownSetting(
-        stringResource(R.string.release_check_schedule_mode),
-        scheduleMode,
-        linkedMapOf(
-            ReleaseCheckScheduleMode.INTERVAL.name to stringResource(R.string.release_check_interval_mode),
-            ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name to stringResource(R.string.release_check_daily_mode),
-        ),
-        { onUpdate(override.copy(scheduleMode = it)) },
+    ScheduleSetting(
+        enabled = global.enabled && (override.enabled ?: true),
+        scheduleMode = scheduleMode,
+        onChange = { enabled, mode -> onUpdate(override.copy(enabled = enabled, scheduleMode = mode)) },
     )
     SettingDivider(showDividers)
     IntervalHoursSetting(
         hours = override.intervalHours ?: global.intervalHours,
-        enabled = scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
+        enabled = global.enabled && (override.enabled ?: true) &&
+            scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
         onChange = { onUpdate(override.copy(intervalHours = it)) },
     )
     SettingDivider(showDividers)
     DailyMinuteSetting(
         minute = override.dailyLocalMinute ?: global.dailyLocalMinute,
         onSave = { onUpdate(override.copy(dailyLocalMinute = it)) },
-        enabled = scheduleMode == ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name,
+        enabled = global.enabled && (override.enabled ?: true) &&
+            scheduleMode == ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name,
     )
     SettingDivider(showDividers)
     SwitchSetting(
@@ -693,37 +727,27 @@ internal fun ReleaseUpdateSettingsScreen(
         ) {
             item {
                 UiRDetailCard(stringResource(R.string.release_check_global_settings)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(stringResource(R.string.future_update_schedule))
-                            Text(stringResource(R.string.release_check_scope_body), style = MaterialTheme.typography.bodySmall)
-                        }
-                        Switch(
-                            checked = settings.enabled,
-                            onCheckedChange = { onUpdateSettings(settings.copy(enabled = it)) },
-                        )
-                    }
-                    SettingDivider(showDividers)
-                    DropdownSetting(
-                        stringResource(R.string.release_check_schedule_mode),
-                        settings.scheduleMode,
-                        linkedMapOf(
-                            ReleaseCheckScheduleMode.INTERVAL.name to stringResource(R.string.release_check_interval_mode),
-                            ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name to stringResource(R.string.release_check_daily_mode),
-                        ),
-                        { onUpdateSettings(settings.copy(scheduleMode = it)) },
+                    ScheduleSetting(
+                        enabled = settings.enabled,
+                        scheduleMode = settings.scheduleMode,
+                        onChange = { enabled, mode ->
+                            onUpdateSettings(settings.copy(enabled = enabled, scheduleMode = mode))
+                        },
+                        supportingText = stringResource(R.string.release_check_scope_body),
                     )
                     SettingDivider(showDividers)
                     IntervalHoursSetting(
                         hours = settings.intervalHours,
-                        enabled = settings.scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
+                        enabled = settings.enabled &&
+                            settings.scheduleMode == ReleaseCheckScheduleMode.INTERVAL.name,
                         onChange = { onUpdateSettings(settings.copy(intervalHours = it)) },
                     )
                     SettingDivider(showDividers)
                     DailyMinuteSetting(
                         minute = settings.dailyLocalMinute,
                         onSave = { onUpdateSettings(settings.copy(dailyLocalMinute = it)) },
-                        enabled = settings.scheduleMode == ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name,
+                        enabled = settings.enabled &&
+                            settings.scheduleMode == ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name,
                     )
                     SettingDivider(showDividers)
                     SwitchSetting(
@@ -771,14 +795,6 @@ internal fun ReleaseUpdateSettingsScreen(
                 val schedule = scheduleByApp[record.app.registeredAppId]
                 UiRDetailCard(record.app.resolvedDisplayName) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(R.string.release_check_app_enabled), Modifier.weight(1f))
-                        Switch(
-                            checked = override.enabled ?: true,
-                            onCheckedChange = { onUpdateOverride(override.copy(enabled = it)) },
-                        )
-                    }
-                    SettingDivider(showDividers)
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.release_check_mute), Modifier.weight(1f))
                         Switch(
                             checked = override.notificationMuted,
@@ -786,19 +802,18 @@ internal fun ReleaseUpdateSettingsScreen(
                         )
                     }
                     SettingDivider(showDividers)
-                    DropdownSetting(
-                        stringResource(R.string.release_check_schedule_mode),
-                        override.scheduleMode ?: settings.scheduleMode,
-                        linkedMapOf(
-                            ReleaseCheckScheduleMode.INTERVAL.name to stringResource(R.string.release_check_interval_mode),
-                            ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name to stringResource(R.string.release_check_daily_mode),
-                        ),
-                        { onUpdateOverride(override.copy(scheduleMode = it)) },
+                    ScheduleSetting(
+                        enabled = settings.enabled && (override.enabled ?: true),
+                        scheduleMode = override.scheduleMode ?: settings.scheduleMode,
+                        onChange = { enabled, mode ->
+                            onUpdateOverride(override.copy(enabled = enabled, scheduleMode = mode))
+                        },
                     )
                     SettingDivider(showDividers)
                     IntervalHoursSetting(
                         hours = override.intervalHours ?: settings.intervalHours,
-                        enabled = (override.scheduleMode ?: settings.scheduleMode) ==
+                        enabled = settings.enabled && (override.enabled ?: true) &&
+                            (override.scheduleMode ?: settings.scheduleMode) ==
                             ReleaseCheckScheduleMode.INTERVAL.name,
                         onChange = { onUpdateOverride(override.copy(intervalHours = it)) },
                     )
@@ -806,7 +821,8 @@ internal fun ReleaseUpdateSettingsScreen(
                     DailyMinuteSetting(
                         minute = override.dailyLocalMinute ?: settings.dailyLocalMinute,
                         onSave = { onUpdateOverride(override.copy(dailyLocalMinute = it)) },
-                        enabled = (override.scheduleMode ?: settings.scheduleMode) ==
+                        enabled = settings.enabled && (override.enabled ?: true) &&
+                            (override.scheduleMode ?: settings.scheduleMode) ==
                             ReleaseCheckScheduleMode.DAILY_LOCAL_TIME.name,
                     )
                     SettingDivider(showDividers)
@@ -925,36 +941,49 @@ internal fun ReleaseUpdateSettingsScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun DailyMinuteSetting(minute: Int, onSave: (Int) -> Unit, enabled: Boolean = true) {
-    val initial = "%02d:%02d".format(minute / 60, minute % 60)
-    var value by rememberSaveable(minute) { mutableStateOf(initial) }
-    val parsed = remember(value) {
-        val parts = value.split(':')
-        if (parts.size != 2) null else {
-            val hour = parts[0].toIntOrNull()
-            val localMinute = parts[1].toIntOrNull()
-            if (hour != null && localMinute != null && hour in 0..23 && localMinute in 0..59) {
-                hour * 60 + localMinute
-            } else {
-                null
-            }
+    var showPicker by rememberSaveable { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.38f)) {
+        Text(stringResource(R.string.release_check_daily_time), style = MaterialTheme.typography.titleSmall)
+        OutlinedButton(
+            enabled = enabled,
+            onClick = { showPicker = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("%02d:%02d".format(minute / 60, minute % 60))
         }
+        Text(
+            stringResource(R.string.release_check_daily_time_body),
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
-    OutlinedTextField(
-        value = value,
-        onValueChange = { value = it.take(5) },
-        label = { Text(stringResource(R.string.release_check_daily_time)) },
-        supportingText = { Text(stringResource(R.string.release_check_daily_time_body)) },
-        singleLine = true,
-        enabled = enabled,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedButton(
-        enabled = enabled && parsed != null && parsed != minute,
-        onClick = { parsed?.let(onSave) },
-        modifier = Modifier.fillMaxWidth(),
-    ) { Text(stringResource(R.string.action_save)) }
+    if (showPicker) {
+        val pickerState = rememberTimePickerState(
+            initialHour = minute / 60,
+            initialMinute = minute % 60,
+            is24Hour = true,
+        )
+        AlertDialog(
+            onDismissRequest = { showPicker = false },
+            title = { Text(stringResource(R.string.release_check_select_time)) },
+            text = { TimePicker(state = pickerState) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onSave(pickerState.hour * 60 + pickerState.minute)
+                        showPicker = false
+                    },
+                ) { Text(stringResource(R.string.action_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
 }
 
 @Composable

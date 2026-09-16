@@ -335,6 +335,12 @@
     <string name="enum_debug">Debug</string>
     <string name="enum_universal">Universal</string>
     <string name="settings_updates">更新の確認</string>
+    <string name="settings_permissions">権限</string>
+    <string name="settings_notification_permission">通知</string>
+    <string name="settings_background_work">バックグラウンド動作</string>
+    <string name="settings_background_work_body">Androidで制限されていると定期確認を実行できません。</string>
+    <string name="settings_allow_permission">許可する</string>
+    <string name="settings_permission_allowed">許可済み</string>
     <string name="settings_notifications">通知</string>
     <string name="settings_allow_notifications">通知を許可</string>
     <string name="settings_notifications_allowed">許可済み</string>
@@ -503,10 +509,13 @@
     <string name="future_update_interval">確認する間隔</string>
     <string name="release_check_global_settings">リリースの定期確認</string>
     <string name="release_check_scope_body">リリースの監視のみを行います。</string>
+    <string name="release_check_update_check">更新の確認</string>
     <string name="release_check_schedule_mode">スケジュール方式</string>
     <string name="release_check_interval_mode">間隔</string>
-    <string name="release_check_daily_mode">指定時刻のみ</string>
+    <string name="release_check_daily_mode">指定時刻</string>
+    <string name="release_check_disabled_mode">更新しない</string>
     <string name="release_check_daily_time">確認する時刻（HH:MM）</string>
+    <string name="release_check_select_time">確認時刻を選択</string>
     <string name="release_check_daily_time_body">実行可能になる最短のローカル時刻です。Androidにより遅延する場合があります。</string>
     <string name="release_check_include_prerelease_toggle">プレリリースを含む</string>
     <string name="release_check_include_metered">従量課金を含む</string>
@@ -534,6 +543,9 @@
     <string name="release_notification_verified">検証済み更新を利用できます: %1$s</string>
     <plurals name="release_check_hours">
         <item quantity="other">%d時間</item>
+    </plurals>
+    <plurals name="release_check_days">
+        <item quantity="other">%d日</item>
     </plurals>
     <string name="log_export_choose_destination">運用ログを保存</string>
     <string name="log_export_saved">運用ログのエクスポートを保存しました</string>

@@ -6,7 +6,7 @@ ReproDroidには3つのroot pageがあります。
 
 - Registered apps: 登録済みapp、group、search、filter
 - Add app: public repositoryの登録
-- Settings: appearance、update、notification、Runner、storage、export、license
+- Settings: appearance、update、permission、notification、Runner、storage、export、license
 
 root navigationと横swipeは同じ選択状態を共有します。Add appのanalysis/options/confirmation中はnested flowとして扱います。
 
@@ -28,13 +28,15 @@ Add appへpublic GitHub/Codeberg repository URLを入力します。analysisでp
 
 InformationのRelease trackingからCheck for updatesを実行します。global/per-app policyでは次を設定できます。
 
-- 1〜24時間intervalまたは指定時刻
+- 1/2/3/4/5/6/12時間、1/3/5/7日interval、24時間dialで選ぶ指定時刻、または更新しない
 - network/battery policy
 - charging-only
 - release-check notification
 - appごとのoverride
 
 scheduled checkはbounded release metadataを取得し、release observationとhistoryを更新して通知します。APK download、toolchain install、Runner Job、build、comparison、trust変更、installは各画面の明示操作から開始します。
+
+SettingsのPermissionsではnotification permissionとAndroidのbackground restriction状態を確認できます。background operationが制限されている場合はsystem settingsを開いて変更します。既定のbattery optimizationではAndroidが実行を遅らせる場合があり、指定時刻は厳密な実行時刻ではありません。
 
 ## 公式APKを取得する
 

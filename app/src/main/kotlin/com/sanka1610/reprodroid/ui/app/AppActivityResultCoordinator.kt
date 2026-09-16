@@ -29,12 +29,15 @@ internal data class UninstallActivityTarget(
 internal class AppActivityResultCoordinator(
     private val launchUninstallIntent: (UninstallActivityTarget) -> Unit,
     private val launchNotificationPermission: () -> Unit,
+    private val launchBackgroundSettings: () -> Unit,
     private val launchLogDestination: () -> Unit,
     private val launchAuditDestination: (String) -> Unit,
 ) {
     fun uninstall(target: UninstallActivityTarget) = launchUninstallIntent(target)
 
     fun requestNotificationPermission() = launchNotificationPermission()
+
+    fun openBackgroundSettings() = launchBackgroundSettings()
 
     fun createLogExportDocument() = launchLogDestination()
 
@@ -116,6 +119,24 @@ internal fun rememberAppActivityResultCoordinator(
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
                 }
+            },
+            launchBackgroundSettings = {
+                val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    Intent(Settings.ACTION_APP_USAGE_SETTINGS)
+                        .putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName)
+                } else {
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:${context.packageName}"),
+                    )
+                }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val fallback = Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:${context.packageName}"),
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(
+                    if (intent.resolveActivity(context.packageManager) != null) intent else fallback,
+                )
             },
             launchLogDestination = {
                 logDestinationLauncher.launch(AppLogExportManager.SUGGESTED_FILE_NAME)

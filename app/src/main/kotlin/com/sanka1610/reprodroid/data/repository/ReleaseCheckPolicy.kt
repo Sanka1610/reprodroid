@@ -41,7 +41,7 @@ object ReleaseCheckPolicy {
         enumValue<ReleaseCheckChannel>(settings.releaseChannel)
         enumValue<ReleaseCheckNetworkPolicy>(settings.networkPolicy)
         enumValue<ReleaseCheckBatteryPolicy>(settings.batteryPolicy)
-        require(settings.intervalHours in 1..24) { "Check interval must be between 1 and 24 hours." }
+        require(settings.intervalHours in 1..168) { "Check interval must be between 1 and 168 hours." }
         require(settings.dailyLocalMinute in 0..1439) { "Daily check time must be a local minute from 0 to 1439." }
         require(settings.revision > 0) { "Settings revision must be positive." }
         require(runCatching { Instant.parse(settings.updatedAt) }.isSuccess) { "Settings timestamp is invalid." }
@@ -104,7 +104,7 @@ object ReleaseCheckPolicy {
         override.releaseChannel?.let { enumValue<ReleaseCheckChannel>(it) }
         override.networkPolicy?.let { enumValue<ReleaseCheckNetworkPolicy>(it) }
         override.batteryPolicy?.let { enumValue<ReleaseCheckBatteryPolicy>(it) }
-        override.intervalHours?.let { require(it in 1..24) { "App check interval must be between 1 and 24 hours." } }
+        override.intervalHours?.let { require(it in 1..168) { "App check interval must be between 1 and 168 hours." } }
         override.dailyLocalMinute?.let { require(it in 0..1439) { "App daily check time is invalid." } }
         require(override.revision > 0) { "App settings revision must be positive." }
         require(runCatching { Instant.parse(override.updatedAt) }.isSuccess) { "App settings timestamp is invalid." }
@@ -115,7 +115,7 @@ object ReleaseCheckPolicy {
         enumValue<ReleaseCheckChannel>(settings.releaseChannel)
         enumValue<ReleaseCheckNetworkPolicy>(settings.networkPolicy)
         enumValue<ReleaseCheckBatteryPolicy>(settings.batteryPolicy)
-        require(settings.intervalHours in 1..24)
+        require(settings.intervalHours in 1..168)
         require(settings.dailyLocalMinute in 0..1439)
     }
 
