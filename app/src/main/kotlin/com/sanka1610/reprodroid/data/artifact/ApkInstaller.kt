@@ -12,6 +12,7 @@ import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
 import com.sanka1610.reprodroid.data.local.ArtifactEntity
 import com.sanka1610.reprodroid.data.local.InstallAttemptEntity
 import com.sanka1610.reprodroid.data.local.InstallAttemptStatus
+import com.sanka1610.reprodroid.data.local.InstallerMode
 import com.sanka1610.reprodroid.data.local.JobDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,10 +31,20 @@ class ApkInstaller(
 ) {
     private val applicationContext = context.applicationContext
     private val packageManager = applicationContext.packageManager
+    private val shizukuInstaller by lazy { ShizukuPackageInstaller(applicationContext) }
     private val filesDirectory = applicationContext.filesDir.toPath().toAbsolutePath().normalize()
 
-    suspend fun install(jobId: String, artifact: ArtifactEntity): String = withContext(Dispatchers.IO) {
-        if (!packageManager.canRequestPackageInstalls()) throw UnknownSourcesPermissionRequired()
+    suspend fun install(
+        jobId: String,
+        artifact: ArtifactEntity,
+        requestedMode: InstallerMode = InstallerMode.SYSTEM,
+        recordGooglePlayAsInstaller: Boolean = false,
+        privilegedEligible: Boolean = false,
+    ): String = withContext(Dispatchers.IO) {
+        val usePrivilegedInstaller = requestedMode == InstallerMode.SHIZUKU && privilegedEligible
+        if (!usePrivilegedInstaller && !packageManager.canRequestPackageInstalls()) {
+            throw UnknownSourcesPermissionRequired()
+        }
         if (artifact.downloadStatus != ArtifactDownloadStatus.VERIFIED.name) {
             throw IllegalStateException("The APK must pass transfer verification before installation.")
         }
@@ -62,28 +73,44 @@ class ApkInstaller(
             status = InstallAttemptStatus.PREPARING.name,
             packageInstallerStatus = null,
             statusMessage = null,
+            installerMode = if (usePrivilegedInstaller) InstallerMode.SHIZUKU.name else InstallerMode.SYSTEM.name,
+            installerPackageName = if (usePrivilegedInstaller) {
+                if (recordGooglePlayAsInstaller) ShizukuPackageInstaller.GOOGLE_PLAY_PACKAGE
+                else ShizukuPackageInstaller.SHELL_PACKAGE
+            } else {
+                applicationContext.packageName
+            },
             createdAt = createdAt,
             updatedAt = createdAt,
         )
         jobDao.upsertInstallAttempt(attempt)
 
         var sessionId: Int? = null
+        var privilegedSession: PrivilegedInstallSession? = null
         try {
             val parameters = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
                 setAppPackageName(artifact.packageName)
                 setSize(apkPath.toFile().length())
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
+                    setRequireUserAction(
+                        if (usePrivilegedInstaller) PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED
+                        else PackageInstaller.SessionParams.USER_ACTION_REQUIRED,
+                    )
                 }
             }
-            sessionId = packageManager.packageInstaller.createSession(parameters)
+            privilegedSession = if (usePrivilegedInstaller) {
+                shizukuInstaller.createSession(parameters, recordGooglePlayAsInstaller)
+            } else {
+                null
+            }
+            sessionId = privilegedSession?.sessionId ?: packageManager.packageInstaller.createSession(parameters)
             attempt = attempt.copy(
                 packageInstallerSessionId = sessionId,
                 updatedAt = Instant.now().toString(),
             )
             jobDao.upsertInstallAttempt(attempt)
 
-            packageManager.packageInstaller.openSession(sessionId).use { session ->
+            (privilegedSession?.session ?: packageManager.packageInstaller.openSession(sessionId)).use { session ->
                 apkPath.toFile().inputStream().use { input ->
                     session.openWrite("base.apk", 0, apkPath.toFile().length()).use { output ->
                         input.copyTo(output)
@@ -99,7 +126,13 @@ class ApkInstaller(
             }
             attemptId
         } catch (failure: Throwable) {
-            sessionId?.let { runCatching { packageManager.packageInstaller.abandonSession(it) } }
+            sessionId?.let {
+                if (usePrivilegedInstaller) {
+                    runCatching { privilegedSession?.session?.abandon() }
+                } else {
+                    runCatching { packageManager.packageInstaller.abandonSession(it) }
+                }
+            }
             jobDao.upsertInstallAttempt(
                 attempt.copy(
                     status = InstallAttemptStatus.FAILED.name,

@@ -42,6 +42,7 @@ class LicenseAssetStore(private val context: Context) {
         const val SMALI_LICENSE_ASSET = "licenses/SMALI-DEXLIB2-LICENSE.txt"
         const val CHECKER_QUAL_LICENSE_ASSET = "licenses/CHECKER-QUAL-LICENSE.txt"
         const val SLF4J_LICENSE_ASSET = "licenses/SLF4J-LICENSE.txt"
+        const val SHIZUKU_INSTALLER_LICENSE_ASSET = "licenses/SHIZUKU-APK-INSTALLER-LICENSE.txt"
 
         private val DOCUMENTS = listOf(
             Descriptor("ReproDroid license", REPRODROID_LICENSE_ASSET),
@@ -49,6 +50,7 @@ class LicenseAssetStore(private val context: Context) {
             Descriptor("smali-dexlib2 license", SMALI_LICENSE_ASSET),
             Descriptor("checker-qual license", CHECKER_QUAL_LICENSE_ASSET),
             Descriptor("slf4j-api license", SLF4J_LICENSE_ASSET),
+            Descriptor("shizuku_apk_installer license", SHIZUKU_INSTALLER_LICENSE_ASSET),
         )
     }
 }

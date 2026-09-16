@@ -201,6 +201,8 @@
     <string name="technical_source">Source</string>
     <string name="technical_latest_install_attempt">Latest install attempt</string>
     <string name="technical_installer_message">Installer message</string>
+    <string name="technical_installer_mode">Installer mode</string>
+    <string name="technical_installer_package">Installer-of-record package</string>
     <string name="technical_repeat_docker_warning">This independent Job runs arbitrary Gradle code in %1$s. Bridge networking does not establish host or LAN isolation, and no hard Job disk quota is enforced. Runner-observed evidence is not a safety verdict or third-party attestation.</string>
     <string name="technical_repeat_build_warning">Build A completed. The repeat Job independently resolved the same commit and fixed profile. Continuing runs Gradle build scripts again as arbitrary code on the Runner host.</string>
     <string name="technical_primary_build_warning">The commit and fixed release profile match. Continuing runs Gradle build scripts as arbitrary code on the Runner host.</string>
@@ -219,6 +221,9 @@
     <string name="technical_allow_installs">Allow installs from ReproDroid</string>
     <string name="technical_update">Update</string>
     <string name="technical_install">Install</string>
+    <string name="technical_update_shizuku">Update with Shizuku / Sui</string>
+    <string name="technical_install_shizuku">Install with Shizuku / Sui</string>
+    <string name="technical_shizuku_fallback">This APK still requires a signer or reproducibility warning. ReproDroid will use the system installer and keep its confirmation instead of using the privileged path.</string>
     <string name="section_current_state">Current state</string>
     <string name="section_reproducibility">Build verification</string>
     <string name="section_build_summary">Build summary</string>
@@ -423,6 +428,16 @@ Custom colors are used when unavailable.</string>
     <string name="settings_integrations">External tool integrations</string>
     <string name="settings_shizuku">Shizuku</string>
     <string name="settings_external_tools_unavailable">Not connected in this version.</string>
+    <string name="settings_install_method">Installation method</string>
+    <string name="settings_install_method_system">System installer</string>
+    <string name="settings_install_method_shizuku">Shizuku / Sui</string>
+    <string name="settings_shizuku_ready">Ready. ReproDroid has Shizuku / Sui permission.</string>
+    <string name="settings_shizuku_unavailable">Shizuku / Sui is not running. Start it before selecting this method.</string>
+    <string name="settings_shizuku_unsupported">The running Shizuku version is not supported. Version 11 or newer is required.</string>
+    <string name="settings_shizuku_permission_required">Permission was not granted. Selecting Shizuku / Sui requests it again when allowed.</string>
+    <string name="settings_shizuku_safety_body">Privileged installation skips the OEM confirmation only for a signer-matched update or a Reproducible artifact. APKs that still need a risk acknowledgement use the system installer.</string>
+    <string name="settings_google_play_installer">Record Google Play as installer</string>
+    <string name="settings_google_play_installer_body">Compatibility option for apps that inspect Android’s installer-of-record. This does not change where the APK was obtained, and ReproDroid keeps the actual source in its audit history. Off by default.</string>
     <string name="settings_log_export">Operational log export</string>
     <string name="settings_licenses">License</string>
     <string name="settings_third_party_notices">Third-party notices</string>

@@ -15,7 +15,7 @@ class LicenseAssetStoreTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val documents = LicenseAssetStore(context).loadDocuments()
 
-        assertEquals(5, documents.size)
+        assertEquals(6, documents.size)
         assertTrue(documents[0].text.contains("Apache License"))
         assertTrue(documents[0].text.contains("Copyright 2026 Sanka1610"))
         assertTrue(documents[1].text.contains("ReproDroid third-party notices"))
@@ -31,5 +31,7 @@ class LicenseAssetStoreTest {
         assertTrue(documents[3].text.contains("THE SOFTWARE IS PROVIDED \"AS IS\""))
         assertTrue(documents[4].text.contains("Copyright (c) 2004-2022 QOS.ch Sarl"))
         assertTrue(documents[4].text.contains("Permission is hereby granted"))
+        assertTrue(documents[5].text.contains("Copyright (c) 2024 Gregory Velichko"))
+        assertTrue(documents[5].text.contains("MIT License"))
     }
 }

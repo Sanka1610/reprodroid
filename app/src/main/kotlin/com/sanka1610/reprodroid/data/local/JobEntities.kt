@@ -126,6 +126,9 @@ data class InstallAttemptEntity(
     val status: String,
     val packageInstallerStatus: Int?,
     val statusMessage: String?,
+    @ColumnInfo(defaultValue = "'SYSTEM'")
+    val installerMode: String = InstallerMode.SYSTEM.name,
+    val installerPackageName: String? = null,
     val createdAt: String,
     val updatedAt: String,
 )

@@ -40,6 +40,17 @@ Other direct runtime libraries
 io.github.erdtman:java-json-canonicalization 1.1 (Apache License 2.0)
 com.android.tools.smali:smali-dexlib2 3.0.9 (BSD-3-Clause; full text below)
 io.github.reandroid:ARSCLib 1.4.0 (Apache License 2.0)
+dev.rikka.shizuku:api 13.1.5 (Apache License 2.0)
+dev.rikka.shizuku:provider 13.1.5 (Apache License 2.0)
+dev.rikka.tools.refine:runtime 4.4.0 (Apache License 2.0)
+org.lsposed.hiddenapibypass:hiddenapibypass 6.1 (Apache License 2.0)
+
+Adapted implementation
+----------------------
+The privileged PackageInstaller binder-wrapping approach is adapted from
+ImranR98/shizuku_apk_installer at commit
+12d8447c501e6abfadd134887b8b810d07b1d1e3 (MIT). Its license text is included
+in licenses/SHIZUKU-APK-INSTALLER-LICENSE.txt.
 
 Resolved releaseRuntime transitive notices
 -------------------------------------------
@@ -63,6 +74,7 @@ Build plugins and tooling (not packaged in the APK)
 com.android.tools.build:gradle 8.13.2
 org.jetbrains.kotlin.android / compose / serialization 2.3.20
 com.google.devtools.ksp 2.3.9
+dev.rikka.tools.refine 4.4.0
 Gradle wrapper (see gradle/wrapper/gradle-wrapper.properties)
 
 Full license texts in this offline view
@@ -70,6 +82,8 @@ Full license texts in this offline view
 ReproDroid's own Apache License 2.0 text is in licenses/LICENSE.txt and in the
 source-distribution root LICENSE file. Full upstream license texts for the
 non-Apache releaseRuntime artifacts are in licenses/SMALI-DEXLIB2-LICENSE.txt,
-licenses/CHECKER-QUAL-LICENSE.txt, and licenses/SLF4J-LICENSE.txt. Each
-dependency remains under its upstream license; this notice is not a substitute
-for checking the exact release SBOM and resolved artifact metadata.
+licenses/CHECKER-QUAL-LICENSE.txt, licenses/SLF4J-LICENSE.txt, and
+licenses/SHIZUKU-APK-INSTALLER-LICENSE.txt. Each dependency remains under its
+upstream license, and the adapted source remains under its source license; this
+notice is not a substitute for checking the exact release SBOM and resolved
+artifact metadata.

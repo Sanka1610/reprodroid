@@ -8,6 +8,7 @@
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
     <application
         android:name=".ReproDroidApplication"
@@ -20,6 +21,13 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ReproDroid"
         android:usesCleartextTraffic="false">
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

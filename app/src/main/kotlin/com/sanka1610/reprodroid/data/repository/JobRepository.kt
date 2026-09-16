@@ -8,6 +8,7 @@ import com.sanka1610.reprodroid.data.local.ArtifactDownloadStatus
 import com.sanka1610.reprodroid.data.local.ArtifactEntity
 import com.sanka1610.reprodroid.data.local.BuildEnvironmentManifestWithDependencies
 import com.sanka1610.reprodroid.data.local.InstallAttemptStatus
+import com.sanka1610.reprodroid.data.local.InstallerMode
 import com.sanka1610.reprodroid.data.local.JobEntity
 import com.sanka1610.reprodroid.data.local.JobRecord
 import com.sanka1610.reprodroid.data.local.LogEntity
@@ -710,7 +711,11 @@ class JobRepository(
         }
     }
 
-    suspend fun installArtifact(jobId: String, artifactId: String): String {
+    suspend fun installArtifact(
+        jobId: String,
+        artifactId: String,
+        privilegedEligible: Boolean = false,
+    ): String {
         val artifact = requireNotNull(jobDao.getArtifact(jobId, artifactId)) { "The APK artifact does not exist." }
         check(
             !artifact.signingCertificateSha256.isNullOrBlank() &&
@@ -720,7 +725,16 @@ class JobRepository(
         }
         storageManager.requirePresent("RUNNER_APK", artifactId)
         storageManager.markUsed("RUNNER_APK", artifactId)
-        return apkInstaller.install(jobId, artifact)
+        val settings = database.managedAppDao().getGlobalSettings()
+        val requestedMode = InstallerMode.entries.firstOrNull { it.name == settings?.installerMode }
+            ?: InstallerMode.SYSTEM
+        return apkInstaller.install(
+            jobId = jobId,
+            artifact = artifact,
+            requestedMode = requestedMode,
+            recordGooglePlayAsInstaller = settings?.recordGooglePlayAsInstaller == true,
+            privilegedEligible = privilegedEligible,
+        )
     }
 
     suspend fun recordInstallStatus(
@@ -748,14 +762,20 @@ class JobRepository(
                 val stale = runCatching {
                     Instant.parse(attempt.updatedAt).plusSeconds(INSTALL_CALLBACK_GRACE_SECONDS) <= now
                 }.getOrDefault(false)
-                stale && attempt.packageInstallerSessionId !in activeSessionIds
+                stale && (
+                    attempt.installerMode == InstallerMode.SHIZUKU.name ||
+                        attempt.packageInstallerSessionId !in activeSessionIds
+                    )
             }
             .forEach { attempt ->
                 jobDao.upsertInstallAttempt(
                     attempt.copy(
                         status = InstallAttemptStatus.FAILED.name,
-                        statusMessage =
-                            "The PackageInstaller session is no longer active, but no terminal callback was received.",
+                        statusMessage = if (attempt.installerMode == InstallerMode.SHIZUKU.name) {
+                            "The privileged PackageInstaller callback was not received before the recovery timeout."
+                        } else {
+                            "The PackageInstaller session is no longer active, but no terminal callback was received."
+                        },
                         updatedAt = now.toString(),
                     ),
                 )

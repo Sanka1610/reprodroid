@@ -8,6 +8,7 @@
 | `POST_NOTIFICATIONS` | Android 13以降でrelease-check notificationを表示 |
 | `QUERY_ALL_PACKAGES` | URL登録後に判明するtarget packageのinstalled versionとsignerを照会 |
 | `REQUEST_INSTALL_PACKAGES` | eligible APKをAndroid標準`PackageInstaller`へ渡す |
+| `moe.shizuku.manager.permission.API_V23` | 利用者がShizuku／Sui経路を選んだ場合だけ、特権`PackageInstaller` sessionを要求 |
 
 notification permissionを拒否した場合、Settings → Notificationsから再度system promptを要求できます。release-check policyとOS permissionは別設定です。
 
@@ -39,7 +40,9 @@ Gradle build scriptとpluginは任意コードを実行できます。generic bu
 
 provider URL、redirect、MIME、size、byte countを上限付きで扱い、download後にSHA-256を計算します。APK bytesからpackage、version、signerを解析し、provider metadataだけでidentityを確定しません。
 
-install/update時はAndroid標準`PackageInstaller`が最終確認とsigner-lineage判定を行います。ReproDroidはsilent install、root/Shizuku、署名検証回避を使用しません。
+既定のinstall/updateはAndroid標準`PackageInstaller`の利用者確認とsigner-lineage判定を維持します。任意のShizuku／Sui経路は、利用者がReproDroidへ権限を付与し、直前のbyte／identity／signer再検査を通過したうえで、既存installとsignerが一致する更新、または`Reproducible`判定済みartifactにだけ使用します。警告確認が必要なAPKは特権経路を使わず、標準installerへfail closedします。低target SDK制限、署名検証、version制約は回避しません。
+
+「Google Playをinstallerとして記録」は既定OFFの互換設定です。特権sessionのinstaller-of-recordを`com.android.vending`にしますが、APKの実取得元や検証結果は変更せず、ReproDroidの監査履歴にも実際のprovider／artifact identityを保持します。
 
 ## 公開releaseの確認
 

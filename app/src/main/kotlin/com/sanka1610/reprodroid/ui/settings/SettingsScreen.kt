@@ -43,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -64,6 +65,7 @@ import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.local.AppReleaseCheckOverrideEntity
 import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
 import com.sanka1610.reprodroid.data.local.InstallationSource
+import com.sanka1610.reprodroid.data.local.InstallerMode
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.PreferredAbi
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
@@ -78,6 +80,8 @@ import com.sanka1610.reprodroid.data.local.ThemeMode
 import com.sanka1610.reprodroid.data.license.LicenseAssetStore
 import com.sanka1610.reprodroid.data.license.LicenseDocument
 import com.sanka1610.reprodroid.data.log.AppLogExportResult
+import com.sanka1610.reprodroid.data.artifact.ShizukuPackageInstaller
+import com.sanka1610.reprodroid.data.artifact.ShizukuPermissionState
 import com.sanka1610.reprodroid.data.provider.MAX_PROVIDER_TOKEN_BYTES
 import com.sanka1610.reprodroid.data.provider.ProviderCredentialAvailability
 import com.sanka1610.reprodroid.data.provider.ProviderCredentialStatus
@@ -86,6 +90,7 @@ import com.sanka1610.reprodroid.ui.state.ProviderAuthUiState
 import com.sanka1610.reprodroid.ui.*
 import com.sanka1610.reprodroid.ui.navigation.ReproDroidRoute
 import com.sanka1610.reprodroid.ui.shared.*
+import kotlinx.coroutines.launch
 
 private const val APPEARANCE_SECTION = "appearance"
 private const val DEFAULTS_SECTION = "defaults"
@@ -133,7 +138,11 @@ internal fun UiRSettingsScreen(
     onOpenBackgroundSettings: () -> Unit,
     onNavigate: (ReproDroidRoute) -> Unit,
 ) {
+    val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    val shizukuInstaller = remember(context) { ShizukuPackageInstaller(context.applicationContext) }
+    var shizukuPermissionState by remember { mutableStateOf(shizukuInstaller.permissionState()) }
     val expandedSections = remember(settings.settingsExpandedSections) {
         settings.settingsExpandedSections.split(',').filterTo(linkedSetOf()) { it in SETTINGS_SECTION_KEYS }
     }
@@ -335,9 +344,54 @@ internal fun UiRSettingsScreen(
         }
         item {
             AccordionSection(stringResource(R.string.settings_integrations), INTEGRATIONS_SECTION in expandedSections, { toggleSection(INTEGRATIONS_SECTION) }) {
-                UnavailableSetting(
-                    stringResource(R.string.settings_shizuku),
-                    stringResource(R.string.settings_external_tools_unavailable),
+                DropdownSetting(
+                    label = stringResource(R.string.settings_install_method),
+                    value = settings.installerMode,
+                    options = linkedMapOf(
+                        InstallerMode.SYSTEM.name to stringResource(R.string.settings_install_method_system),
+                        InstallerMode.SHIZUKU.name to stringResource(R.string.settings_install_method_shizuku),
+                    ),
+                    onSelect = { selected ->
+                        if (selected == InstallerMode.SYSTEM.name) {
+                            onUpdate(
+                                settings.copy(
+                                    installerMode = selected,
+                                    recordGooglePlayAsInstaller = false,
+                                ),
+                            )
+                        } else {
+                            scope.launch {
+                                shizukuPermissionState = shizukuInstaller.requestPermission()
+                                if (shizukuPermissionState == ShizukuPermissionState.GRANTED) {
+                                    onUpdate(settings.copy(installerMode = InstallerMode.SHIZUKU.name))
+                                }
+                            }
+                        }
+                    },
+                )
+                Text(
+                    text = when (shizukuPermissionState) {
+                        ShizukuPermissionState.GRANTED -> stringResource(R.string.settings_shizuku_ready)
+                        ShizukuPermissionState.SERVICE_UNAVAILABLE -> stringResource(R.string.settings_shizuku_unavailable)
+                        ShizukuPermissionState.UNSUPPORTED -> stringResource(R.string.settings_shizuku_unsupported)
+                        ShizukuPermissionState.DENIED -> stringResource(R.string.settings_shizuku_permission_required)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (settings.installerMode == InstallerMode.SHIZUKU.name) {
+                    SettingDivider(settings.showSettingsDividers)
+                    SwitchSetting(
+                        label = stringResource(R.string.settings_google_play_installer),
+                        checked = settings.recordGooglePlayAsInstaller,
+                        onCheckedChange = {
+                            onUpdate(settings.copy(recordGooglePlayAsInstaller = it))
+                        },
+                        supportingText = stringResource(R.string.settings_google_play_installer_body),
+                    )
+                }
+                Text(
+                    stringResource(R.string.settings_shizuku_safety_body),
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
         }

@@ -7,6 +7,9 @@
 - 定期確認の有効化と方式を「更新の確認」に統合し、間隔／指定時刻／更新しないから選択
 - intervalを1〜168時間の候補式へ変更し、指定時刻に24時間dialを追加
 - 通知権限とbackground制限状態を「権限」に分離し、release-check通知設定は「通知」に維持
+- install方法に、既定のシステムinstallerに加えてShizuku／Suiを追加
+- signer一致更新またはReproducible artifactだけを特権install対象とし、警告対象はシステム確認へfail closed
+- 任意のGoogle Play installer-of-record互換設定を追加（実取得元の監査記録は変更しない）
 
 ## 0.1.0-alpha05
 

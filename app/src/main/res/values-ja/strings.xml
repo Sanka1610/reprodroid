@@ -201,6 +201,8 @@
     <string name="technical_source">インストール元</string>
     <string name="technical_latest_install_attempt">最新インストール試行</string>
     <string name="technical_installer_message">Installerメッセージ</string>
+    <string name="technical_installer_mode">Installerモード</string>
+    <string name="technical_installer_package">Installer-of-recordパッケージ</string>
     <string name="technical_repeat_docker_warning">この独立Jobは%1$s内で任意のGradleコードを実行します。Bridge networkはhost／LAN isolationを保証せず、Jobの厳格なdisk quotaもありません。Runner観測証拠は安全判定でも第三者証明でもありません。</string>
     <string name="technical_repeat_build_warning">Build Aが完了しました。反復Jobは同じcommitと固定profileを独立に解決済みです。続行するとRunner host上でGradle build scriptを任意コードとして再実行します。</string>
     <string name="technical_primary_build_warning">commitと固定Release profileが一致しています。続行するとRunner host上でGradle build scriptを任意コードとして実行します。</string>
@@ -219,6 +221,9 @@
     <string name="technical_allow_installs">ReproDroidからのインストールを許可</string>
     <string name="technical_update">更新</string>
     <string name="technical_install">インストール</string>
+    <string name="technical_update_shizuku">Shizuku / Suiで更新</string>
+    <string name="technical_install_shizuku">Shizuku / Suiでインストール</string>
+    <string name="technical_shizuku_fallback">このAPKには署名または再現性の警告が残っています。特権経路は使わず、確認を維持したシステムinstallerへ渡します。</string>
     <string name="section_current_state">現在の状態</string>
     <string name="section_reproducibility">ビルドの検証</string>
     <string name="section_build_summary">ビルド概要</string>
@@ -423,6 +428,16 @@
     <string name="settings_integrations">外部ツール連携</string>
     <string name="settings_shizuku">Shizuku</string>
     <string name="settings_external_tools_unavailable">このバージョンでは接続できません。</string>
+    <string name="settings_install_method">インストール方法</string>
+    <string name="settings_install_method_system">システムinstaller</string>
+    <string name="settings_install_method_shizuku">Shizuku / Sui</string>
+    <string name="settings_shizuku_ready">利用できます。ReproDroidへのShizuku / Sui権限は付与済みです。</string>
+    <string name="settings_shizuku_unavailable">Shizuku / Suiが動作していません。起動してからこの方法を選択してください。</string>
+    <string name="settings_shizuku_unsupported">実行中のShizukuは対応外です。バージョン11以降が必要です。</string>
+    <string name="settings_shizuku_permission_required">権限が付与されていません。許可可能な状態でShizuku / Suiを選び直すと再要求します。</string>
+    <string name="settings_shizuku_safety_body">OEM確認を省略する特権インストールは、既存アプリとsignerが一致する更新、またはReproducibleなartifactだけに使用します。リスク確認が残るAPKはシステムinstallerへ戻します。</string>
+    <string name="settings_google_play_installer">Google Playをinstallerとして記録</string>
+    <string name="settings_google_play_installer_body">Androidのinstaller-of-recordを確認するアプリ向けの互換オプションです。APKの実取得元は変わらず、ReproDroidの監査履歴には実際の取得元を保持します。既定はオフです。</string>
     <string name="settings_log_export">運用ログのエクスポート</string>
     <string name="settings_licenses">ライセンス</string>
     <string name="settings_third_party_notices">サードパーティ通知</string>

@@ -17,7 +17,7 @@ ReproDroidは、配布元が公開するAPKと、対応する公開sourceから�
 - 補助的なDEX／Manifest／resource差異表示
 - 履歴、設定、保存容量、cleanup、監査export
 - scheduled metadata checkと通知
-- Android標準installerによるinstall確認
+- Android標準installer、または安全条件付きShizuku／Sui sessionによるinstall
 - Android自身のlog export
 
 Androidは、Runnerのfilesystem path、秘密情報、toolchain inventory valueを複製しません。
@@ -53,7 +53,7 @@ Public repository URL
   -> independent Runner Build A and Build B
   -> Official-vs-A, Official-vs-B, A-vs-B raw comparison
   -> bounded explanatory evidence
-  -> user decision and Android standard installer
+  -> user decision and Android standard installer or eligible Shizuku/Sui session
 ```
 
 複数のAPK候補を一意に選べない場合は、利用者の明示選択まで停止します。未知schema、未知capability、別Runner、identity不一致、上限超過ではfail closedに停止します。
