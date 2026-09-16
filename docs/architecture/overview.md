@@ -71,7 +71,7 @@ release経路はmanual pairingとroot pin付きHTTPSを使用します。Android
 
 ## Data and privacy
 
-- 登録、履歴、設定、比較結果はAndroidのRoom24へ保存します。
+- 登録、履歴、設定、比較結果はAndroidのRoom25へ保存します。
 - RunnerはJob、resource、log、artifact、owner情報をSQLiteと専用state directoryへ保存します。
 - metadata-only scheduled checkはbuildやinstallを開始しません。
 - AndroidはOS全体のlogcatや他アプリのlogをexportしません。

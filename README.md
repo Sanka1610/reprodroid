@@ -5,7 +5,7 @@ ReproDroidは、公開されているAndroidアプリの公式APKと、その公
 ## 主な機能
 
 - 公開GitHub／Codebergリポジトリの登録
-- リリース情報の手動確認と定期確認
+- 登録時および定期確認によるリリース情報の取得
 - 複数のAPK成果物からの明示的な選択、ダウンロード、パッケージ名／バージョン／署名者の検査
 - 同一ソースのリビジョンから、独立したBuild A／Bを生成
 - Official vs A、Official vs B、A vs Bの3軸によるバイト単位の比較
@@ -21,7 +21,7 @@ ReproDroidは、公開されているAndroidアプリの公式APKと、その公
 | Androidアプリ | `0.1.0-alpha05` / `versionCode 5` |
 | Android OS | Android 8.0（API 26）以上 |
 | targetSdk / compileSdk | 36 / 36 |
-| Androidデータベース | Room24 |
+| Androidデータベース | Room25（`develop`）／Room24（公開済みalpha05） |
 | Runner | `0.1.0-alpha02` |
 | Runnerデータベース | SQLite12 |
 | Runner API | v1、v2、pairing v1 |

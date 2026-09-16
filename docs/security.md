@@ -75,7 +75,7 @@ private key、keystore、passphraseはrepository、CI、Runner、build container
 
 - application backupを無効化しています。
 - provider tokenはAndroid Keystoreで暗号化したbackup対象外のcredential envelopeにだけ保存します。
-- Room24に登録、設定、history、comparison、install resultを保存します。
+- Room25に登録、設定、history、comparison、install resultを保存します。
 - Android log exportはReproDroid自身のbounded eventだけを含みます。
 - OS全体のlogcat、他appのlog、Runner build logをAndroid exportへ含めません。
 - analytics、広告、tracking、自動crash upload、自動diagnostic送信はありません。
