@@ -38,6 +38,7 @@ import com.sanka1610.reprodroid.data.local.ManagedAppDao
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
 import com.sanka1610.reprodroid.data.local.InstallationSource
+import com.sanka1610.reprodroid.data.local.InstallerMode
 import com.sanka1610.reprodroid.data.local.InstallAttemptStatus
 import com.sanka1610.reprodroid.data.local.PreferredAbi
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
@@ -1381,6 +1382,9 @@ class ManagedAppRepository(
             "Only the ReproDroid global settings row can be updated."
         }
         require(ThemeMode.entries.any { it.name == settings.themeMode }) { "The theme mode is invalid." }
+        require(InstallerMode.entries.any { it.name == settings.installerMode }) {
+            "The installer mode is invalid."
+        }
         require(ManagementMode.entries.any { it.name == settings.defaultManagementMode }) {
             "The default management mode is invalid."
         }
@@ -1410,7 +1414,11 @@ class ManagedAppRepository(
         }
         val previous = currentSettings()
         val now = Instant.now().toString()
-        val updated = settings.copy(updatedAt = now)
+        val updated = settings.copy(
+            recordGooglePlayAsInstaller =
+                settings.installerMode == InstallerMode.SHIZUKU.name && settings.recordGooglePlayAsInstaller,
+            updatedAt = now,
+        )
         val variantChanged = previous.defaultReleaseVariantPreference != updated.defaultReleaseVariantPreference
         val abiChanged = previous.defaultPreferredAbi != updated.defaultPreferredAbi
         database.withTransaction {
@@ -1480,11 +1488,24 @@ class ManagedAppRepository(
         check(!requiresRiskConfirmation || riskConfirmed) {
             "The signer or reproducibility warning must be acknowledged before installation."
         }
+        val settings = currentSettings()
+        val requestedInstallerMode = enumValueOrDefault(settings.installerMode, InstallerMode.SYSTEM)
+        val privilegedEligible = PrivilegedInstallPolicy.isEligible(
+            requiresRiskConfirmation = requiresRiskConfirmation,
+            existingInstallStatus = asset.existingInstallStatus,
+            trustLevel = record.trustLevel,
+        )
         return when (enumValueOrDefault(record.app.installationSource, InstallationSource.OFFICIAL_RELEASE)) {
             InstallationSource.OFFICIAL_RELEASE -> {
                 storageManager.requirePresent("REFERENCE_APK", asset.releaseAssetId)
                 storageManager.markUsed("REFERENCE_APK", asset.releaseAssetId)
-                releaseInstaller.install(registeredAppId, asset)
+                releaseInstaller.install(
+                    registeredAppId = registeredAppId,
+                    asset = asset,
+                    requestedMode = requestedInstallerMode,
+                    recordGooglePlayAsInstaller = settings.recordGooglePlayAsInstaller,
+                    privilegedEligible = privilegedEligible,
+                )
             }
             InstallationSource.LOCAL_BUILD -> {
                 check(record.app.managementMode == ManagementMode.VERIFICATION.name) {
@@ -1504,7 +1525,11 @@ class ManagedAppRepository(
                     "Local build installation is unavailable because the compared artifact is unsigned. " +
                         "Phase 2C does not generate or manage a ReproDroid signing key."
                 }
-                jobRepository.installArtifact(comparison.runnerJobId, artifactId)
+                jobRepository.installArtifact(
+                    comparison.runnerJobId,
+                    artifactId,
+                    privilegedEligible = privilegedEligible,
+                )
             }
         }
     }
@@ -1537,15 +1562,21 @@ class ManagedAppRepository(
                 val stale = runCatching {
                     Instant.parse(attempt.updatedAt).plusSeconds(INSTALL_CALLBACK_GRACE_SECONDS) <= now
                 }.getOrDefault(false)
-                stale && attempt.packageInstallerSessionId !in activeSessionIds
+                stale && (
+                    attempt.installerMode == InstallerMode.SHIZUKU.name ||
+                        attempt.packageInstallerSessionId !in activeSessionIds
+                    )
             }
             .forEach { attempt ->
                 dao.upsertReleaseInstallAttempt(
                     attempt.copy(
                         status = InstallAttemptStatus.FAILED.name,
                         packageInstallerStatus = PackageInstaller.STATUS_FAILURE,
-                        statusMessage =
-                            "The PackageInstaller session is no longer active, but no terminal callback was received.",
+                        statusMessage = if (attempt.installerMode == InstallerMode.SHIZUKU.name) {
+                            "The privileged PackageInstaller callback was not received before the recovery timeout."
+                        } else {
+                            "The PackageInstaller session is no longer active, but no terminal callback was received."
+                        },
                         updatedAt = now.toString(),
                     ),
                 )

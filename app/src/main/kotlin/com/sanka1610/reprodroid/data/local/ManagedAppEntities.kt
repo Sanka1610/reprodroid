@@ -81,6 +81,11 @@ enum class TrustLevel {
     FAILED,
 }
 
+enum class InstallerMode {
+    SYSTEM,
+    SHIZUKU,
+}
+
 data class AppSettingsUpdate(
     val managementMode: ManagementMode,
     val installationSource: InstallationSource,
@@ -192,6 +197,10 @@ data class GlobalSettingsEntity(
     // migrated databases never receive a new implicit self-registration.
     @ColumnInfo(defaultValue = "1")
     val selfRegistrationInitialized: Boolean = false,
+    @ColumnInfo(defaultValue = "'SYSTEM'")
+    val installerMode: String = InstallerMode.SYSTEM.name,
+    @ColumnInfo(defaultValue = "0")
+    val recordGooglePlayAsInstaller: Boolean = false,
     val defaultManagementMode: String = ManagementMode.VERIFICATION.name,
     val defaultInstallationSource: String = InstallationSource.OFFICIAL_RELEASE.name,
     val defaultReleaseVariantPreference: String = ReleaseVariantPreference.RELEASE.name,
@@ -329,6 +338,9 @@ data class ReleaseInstallAttemptEntity(
     val status: String,
     val packageInstallerStatus: Int?,
     val statusMessage: String?,
+    @ColumnInfo(defaultValue = "'SYSTEM'")
+    val installerMode: String = InstallerMode.SYSTEM.name,
+    val installerPackageName: String? = null,
     val createdAt: String,
     val updatedAt: String,
 )

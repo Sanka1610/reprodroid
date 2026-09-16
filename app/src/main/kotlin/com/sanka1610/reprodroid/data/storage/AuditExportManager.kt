@@ -424,6 +424,8 @@ class AuditExportManager(
                             put("jobId", attempt.jobId)
                             put("artifactId", attempt.artifactId)
                             put("status", attempt.status)
+                            put("installerMode", attempt.installerMode)
+                            attempt.installerPackageName?.let { put("installerPackageName", it) }
                             attempt.packageInstallerStatus?.let { put("packageInstallerStatus", it) }
                             put("createdAt", attempt.createdAt)
                             put("updatedAt", attempt.updatedAt)
@@ -438,6 +440,8 @@ class AuditExportManager(
                     put("registeredAppId", attempt.registeredAppId)
                     put("releaseAssetId", attempt.releaseAssetId)
                     put("status", attempt.status)
+                    put("installerMode", attempt.installerMode)
+                    attempt.installerPackageName?.let { put("installerPackageName", it) }
                     attempt.packageInstallerStatus?.let { put("packageInstallerStatus", it) }
                     put("createdAt", attempt.createdAt)
                     put("updatedAt", attempt.updatedAt)

@@ -9,6 +9,7 @@ import android.os.Build
 import androidx.core.net.toUri
 import com.sanka1610.reprodroid.InstallResultActivity
 import com.sanka1610.reprodroid.data.local.InstallAttemptStatus
+import com.sanka1610.reprodroid.data.local.InstallerMode
 import com.sanka1610.reprodroid.data.local.ManagedAppDao
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
 import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
@@ -28,14 +29,24 @@ class ReleaseApkInstaller(
 ) {
     private val applicationContext = context.applicationContext
     private val packageManager = applicationContext.packageManager
+    private val shizukuInstaller by lazy { ShizukuPackageInstaller(applicationContext) }
     private val inspector = ApkInspector(packageManager)
     private val referenceRoot = File(applicationContext.filesDir, "reference-apks").toPath()
         .toAbsolutePath()
         .normalize()
 
-    suspend fun install(registeredAppId: String, asset: ReleaseAssetEntity): String =
+    suspend fun install(
+        registeredAppId: String,
+        asset: ReleaseAssetEntity,
+        requestedMode: InstallerMode = InstallerMode.SYSTEM,
+        recordGooglePlayAsInstaller: Boolean = false,
+        privilegedEligible: Boolean = false,
+    ): String =
         withContext(Dispatchers.IO) {
-            if (!packageManager.canRequestPackageInstalls()) throw UnknownSourcesPermissionRequired()
+            val usePrivilegedInstaller = requestedMode == InstallerMode.SHIZUKU && privilegedEligible
+            if (!usePrivilegedInstaller && !packageManager.canRequestPackageInstalls()) {
+                throw UnknownSourcesPermissionRequired()
+            }
             check(asset.downloadStatus == ReferenceDownloadStatus.VERIFIED.name) {
                 "The official APK must pass download verification before installation."
             }
@@ -82,27 +93,43 @@ class ReleaseApkInstaller(
                 status = InstallAttemptStatus.PREPARING.name,
                 packageInstallerStatus = null,
                 statusMessage = null,
+                installerMode = if (usePrivilegedInstaller) InstallerMode.SHIZUKU.name else InstallerMode.SYSTEM.name,
+                installerPackageName = if (usePrivilegedInstaller) {
+                    if (recordGooglePlayAsInstaller) ShizukuPackageInstaller.GOOGLE_PLAY_PACKAGE
+                    else ShizukuPackageInstaller.SHELL_PACKAGE
+                } else {
+                    applicationContext.packageName
+                },
                 createdAt = now,
                 updatedAt = now,
             )
             dao.upsertReleaseInstallAttempt(attempt)
 
             var sessionId: Int? = null
+            var privilegedSession: PrivilegedInstallSession? = null
             try {
                 val parameters = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
                     setAppPackageName(packageName)
                     setSize(expectedSize)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
+                        setRequireUserAction(
+                            if (usePrivilegedInstaller) PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED
+                            else PackageInstaller.SessionParams.USER_ACTION_REQUIRED,
+                        )
                     }
                 }
-                sessionId = packageManager.packageInstaller.createSession(parameters)
+                privilegedSession = if (usePrivilegedInstaller) {
+                    shizukuInstaller.createSession(parameters, recordGooglePlayAsInstaller)
+                } else {
+                    null
+                }
+                sessionId = privilegedSession?.sessionId ?: packageManager.packageInstaller.createSession(parameters)
                 attempt = attempt.copy(
                     packageInstallerSessionId = sessionId,
                     updatedAt = Instant.now().toString(),
                 )
                 dao.upsertReleaseInstallAttempt(attempt)
-                packageManager.packageInstaller.openSession(sessionId).use { session ->
+                (privilegedSession?.session ?: packageManager.packageInstaller.openSession(sessionId)).use { session ->
                     apkPath.toFile().inputStream().use { input ->
                         session.openWrite("base.apk", 0, expectedSize).use { output ->
                             input.copyTo(output)
@@ -118,7 +145,13 @@ class ReleaseApkInstaller(
                 }
                 attemptId
             } catch (failure: Throwable) {
-                sessionId?.let { runCatching { packageManager.packageInstaller.abandonSession(it) } }
+                sessionId?.let {
+                    if (usePrivilegedInstaller) {
+                        runCatching { privilegedSession?.session?.abandon() }
+                    } else {
+                        runCatching { packageManager.packageInstaller.abandonSession(it) }
+                    }
+                }
                 dao.upsertReleaseInstallAttempt(
                     attempt.copy(
                         status = InstallAttemptStatus.FAILED.name,

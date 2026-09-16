@@ -62,6 +62,7 @@ import com.sanka1610.reprodroid.data.local.ComparisonEligibility
 import com.sanka1610.reprodroid.data.local.ComparisonRunStatus
 import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
 import com.sanka1610.reprodroid.data.local.InstallationSource
+import com.sanka1610.reprodroid.data.local.InstallerMode
 import com.sanka1610.reprodroid.data.local.PreferredAbi
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
 import com.sanka1610.reprodroid.data.local.ReleaseDiscoveryStatus
@@ -83,6 +84,7 @@ import com.sanka1610.reprodroid.data.repository.compareBuildEnvironments
 import com.sanka1610.reprodroid.data.repository.sandboxSelectionText
 import com.sanka1610.reprodroid.data.repository.sandboxManifestText
 import com.sanka1610.reprodroid.data.repository.sandboxAcknowledgementAllowed
+import com.sanka1610.reprodroid.data.repository.PrivilegedInstallPolicy
 import androidx.compose.ui.platform.LocalContext
 import java.io.File
 import java.util.UUID
@@ -162,6 +164,13 @@ internal fun AppDetailScreen(
             record.trustLevel != TrustLevel.REPRODUCIBLE
         ) ||
         asset?.existingInstallStatus == "SIGNER_MISMATCH"
+    val privilegedEligible = PrivilegedInstallPolicy.isEligible(
+        requiresRiskConfirmation = warningRequired,
+        existingInstallStatus = asset?.existingInstallStatus,
+        trustLevel = record.trustLevel,
+    )
+    val usePrivilegedInstaller =
+        globalSettings.installerMode == InstallerMode.SHIZUKU.name && privilegedEligible
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(record.app.resolvedDisplayName) },
@@ -744,7 +753,13 @@ internal fun AppDetailScreen(
                             )
                         }
                     }
-                    if (!canRequestPackageInstalls) {
+                    if (globalSettings.installerMode == InstallerMode.SHIZUKU.name && !privilegedEligible && canInstall) {
+                        Text(
+                            stringResource(R.string.technical_shizuku_fallback),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (!usePrivilegedInstaller && !canRequestPackageInstalls) {
                         TextButton(
                             onClick = {
                                 context.startActivity(
@@ -759,14 +774,20 @@ internal fun AppDetailScreen(
                     }
                     Button(
                         enabled = !active && canInstall &&
-                            canRequestPackageInstalls &&
+                            (usePrivilegedInstaller || canRequestPackageInstalls) &&
                             (!warningRequired || installRiskConfirmed),
                         onClick = { onInstall(installRiskConfirmed) },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
                             stringResource(
-                                if (asset?.updateStatus == UpdateStatus.UPDATE_AVAILABLE.name) {
+                                if (usePrivilegedInstaller) {
+                                    if (asset?.updateStatus == UpdateStatus.UPDATE_AVAILABLE.name) {
+                                        R.string.technical_update_shizuku
+                                    } else {
+                                        R.string.technical_install_shizuku
+                                    }
+                                } else if (asset?.updateStatus == UpdateStatus.UPDATE_AVAILABLE.name) {
                                     R.string.technical_update
                                 } else {
                                     R.string.technical_install
@@ -776,6 +797,10 @@ internal fun AppDetailScreen(
                     }
                     record.latestReleaseInstallAttempt?.let { attempt ->
                         DetailValue(stringResource(R.string.technical_latest_install_attempt), attempt.status)
+                        DetailValue(stringResource(R.string.technical_installer_mode), attempt.installerMode)
+                        attempt.installerPackageName?.let {
+                            DetailValue(stringResource(R.string.technical_installer_package), it)
+                        }
                         attempt.statusMessage?.let { DetailValue(stringResource(R.string.technical_installer_message), it) }
                     }
                 }

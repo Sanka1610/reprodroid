@@ -52,7 +52,7 @@ import com.sanka1610.reprodroid.data.provider.GitHubRepositoryParser
         ProviderRepresentationEntity::class,
         RunnerConnectionEntity::class,
     ],
-    version = 24,
+    version = 25,
     exportSchema = true,
 )
 abstract class ReproDroidDatabase : RoomDatabase() {
@@ -64,6 +64,25 @@ abstract class ReproDroidDatabase : RoomDatabase() {
     abstract fun runnerConnectionDao(): RunnerConnectionDao
 
     companion object {
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE global_settings ADD COLUMN installerMode TEXT NOT NULL DEFAULT 'SYSTEM'",
+                )
+                db.execSQL(
+                    "ALTER TABLE global_settings ADD COLUMN recordGooglePlayAsInstaller INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    "ALTER TABLE install_attempts ADD COLUMN installerMode TEXT NOT NULL DEFAULT 'SYSTEM'",
+                )
+                db.execSQL("ALTER TABLE install_attempts ADD COLUMN installerPackageName TEXT")
+                db.execSQL(
+                    "ALTER TABLE release_install_attempts ADD COLUMN installerMode TEXT NOT NULL DEFAULT 'SYSTEM'",
+                )
+                db.execSQL("ALTER TABLE release_install_attempts ADD COLUMN installerPackageName TEXT")
+            }
+        }
+
         val MIGRATION_23_24 = object : Migration(23, 24) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 listOf(

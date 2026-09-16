@@ -4,7 +4,9 @@
 
 ## Unreleased
 
-製品動作の未公開変更はありません。
+- install方法に、既定のシステムinstallerに加えてShizuku／Suiを追加
+- signer一致更新またはReproducible artifactだけを特権install対象とし、警告対象はシステム確認へfail closed
+- 任意のGoogle Play installer-of-record互換設定を追加（実取得元の監査記録は変更しない）
 
 ## 0.1.0-alpha05
 

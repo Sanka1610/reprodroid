@@ -74,7 +74,11 @@ Comparison evidenceは三軸のraw resultを表示します。
 
 ## Install／updateする
 
-eligible artifactのInstallを選ぶとAndroid標準`PackageInstaller`が開きます。Androidがpackage、version、signer lineage、利用者確認を処理します。
+既定では、eligible artifactのInstallを選ぶとAndroid標準`PackageInstaller`が開きます。Androidがpackage、version、signer lineage、利用者確認を処理します。
+
+Settings → External tool integrationsでShizuku／Suiを選び、ReproDroidへの権限を付与できます。特権経路はsigner一致更新または`Reproducible` artifactだけでOEM installer確認を省略します。署名不一致、未比較、または再現性警告が残るAPKはシステムinstallerへ戻ります。これはbackground自動更新を有効にしません。
+
+「Google Playをinstallerとして記録」は、installer-of-recordを参照するアプリ向けの任意互換設定です。実際のAPK取得元をGoogle Playへ変更する機能ではありません。
 
 ReproDroidはinstaller launch、cancel、platform rejection、failure、successを別々に記録します。official APKとlocal buildのsignerが異なる場合、既存official appをlocal APKで通常updateできません。
 
