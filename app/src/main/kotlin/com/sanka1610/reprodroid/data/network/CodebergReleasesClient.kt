@@ -22,7 +22,10 @@ import kotlinx.serialization.json.Json
 import java.net.URI
 import java.time.Instant
 
-class CodebergReleasesClient(engine: HttpClientEngine? = null) : ProviderReleaseClient {
+class CodebergReleasesClient(
+    engine: HttpClientEngine? = null,
+    private val authenticator: ProviderRequestAuthenticator = ProviderRequestAuthenticator.NONE,
+) : ProviderReleaseClient {
     override val providerName: String = PROVIDER
     override val providerInstance: String = INSTANCE
     private val client = if (engine == null) HttpClient(Android) { configure() } else HttpClient(engine) { configure() }
@@ -149,6 +152,7 @@ class CodebergReleasesClient(engine: HttpClientEngine? = null) : ProviderRelease
         header(HttpHeaders.Accept, "application/json")
         header(HttpHeaders.AcceptEncoding, "identity")
         header(HttpHeaders.UserAgent, USER_AGENT)
+        authenticator.authenticate(ProviderId.CODEBERG, this)
     }
 
     private fun io.ktor.client.HttpClientConfig<*>.configure() {
@@ -178,6 +182,7 @@ class CodebergReleasesClient(engine: HttpClientEngine? = null) : ProviderRelease
         }
         val apiError = runCatching { body<CodebergReleaseClientApiError>() }.getOrNull()
         val code = when {
+            status.value == 401 -> "CODEBERG_INVALID_CREDENTIAL"
             status.value == 404 -> "CODEBERG_RESOURCE_NOT_FOUND"
             status.value == 429 || (status.value == 403 && rateLimit.exhausted) ->
                 "CODEBERG_RATE_LIMITED"
@@ -185,7 +190,11 @@ class CodebergReleasesClient(engine: HttpClientEngine? = null) : ProviderRelease
             status.value in 500..599 -> "CODEBERG_PROVIDER_UNAVAILABLE"
             else -> "CODEBERG_HTTP_${status.value}"
         }
-        throw CodebergProviderException(status.value, code, apiError?.message ?: status.description)
+        throw CodebergProviderException(
+            status.value,
+            code,
+            if (status.value == 401) "Provider authentication failed." else apiError?.message ?: status.description,
+        )
     }
 
     private companion object {

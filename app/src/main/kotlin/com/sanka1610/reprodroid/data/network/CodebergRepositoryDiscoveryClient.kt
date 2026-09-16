@@ -28,6 +28,7 @@ import java.time.Instant
 
 class CodebergRepositoryDiscoveryClient(
     engine: HttpClientEngine? = null,
+    private val authenticator: ProviderRequestAuthenticator = ProviderRequestAuthenticator.NONE,
     private val nanoTime: () -> Long = System::nanoTime,
 ) : ProviderRepositoryDiscoveryClient {
     override val providerName: String = PROVIDER
@@ -286,6 +287,7 @@ class CodebergRepositoryDiscoveryClient(
         }.getOrNull() ?: status.description
         val rateLimit = codebergRateLimitEvidence(headers, Instant.now())
         val code = when {
+            status.value == 401 -> "INVALID_CREDENTIAL"
             status.value == 404 -> "NOT_FOUND_OR_NOT_PUBLIC"
             status.value == 429 || (status.value == 403 && rateLimit.exhausted) -> "RATE_LIMITED"
             status.value == 403 -> "ACCESS_DENIED"
@@ -293,7 +295,11 @@ class CodebergRepositoryDiscoveryClient(
             status.value in 500..599 -> "PROVIDER_UNAVAILABLE"
             else -> "CODEBERG_HTTP_${status.value}"
         }
-        return CodebergProviderException(status.value, code, message)
+        return CodebergProviderException(
+            status.value,
+            code,
+            if (status.value == 401) "Provider authentication failed." else message,
+        )
     }
 
     private fun validateMetadata(requested: CodebergRepository, metadata: CodebergDiscoveryRepositoryMetadata) {
@@ -353,6 +359,7 @@ class CodebergRepositoryDiscoveryClient(
         header(HttpHeaders.Accept, "application/json")
         header(HttpHeaders.AcceptEncoding, "identity")
         header(HttpHeaders.UserAgent, USER_AGENT)
+        authenticator.authenticate(ProviderId.CODEBERG, this)
     }
 
     private fun io.ktor.client.HttpClientConfig<*>.configure() {

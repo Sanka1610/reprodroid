@@ -54,6 +54,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.sanka1610.reprodroid.R
@@ -74,6 +77,11 @@ import com.sanka1610.reprodroid.data.local.ThemeMode
 import com.sanka1610.reprodroid.data.license.LicenseAssetStore
 import com.sanka1610.reprodroid.data.license.LicenseDocument
 import com.sanka1610.reprodroid.data.log.AppLogExportResult
+import com.sanka1610.reprodroid.data.provider.MAX_PROVIDER_TOKEN_BYTES
+import com.sanka1610.reprodroid.data.provider.ProviderCredentialAvailability
+import com.sanka1610.reprodroid.data.provider.ProviderCredentialStatus
+import com.sanka1610.reprodroid.data.provider.ProviderId
+import com.sanka1610.reprodroid.ui.state.ProviderAuthUiState
 import com.sanka1610.reprodroid.ui.*
 import com.sanka1610.reprodroid.ui.navigation.ReproDroidRoute
 import com.sanka1610.reprodroid.ui.shared.*
@@ -110,9 +118,12 @@ private val SETTINGS_SECTION_KEYS = listOf(
 internal fun UiRSettingsScreen(
     settings: GlobalSettingsEntity,
     releaseSettings: ReleaseCheckSettingsEntity,
+    providerAuthState: ProviderAuthUiState,
     notificationsAllowed: Boolean,
     onUpdate: (GlobalSettingsEntity) -> Unit,
     onUpdateReleaseSettings: (ReleaseCheckSettingsEntity) -> Unit,
+    onSaveProviderToken: (ProviderId, String) -> Unit,
+    onDeleteProviderToken: (ProviderId) -> Unit,
     onRequestNotifications: () -> Unit,
     onNavigate: (ReproDroidRoute) -> Unit,
 ) {
@@ -128,6 +139,9 @@ internal fun UiRSettingsScreen(
     }
     var showHintsInfo by rememberSaveable { mutableStateOf(false) }
     var showBatteryInfo by rememberSaveable { mutableStateOf(false) }
+    var showProviderAuthInfo by remember { mutableStateOf(false) }
+    var editProvider by remember { mutableStateOf<ProviderId?>(null) }
+    var deleteProvider by remember { mutableStateOf<ProviderId?>(null) }
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -276,13 +290,36 @@ internal fun UiRSettingsScreen(
                 AUTHENTICATION_SECTION in expandedSections,
                 { toggleSection(AUTHENTICATION_SECTION) },
             ) {
-                UnavailableSetting(
-                    stringResource(R.string.settings_github_token),
-                    stringResource(R.string.settings_service_authentication_unavailable),
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.provider_auth_experimental),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { showProviderAuthInfo = true }) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = stringResource(R.string.provider_auth_info_action),
+                        )
+                    }
+                }
+                ProviderCredentialSetting(
+                    label = stringResource(R.string.settings_github_token),
+                    status = providerAuthState.statuses[ProviderId.GITHUB]
+                        ?: ProviderCredentialStatus(ProviderId.GITHUB, ProviderCredentialAvailability.NOT_CONFIGURED),
+                    busy = ProviderId.GITHUB in providerAuthState.activeProviders,
+                    onEdit = { editProvider = ProviderId.GITHUB },
+                    onDelete = { deleteProvider = ProviderId.GITHUB },
                 )
-                UnavailableSetting(
-                    stringResource(R.string.settings_codeberg_token),
-                    stringResource(R.string.settings_service_authentication_unavailable),
+                SettingDivider(settings.showSettingsDividers)
+                ProviderCredentialSetting(
+                    label = stringResource(R.string.settings_codeberg_token),
+                    status = providerAuthState.statuses[ProviderId.CODEBERG]
+                        ?: ProviderCredentialStatus(ProviderId.CODEBERG, ProviderCredentialAvailability.NOT_CONFIGURED),
+                    busy = ProviderId.CODEBERG in providerAuthState.activeProviders,
+                    onEdit = { editProvider = ProviderId.CODEBERG },
+                    onDelete = { deleteProvider = ProviderId.CODEBERG },
                 )
             }
         }
@@ -387,6 +424,139 @@ internal fun UiRSettingsScreen(
                 }
             },
         )
+    }
+    if (showProviderAuthInfo) {
+        AlertDialog(
+            onDismissRequest = { showProviderAuthInfo = false },
+            title = { Text(stringResource(R.string.provider_auth_info_title)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.provider_auth_info_body))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showProviderAuthInfo = false }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+        )
+    }
+    editProvider?.let { provider ->
+        var token by remember(provider) { mutableStateOf("") }
+        val status = providerAuthState.statuses[provider]
+        AlertDialog(
+            onDismissRequest = {
+                token = ""
+                editProvider = null
+            },
+            title = {
+                Text(
+                    stringResource(
+                        if (provider == ProviderId.GITHUB) R.string.settings_github_token else R.string.settings_codeberg_token,
+                    ),
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(stringResource(R.string.provider_auth_input_body))
+                    OutlinedTextField(
+                        value = token,
+                        onValueChange = { candidate ->
+                            if (candidate.toByteArray(Charsets.UTF_8).size <= MAX_PROVIDER_TOKEN_BYTES) token = candidate
+                        },
+                        label = { Text(stringResource(R.string.provider_auth_token_label)) },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = token.isNotEmpty() && token == token.trim() && token.none { it.code !in 0x21..0x7e } &&
+                        status?.availability != ProviderCredentialAvailability.UNAVAILABLE,
+                    onClick = {
+                        val submitted = token
+                        token = ""
+                        editProvider = null
+                        onSaveProviderToken(provider, submitted)
+                    },
+                ) { Text(stringResource(R.string.action_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    token = ""
+                    editProvider = null
+                }) { Text(stringResource(R.string.action_cancel)) }
+            },
+        )
+    }
+    deleteProvider?.let { provider ->
+        AlertDialog(
+            onDismissRequest = { deleteProvider = null },
+            title = { Text(stringResource(R.string.provider_auth_delete_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.provider_auth_delete_body,
+                        stringResource(
+                            if (provider == ProviderId.GITHUB) R.string.settings_github_token else R.string.settings_codeberg_token,
+                        ),
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteProvider = null
+                    onDeleteProviderToken(provider)
+                }) { Text(stringResource(R.string.action_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteProvider = null }) { Text(stringResource(R.string.action_cancel)) }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ProviderCredentialSetting(
+    label: String,
+    status: ProviderCredentialStatus,
+    busy: Boolean,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val statusText = when (status.availability) {
+        ProviderCredentialAvailability.NOT_CONFIGURED -> stringResource(R.string.provider_auth_not_configured)
+        ProviderCredentialAvailability.CONFIGURED -> stringResource(R.string.provider_auth_configured_unverified)
+        ProviderCredentialAvailability.UNAVAILABLE -> stringResource(R.string.provider_auth_unavailable)
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.titleSmall)
+        Text(statusText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = onEdit,
+                enabled = !busy && status.availability != ProviderCredentialAvailability.UNAVAILABLE,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(
+                    stringResource(
+                        if (status.availability == ProviderCredentialAvailability.CONFIGURED) {
+                            R.string.provider_auth_replace
+                        } else {
+                            R.string.provider_auth_configure
+                        },
+                    ),
+                )
+            }
+            OutlinedButton(
+                onClick = onDelete,
+                enabled = !busy && status.availability != ProviderCredentialAvailability.NOT_CONFIGURED,
+                modifier = Modifier.weight(1f),
+            ) { Text(stringResource(R.string.action_delete)) }
+        }
     }
 }
 

@@ -126,6 +126,7 @@ fun ReproDroidApp(
     val registrationState by managedViewModel.registrationUiState.collectAsStateWithLifecycle()
     val appDetailState by managedViewModel.appDetailUiState.collectAsStateWithLifecycle()
     val releaseState by managedViewModel.releaseUiState.collectAsStateWithLifecycle()
+    val providerAuthState by managedViewModel.providerAuthUiState.collectAsStateWithLifecycle()
     val storageState by managedViewModel.storageUiState.collectAsStateWithLifecycle()
     val runnerState by managedViewModel.runnerUiState.collectAsStateWithLifecycle()
     val toolchainFeatureState by managedViewModel.toolchainUiState.collectAsStateWithLifecycle()
@@ -167,6 +168,7 @@ fun ReproDroidApp(
         registrationState.message,
         appDetailState.message,
         releaseState.message,
+        providerAuthState.message,
         storageState.message,
         runnerState.message,
         toolchainFeatureState.message,
@@ -401,9 +403,12 @@ fun ReproDroidApp(
             ReproDroidRoute.Settings -> UiRSettingsScreen(
                 settings = globalSettings,
                 releaseSettings = releaseCheckSettings,
+                providerAuthState = providerAuthState,
                 notificationsAllowed = notificationsAllowed,
                 onUpdate = managedViewModel::updateGlobalSettings,
                 onUpdateReleaseSettings = managedViewModel::updateReleaseCheckSettings,
+                onSaveProviderToken = managedViewModel::saveProviderToken,
+                onDeleteProviderToken = managedViewModel::deleteProviderToken,
                 onRequestNotifications = activityResults::requestNotificationPermission,
                 onNavigate = ::navigate,
             )
@@ -590,9 +595,12 @@ fun ReproDroidApp(
                         ReproDroidRoute.Settings -> UiRSettingsScreen(
                             settings = globalSettings,
                             releaseSettings = releaseCheckSettings,
+                            providerAuthState = providerAuthState,
                             notificationsAllowed = notificationsAllowed,
                             onUpdate = managedViewModel::updateGlobalSettings,
                             onUpdateReleaseSettings = managedViewModel::updateReleaseCheckSettings,
+                            onSaveProviderToken = managedViewModel::saveProviderToken,
+                            onDeleteProviderToken = managedViewModel::deleteProviderToken,
                             onRequestNotifications = activityResults::requestNotificationPermission,
                             onNavigate = ::navigate,
                         )
@@ -703,9 +711,12 @@ fun ReproDroidApp(
                         ReproDroidRoute.UpdateSettings -> UiRSettingsScreen(
                             settings = globalSettings,
                             releaseSettings = releaseCheckSettings,
+                            providerAuthState = providerAuthState,
                             notificationsAllowed = notificationsAllowed,
                             onUpdate = managedViewModel::updateGlobalSettings,
                             onUpdateReleaseSettings = managedViewModel::updateReleaseCheckSettings,
+                            onSaveProviderToken = managedViewModel::saveProviderToken,
+                            onDeleteProviderToken = managedViewModel::deleteProviderToken,
                             onRequestNotifications = activityResults::requestNotificationPermission,
                             onNavigate = ::navigate,
                         )
@@ -1112,6 +1123,7 @@ private fun managedMessageText(message: ManagedUiMessage): String = when (messag
         ManagedUiMessageCode.ALREADY_REGISTERED_PRIMARY -> stringResource(R.string.error_already_registered)
         ManagedUiMessageCode.DIFFERENT_REPOSITORY -> stringResource(R.string.error_different_repository)
         ManagedUiMessageCode.RATE_LIMIT -> stringResource(R.string.error_rate_limit)
+        ManagedUiMessageCode.PROVIDER_AUTHENTICATION_FAILED -> stringResource(R.string.error_provider_authentication_failed)
         ManagedUiMessageCode.NOT_FOUND -> stringResource(R.string.error_not_found)
         ManagedUiMessageCode.STALE_STATE -> stringResource(R.string.error_stale)
         ManagedUiMessageCode.OPERATION_FAILED -> stringResource(R.string.error_operation_failed)
