@@ -74,58 +74,38 @@ internal fun <T> DropdownSetting(
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(0.56f),
                 )
-                if (outlined) {
-                    Surface(
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
-                            .weight(0.44f),
-                        color = Color.Transparent,
-                        contentColor = if (enabled) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        },
-                        border = BorderStroke(
+                Surface(
+                    modifier = Modifier
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
+                        .weight(0.44f),
+                    color = Color.Transparent,
+                    contentColor = if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    },
+                    border = if (outlined) {
+                        BorderStroke(
                             1.dp,
                             if (enabled) {
                                 MaterialTheme.colorScheme.outline
                             } else {
                                 MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
                             },
-                        ),
-                        shape = MaterialTheme.shapes.extraSmall,
-                    ) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                options[value] ?: value.toString(),
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded)
-                        }
-                    }
-                } else {
+                        )
+                    } else {
+                        null
+                    },
+                    shape = MaterialTheme.shapes.extraSmall,
+                ) {
                     Row(
-                        Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
-                            .weight(0.44f)
-                            .padding(vertical = 12.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             options[value] ?: value.toString(),
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (enabled) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
