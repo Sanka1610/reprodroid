@@ -135,7 +135,7 @@ Messages and one-shot results carry an owner and monotonically increasing local 
 ## Saved and transient state
 
 - Encoded route, root form selections, removal target, search visibility, and identity-bound acknowledgements use saveable UI state where process recreation must preserve them.
-- Room24 owns persistent settings, expansion preferences, release-check policy, self-registration bootstrap state, records, and history.
+- Room25 owns persistent settings, expansion preferences, release-check policy, self-registration bootstrap state, installer preferences and attempts, records, and history.
 - Pairing invitation secrets, replacement payloads, active confirmation dialogs, and temporary license-load results are intentionally not placed in saved state.
 - Missing, malformed, stale, unknown, or mismatched identity never defaults to success, trust, reproducibility, or install eligibility.
 

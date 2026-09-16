@@ -4,6 +4,7 @@
 
 | Android | Runner | Room | SQLite | Stable API | Capability API |
 |---|---|---|---|---|---|
+| `develop`（未公開） | `0.1.0-alpha02` | 25 | 12 | v1 | v2 |
 | `0.1.0-alpha05` | `0.1.0-alpha02` | 24 | 12 | v1 | v2 |
 
 Android `0.1.0-alpha05`のapplication IDは`com.sanka1610.reprodroid`、versionCodeは5です。debug buildは`com.sanka1610.reprodroid.debug`です。
@@ -16,7 +17,7 @@ Android `0.1.0-alpha05`のapplication IDは`com.sanka1610.reprodroid`、versionC
 | targetSdk | 36 |
 | compileSdk | 36 |
 | build JDK | 21 |
-| database | Room24 |
+| database | Room25（`develop`） |
 | package | single APK |
 
 ## Runner環境
@@ -67,4 +68,4 @@ Androidは実行中Runnerのcapability応答、runner ID、transport modeを確�
 
 ## Storage migration
 
-Androidは既存databaseをRoom24までmigrationします。fresh databaseではReproDroid自身のpublic GitHub repositoryをofflineで1件登録します。RunnerはSQLite12を使用します。backup/restoreと端末間migrationは提供していません。
+Androidの`develop`は既存databaseをRoom25までmigrationします。公開済み`0.1.0-alpha05`はRoom24です。fresh databaseではReproDroid自身のpublic GitHub repositoryをofflineで1件登録します。RunnerはSQLite12を使用します。backup/restoreと端末間migrationは提供していません。
