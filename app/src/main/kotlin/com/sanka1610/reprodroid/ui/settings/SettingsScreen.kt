@@ -427,7 +427,7 @@ internal fun SwitchSetting(
 
 @Composable
 internal fun SettingDivider(visible: Boolean) {
-    if (visible) HorizontalDivider()
+    HorizontalDivider(Modifier.alpha(if (visible) 1f else 0f))
 }
 
 @Composable
