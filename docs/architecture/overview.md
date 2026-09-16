@@ -40,7 +40,7 @@ Runnerが`SUCCEEDED`になっても、公式APKとの一致や`Reproducible`を�
 
 ### Providers
 
-現在のprovider registryはpublic `github.com`とpublic `codeberg.org`に限定します。private token、任意Forgejo／Gitea、HTML scraping、外部assetの自動追跡は行いません。
+現在のprovider registryはpublic `github.com`とpublic `codeberg.org`に限定します。実験的な任意token認証はpublic repositoryのprovider API requestだけに適用します。private repository、認証付きasset、Runner checkoutへのtoken転送、任意Forgejo／Gitea、HTML scraping、外部assetの自動追跡は行いません。
 
 ## Main flow
 

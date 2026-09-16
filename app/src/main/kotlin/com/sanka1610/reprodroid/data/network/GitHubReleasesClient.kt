@@ -25,7 +25,10 @@ class GitHubProviderException(
     override val message: String,
 ) : RuntimeException(message)
 
-class GitHubReleasesClient(engine: HttpClientEngine? = null) : ProviderReleaseClient {
+class GitHubReleasesClient(
+    engine: HttpClientEngine? = null,
+    private val authenticator: ProviderRequestAuthenticator = ProviderRequestAuthenticator.NONE,
+) : ProviderReleaseClient {
     override val providerName: String = "GITHUB"
     override val providerInstance: String = "github.com"
     private val client = if (engine == null) HttpClient(Android) { configure() } else HttpClient(engine) { configure() }
@@ -128,6 +131,7 @@ class GitHubReleasesClient(engine: HttpClientEngine? = null) : ProviderReleaseCl
         header(HttpHeaders.Accept, GITHUB_JSON_MEDIA_TYPE)
         header(GITHUB_API_VERSION_HEADER, GITHUB_API_VERSION)
         header(HttpHeaders.UserAgent, USER_AGENT)
+        authenticator.authenticate(ProviderId.GITHUB, this)
     }
 
     private fun io.ktor.client.HttpClientConfig<*>.configure() {
@@ -147,11 +151,16 @@ class GitHubReleasesClient(engine: HttpClientEngine? = null) : ProviderReleaseCl
         if (status.value in 200..299) return body()
         val apiError = runCatching { body<GitHubApiError>() }.getOrNull()
         val code = when (status.value) {
+            401 -> "GITHUB_INVALID_CREDENTIAL"
             403, 429 -> "GITHUB_RATE_LIMITED"
             404 -> "GITHUB_RESOURCE_NOT_FOUND"
             else -> "GITHUB_HTTP_${status.value}"
         }
-        throw GitHubProviderException(status.value, code, apiError?.message ?: status.description)
+        throw GitHubProviderException(
+            status.value,
+            code,
+            if (status.value == 401) "Provider authentication failed." else apiError?.message ?: status.description,
+        )
     }
 
     private companion object {

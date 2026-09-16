@@ -10,6 +10,7 @@ enum class ManagedUiOwner {
     REGISTRATION,
     APP_DETAIL,
     RELEASE,
+    PROVIDER_AUTH,
     STORAGE,
     RUNNER,
     TOOLCHAIN,
@@ -27,6 +28,7 @@ enum class ManagedUiMessageCode {
     ALREADY_REGISTERED_PRIMARY,
     DIFFERENT_REPOSITORY,
     RATE_LIMIT,
+    PROVIDER_AUTHENTICATION_FAILED,
     NOT_FOUND,
     STALE_STATE,
     OPERATION_FAILED,
@@ -111,6 +113,7 @@ private fun String.toManagedUiMessageCode(): ManagedUiMessageCode = when {
         ManagedUiMessageCode.ALREADY_REGISTERED_PRIMARY
     contains("different repository", ignoreCase = true) -> ManagedUiMessageCode.DIFFERENT_REPOSITORY
     contains("rate limit", ignoreCase = true) -> ManagedUiMessageCode.RATE_LIMIT
+    contains("provider authentication failed", ignoreCase = true) -> ManagedUiMessageCode.PROVIDER_AUTHENTICATION_FAILED
     contains("not found", ignoreCase = true) -> ManagedUiMessageCode.NOT_FOUND
     contains("reload", ignoreCase = true) -> ManagedUiMessageCode.STALE_STATE
     else -> ManagedUiMessageCode.OPERATION_FAILED

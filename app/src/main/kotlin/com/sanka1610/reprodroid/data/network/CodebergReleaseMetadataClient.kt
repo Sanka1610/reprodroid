@@ -32,7 +32,10 @@ import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
-class CodebergReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderReleaseMetadataClient {
+class CodebergReleaseMetadataClient(
+    engine: HttpClientEngine? = null,
+    private val authenticator: ProviderRequestAuthenticator = ProviderRequestAuthenticator.NONE,
+) : ProviderReleaseMetadataClient {
     override val providerName: String = PROVIDER
     override val providerInstance: String = INSTANCE
     private val client = if (engine == null) HttpClient(Android) { configure() } else HttpClient(engine) { configure() }
@@ -346,19 +349,20 @@ class CodebergReleaseMetadataClient(engine: HttpClientEngine? = null) : Provider
             (status == HttpStatusCode.Forbidden && rateLimit.exhausted)
         val code = when {
             rateLimited -> "PROVIDER_RATE_LIMITED"
+            status == HttpStatusCode.Unauthorized -> "INVALID_CREDENTIAL"
             status == HttpStatusCode.Forbidden -> "ACCESS_DENIED"
             status == HttpStatusCode.NotFound -> "NOT_FOUND_OR_NOT_PUBLIC"
             status.value in 500..599 -> "PROVIDER_UNAVAILABLE"
             else -> "INVALID_METADATA"
         }
-            val message = runCatching { decode<CodebergMetadataClientApiError>(body).message }.getOrNull() ?: status.description
+        val providerMessage = runCatching { decode<CodebergMetadataClientApiError>(body).message }.getOrNull() ?: status.description
         return ReleaseMetadataException(
             code = code,
             statusCode = status.value,
             retryNotBefore = if (rateLimited) retry ?: rateLimit.retryNotBefore else retry,
             rateLimitRemaining = rateLimit.remaining,
             rateLimitResetAt = rateLimit.retryNotBefore,
-            message = message,
+            message = if (status == HttpStatusCode.Unauthorized) "Provider authentication failed." else providerMessage,
         )
     }
 
@@ -437,6 +441,7 @@ class CodebergReleaseMetadataClient(engine: HttpClientEngine? = null) : Provider
         header(HttpHeaders.Accept, "application/json")
         header(HttpHeaders.AcceptEncoding, "identity")
         header(HttpHeaders.UserAgent, USER_AGENT)
+        authenticator.authenticate(ProviderId.CODEBERG, this)
     }
 
     private fun io.ktor.client.HttpClientConfig<*>.configure() {

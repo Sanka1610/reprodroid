@@ -68,6 +68,7 @@ data class RepositoryRegistrationPreview(
 
 class GitHubRepositoryDiscoveryClient(
     engine: HttpClientEngine? = null,
+    private val authenticator: ProviderRequestAuthenticator = ProviderRequestAuthenticator.NONE,
     private val nanoTime: () -> Long = System::nanoTime,
 ) : ProviderRepositoryDiscoveryClient {
     override val providerName: String = "GITHUB"
@@ -288,6 +289,7 @@ class GitHubRepositoryDiscoveryClient(
         }.getOrNull() ?: status.description
         val rateLimited = headers["X-RateLimit-Remaining"] == "0" || headers[HttpHeaders.RetryAfter] != null
         val code = when {
+            status.value == 401 -> "INVALID_CREDENTIAL"
             status.value == 404 -> "NOT_FOUND_OR_NOT_PUBLIC"
             status.value == 403 && rateLimited -> "RATE_LIMITED"
             status.value == 429 -> "RATE_LIMITED"
@@ -295,7 +297,11 @@ class GitHubRepositoryDiscoveryClient(
             status.value == 409 -> "EMPTY_REPOSITORY"
             else -> "GITHUB_HTTP_${status.value}"
         }
-        return GitHubProviderException(status.value, code, message)
+        return GitHubProviderException(
+            status.value,
+            code,
+            if (status.value == 401) "Provider authentication failed." else message,
+        )
     }
 
     private fun validateMetadata(requested: GitHubRepository, metadata: RegistrationRepositoryMetadata) {
@@ -345,6 +351,7 @@ class GitHubRepositoryDiscoveryClient(
         header(HttpHeaders.AcceptEncoding, "identity")
         header(GITHUB_API_VERSION_HEADER, GITHUB_API_VERSION)
         header(HttpHeaders.UserAgent, USER_AGENT)
+        authenticator.authenticate(ProviderId.GITHUB, this)
     }
 
     private fun io.ktor.client.HttpClientConfig<*>.configure() {

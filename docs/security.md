@@ -21,6 +21,14 @@ production appはcleartext trafficを無効にし、Runner release接続にpaire
 
 debug appだけがloopback development HTTPを利用できます。paired HTTPS失敗時にHTTPへfallbackしません。
 
+### Experimental provider authentication
+
+SettingsのGitHub／Codeberg tokenは、public repositoryに対するprovider API requestを任意に認証する実験的機能です。保存時のlive検証、private repository、認証付きasset download、Runnerのsource checkoutには使用しません。
+
+tokenはproviderごとに独立したAndroid Keystore AES-256-GCM keyで暗号化し、backup対象外の`noBackupFilesDir`へ保存します。Room、log、audit export、URL、redirect、Runner request、build workspace、containerへtokenを保存・転送しません。認証headerは`https://api.github.com`または`https://codeberg.org/api/v1`のexact originにだけ付与し、redirectは自動追跡しません。
+
+ローカル削除はprovider側のtokenを失効しません。利用者は用途専用かつ利用可能な最小権限のread-only tokenを選び、不要になったtokenをprovider側でも失効します。保存済み表示はproviderでの有効性を証明しません。
+
 ## Source build
 
 Gradle build scriptとpluginは任意コードを実行できます。generic buildはRunnerのDocker内で実行され、Docker socket、privileged、host network、任意mount、Runner key、Android credential、production signing keyをcontainerへ渡しません。
@@ -63,6 +71,7 @@ private key、keystore、passphraseはrepository、CI、Runner、build container
 ## Dataとprivacy
 
 - application backupを無効化しています。
+- provider tokenはAndroid Keystoreで暗号化したbackup対象外のcredential envelopeにだけ保存します。
 - Room24に登録、設定、history、comparison、install resultを保存します。
 - Android log exportはReproDroid自身のbounded eventだけを含みます。
 - OS全体のlogcat、他appのlog、Runner build logをAndroid exportへ含めません。

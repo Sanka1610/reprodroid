@@ -41,7 +41,10 @@ class ReleaseMetadataException(
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)
 
-class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderReleaseMetadataClient {
+class GitHubReleaseMetadataClient(
+    engine: HttpClientEngine? = null,
+    private val authenticator: ProviderRequestAuthenticator = ProviderRequestAuthenticator.NONE,
+) : ProviderReleaseMetadataClient {
     override val providerName: String = "GITHUB"
     override val providerInstance: String = "github.com"
     private val client = if (engine == null) HttpClient(Android) { configure() } else HttpClient(engine) { configure() }
@@ -320,12 +323,13 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
             (status == HttpStatusCode.Forbidden && (retry != null || remaining == 0L))
         val code = when {
             rateLimited -> "PROVIDER_RATE_LIMITED"
+            status == HttpStatusCode.Unauthorized -> "INVALID_CREDENTIAL"
             status == HttpStatusCode.Forbidden -> "ACCESS_DENIED"
             status == HttpStatusCode.NotFound -> "NOT_FOUND_OR_NOT_PUBLIC"
             status.value in 500..599 -> "PROVIDER_UNAVAILABLE"
             else -> "INVALID_METADATA"
         }
-        val message = runCatching {
+        val providerMessage = runCatching {
             strictAudit(body)
             json.decodeFromString<GitHubApiError>(body).message
         }.getOrNull() ?: status.description
@@ -335,7 +339,7 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
             retryNotBefore = retry ?: reset,
             rateLimitRemaining = remaining,
             rateLimitResetAt = reset,
-            message = message,
+            message = if (status == HttpStatusCode.Unauthorized) "Provider authentication failed." else providerMessage,
         )
     }
 
@@ -408,6 +412,7 @@ class GitHubReleaseMetadataClient(engine: HttpClientEngine? = null) : ProviderRe
         header(HttpHeaders.Accept, GITHUB_JSON_MEDIA_TYPE)
         header(GITHUB_API_VERSION_HEADER, GITHUB_API_VERSION)
         header(HttpHeaders.UserAgent, USER_AGENT)
+        authenticator.authenticate(ProviderId.GITHUB, this)
     }
 
     private fun io.ktor.client.HttpClientConfig<*>.configure() {

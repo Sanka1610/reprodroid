@@ -6,6 +6,7 @@ import com.sanka1610.reprodroid.ReproDroidApplication
 import com.sanka1610.reprodroid.data.local.*
 import com.sanka1610.reprodroid.data.log.AppLogStore
 import com.sanka1610.reprodroid.data.repository.BuildConfigurationInput
+import com.sanka1610.reprodroid.data.provider.ProviderId
 import com.sanka1610.reprodroid.ui.PreviewGenerationGate
 import com.sanka1610.reprodroid.ui.PreviewRequestToken
 import com.sanka1610.reprodroid.ui.RepositoryPreviewState
@@ -36,6 +37,7 @@ internal class ManagedAppsDelegates(
     val registration = RegistrationDelegate(application, scope, appActions, events)
     val appDetail = AppDetailDelegate(application, scope, appActions, events)
     val release = ReleaseDelegate(application, scope, appActions, events)
+    val providerAuth = ProviderAuthDelegate(application, scope, events)
     val storage = StorageDelegate(application, scope, events)
     val runner = RunnerDelegate(application, scope, events)
     val toolchain = ToolchainDelegate(application, scope, events)
@@ -59,6 +61,51 @@ internal class ManagedAppsDelegates(
         apps.updateGlobalSettings(settings) {
             storage.refreshLocalSummary()
             registration.clearPreview()
+        }
+    }
+}
+
+internal class ProviderAuthDelegate(
+    application: ReproDroidApplication,
+    private val scope: CoroutineScope,
+    private val events: ManagedUiEventStore,
+) {
+    private val repository = application.providerCredentialRepository
+    private val gate = IdentityActionGate()
+    val state = combine(
+        repository.statuses,
+        gate.activeIds,
+        events.observe(ManagedUiOwner.PROVIDER_AUTH),
+    ) { statuses, activeIds, event ->
+        ProviderAuthUiState(
+            statuses = statuses,
+            activeProviders = activeIds.mapNotNullTo(linkedSetOf()) { name ->
+                ProviderId.entries.firstOrNull { it.name == name }
+            },
+            message = event.message,
+        )
+    }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), ProviderAuthUiState(repository.statuses.value))
+
+    fun save(provider: ProviderId, token: String) = runAction(provider) {
+        repository.save(provider, token)
+    }
+
+    fun delete(provider: ProviderId) = runAction(provider) {
+        repository.delete(provider)
+    }
+
+    private fun runAction(provider: ProviderId, action: () -> Unit) {
+        if (!gate.tryAcquire(provider.name)) return
+        scope.launch {
+            try {
+                action()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                events.publishMessage(ManagedUiOwner.PROVIDER_AUTH, failure.userMessage())
+            } finally {
+                gate.release(provider.name)
+            }
         }
     }
 }

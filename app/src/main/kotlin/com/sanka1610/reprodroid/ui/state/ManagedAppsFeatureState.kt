@@ -19,6 +19,8 @@ import com.sanka1610.reprodroid.data.repository.AppDeletionPreview
 import com.sanka1610.reprodroid.data.repository.AppDeletionResult
 import com.sanka1610.reprodroid.data.repository.BuildManifestWarning
 import com.sanka1610.reprodroid.data.repository.SourceScanWarning
+import com.sanka1610.reprodroid.data.provider.ProviderCredentialStatus
+import com.sanka1610.reprodroid.data.provider.ProviderId
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupPreview
 import com.sanka1610.reprodroid.data.storage.AndroidStorageSummary
 import com.sanka1610.reprodroid.data.storage.RunnerStorageConnectionState
@@ -63,6 +65,12 @@ data class ReleaseUiState(
     val candidates: List<ReleaseCandidateEntity> = emptyList(),
     val message: ManagedUiMessage? = null,
     val results: List<ManagedUiResult> = emptyList(),
+)
+
+data class ProviderAuthUiState(
+    val statuses: Map<ProviderId, ProviderCredentialStatus> = emptyMap(),
+    val activeProviders: Set<ProviderId> = emptySet(),
+    val message: ManagedUiMessage? = null,
 )
 
 data class StorageUiState(

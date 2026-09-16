@@ -10,6 +10,17 @@ import com.sanka1610.reprodroid.data.connection.RunnerConnectionRepository
 import com.sanka1610.reprodroid.data.repository.JobRepository
 import com.sanka1610.reprodroid.data.repository.ManagedAppRepository
 import com.sanka1610.reprodroid.data.repository.ReleaseCheckRepository
+import com.sanka1610.reprodroid.data.artifact.CodebergAssetDownloader
+import com.sanka1610.reprodroid.data.artifact.GitHubAssetDownloader
+import com.sanka1610.reprodroid.data.provider.AndroidKeystoreProviderCredentialStore
+import com.sanka1610.reprodroid.data.provider.CodebergReleaseMetadataClient
+import com.sanka1610.reprodroid.data.provider.CodebergReleasesClient
+import com.sanka1610.reprodroid.data.provider.CodebergRepositoryDiscoveryClient
+import com.sanka1610.reprodroid.data.provider.GitHubReleaseMetadataClient
+import com.sanka1610.reprodroid.data.provider.GitHubReleasesClient
+import com.sanka1610.reprodroid.data.provider.GitHubRepositoryDiscoveryClient
+import com.sanka1610.reprodroid.data.provider.ProviderCredentialRepository
+import com.sanka1610.reprodroid.data.provider.StoredProviderRequestAuthenticator
 import com.sanka1610.reprodroid.work.JobSyncWorker
 import com.sanka1610.reprodroid.work.ReleaseCheckScheduler
 import com.sanka1610.reprodroid.data.storage.AndroidStorageManager
@@ -46,6 +57,8 @@ class ReproDroidApplication : Application() {
     lateinit var appLogStore: AppLogStore
         private set
     lateinit var appLogExportManager: AppLogExportManager
+        private set
+    internal lateinit var providerCredentialRepository: ProviderCredentialRepository
         private set
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -114,15 +127,30 @@ class ReproDroidApplication : Application() {
             runnerApi = runnerApi,
             storageManager = storageManager,
         )
+        providerCredentialRepository = ProviderCredentialRepository(
+            AndroidKeystoreProviderCredentialStore(applicationContext),
+        )
+        val providerAuthenticator = StoredProviderRequestAuthenticator(providerCredentialRepository)
         managedAppRepository = ManagedAppRepository(
             context = applicationContext,
             database = database,
             jobRepository = jobRepository,
+            provider = GitHubReleasesClient(authenticator = providerAuthenticator),
+            repositoryDiscoveryClient = GitHubRepositoryDiscoveryClient(authenticator = providerAuthenticator),
+            downloader = GitHubAssetDownloader(),
+            codebergProvider = CodebergReleasesClient(authenticator = providerAuthenticator),
+            codebergRepositoryDiscoveryClient = CodebergRepositoryDiscoveryClient(authenticator = providerAuthenticator),
+            codebergDownloader = CodebergAssetDownloader(),
             storageManager = storageManager,
             cleanupManager = cleanupManager,
             retentionCoordinator = retentionCoordinator,
         )
-        releaseCheckRepository = ReleaseCheckRepository(applicationContext, database)
+        releaseCheckRepository = ReleaseCheckRepository(
+            context = applicationContext,
+            database = database,
+            provider = GitHubReleaseMetadataClient(authenticator = providerAuthenticator),
+            codebergProvider = CodebergReleaseMetadataClient(authenticator = providerAuthenticator),
+        )
         applicationScope.launch {
             runCatching { runnerConnectionRepository.initialize() }
                 .onFailure {

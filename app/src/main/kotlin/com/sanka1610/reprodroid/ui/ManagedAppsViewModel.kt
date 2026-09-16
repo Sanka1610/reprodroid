@@ -13,6 +13,7 @@ import com.sanka1610.reprodroid.data.local.InstallationSource
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.ReleaseCheckSettingsEntity
 import com.sanka1610.reprodroid.data.provider.RepositoryRegistrationPreview
+import com.sanka1610.reprodroid.data.provider.ProviderId
 import com.sanka1610.reprodroid.data.repository.BuildConfigurationInput
 import com.sanka1610.reprodroid.data.repository.ExistingPrimaryRegistration
 import com.sanka1610.reprodroid.ui.delegate.ManagedAppsDelegates
@@ -40,6 +41,7 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     val registrationUiState = delegates.registration.state
     val appDetailUiState = delegates.appDetail.state
     val releaseUiState = delegates.release.state
+    val providerAuthUiState = delegates.providerAuth.state
     val storageUiState = delegates.storage.state
     val runnerUiState = delegates.runner.state
     val toolchainUiState = delegates.toolchain.state
@@ -138,6 +140,8 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
         delegates.appDetail.install(registeredAppId, riskConfirmed)
 
     fun updateReleaseCheckSettings(settings: ReleaseCheckSettingsEntity) = delegates.release.updateSettings(settings)
+    fun saveProviderToken(provider: ProviderId, token: String) = delegates.providerAuth.save(provider, token)
+    fun deleteProviderToken(provider: ProviderId) = delegates.providerAuth.delete(provider)
     fun updateReleaseCheckOverride(override: AppReleaseCheckOverrideEntity) = delegates.release.updateOverride(override)
     fun checkReleaseMetadataNow(registeredAppId: String) = delegates.release.checkNow(registeredAppId)
     fun markReleaseCandidateSeen(candidateId: String) = delegates.release.markCandidateSeen(candidateId)
