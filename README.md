@@ -1,81 +1,112 @@
 # ReproDroid
 
-ReproDroidは、公開されているAndroidアプリの公式APKと、対応する公開ソースからPC側Runnerが生成したAPKを比較し、利用者が差異と来歴を確認できるようにするAndroidアプリです。
+ReproDroidは、公開Androidアプリの公式APKと、公開sourceからPC側Runnerが生成した2つのAPKを比較し、差異、build条件、署名、来歴を利用者が確認できるようにするAndroidアプリです。
 
-> [!IMPORTANT]
-> 現在のcandidate source identityは`0.1.0-alpha05`／`versionCode 5`です。source checkoutだけではreleaseの公開、署名、受入を意味しません。配布物は、同じsource commitを指すGit tagとGitHub Releaseに添付されたAPK、checksum、署名identity、provenanceを照合してください。ビルド成功、静的scan、意味比較の一致だけを、公式APKとの再現性や安全性の証明として扱いません。
+## 主な機能
 
-## Repository roles
-
-- `reprodroid`（本リポジトリ）: Androidアプリ、公開ドキュメント、公開release metadata
-- [`reprodroid-runner`](https://github.com/Sanka1610/reprodroid-runner): source取得、scan、隔離build、artifact提供を行うPC側Runner
-- `reprodroid-project`: 非公開の開発計画、生の検証証跡、handoff、ローカル互換性管理
-
-公開仕様の正本は本リポジトリの[`docs/`](docs/README.md)です。公開文書は、非公開リポジトリがなくても読めることを要件とします。
-
-## Capabilities
-
-- public GitHub／Codeberg repositoryの登録と、上限付きsource・release metadata取得
-- 複数APK候補からの明示選択と、size、SHA-256、package、version、signerの検査
-- 同じsource revisionから独立したBuild A／Bを作成し、公式APK対A、公式APK対B、A対Bを別々に比較
-- detached checkoutを解決済みcommitへ固定した`docker-generic-v3`でのgeneric build
-- DEX、native library、Manifest、resource等の差異を、raw結果と補助的な意味比較に分けて表示
-- metadata-onlyの定期release確認と通知
-- 履歴、保存容量、手動cleanup、監査export
+- public GitHub／Codeberg repositoryの登録
+- release metadataの手動／定期確認
+- 複数APK assetからの明示選択、download、package/version/signer検査
+- 同じsource revisionから独立したBuild A／Bを生成
+- Official vs A、Official vs B、A vs Bのraw三軸比較
+- DEX、native library、Manifest、resource、dependency、build環境の補助証拠
 - Runnerとのmanual pairing、root pin付きHTTPS、端末別credentialと失効
-- Android自身のbounded log export
+- history、storage summary、preview-first cleanup、audit/log export
+- Android標準`PackageInstaller`によるinstall確認
 
-ReproDroidは、silent install、自動アンインストール、root／Shizuku、署名検証回避、private repository token、analytics、広告、tracking、自動crash送信を提供しません。
+## 対応環境
 
-## Security model
-
-- Runnerによるsource buildは任意コード実行を伴います。実行前の明示確認と、対応するRunner側の安全境界が必要です。
-- scheduled release checkはmetadataと通知だけを扱い、APK取得、toolchain導入、build、comparison、trust変更、installを開始しません。
-- `Reproducible`は、同じrelease observationに結び付いた公式APK、Build A、Build Bの定義済みraw三軸がすべて一致した場合だけ表示します。
-- APKのinstall／updateはAndroid標準`PackageInstaller`と利用者確認を使用します。
-- package情報とsigner情報は端末内判定に使い、analyticsや広告へ送信しません。
-
-詳細は[Architecture overview](docs/architecture/overview.md)を参照してください。
-
-## Requirements
-
-| 項目 | 値 |
+| 項目 | 現在の値 |
 |---|---|
-| Android | minSdk 26、targetSdk 36、compileSdk 36 |
-| JDK | 21 |
-| Build | Gradle Wrapper、Kotlin DSL |
-| Runner | 対応する`reprodroid-runner`。release経路はpaired HTTPSを使用 |
-| Current Android schema | Room24 |
-| Current Runner schema | SQLite12 |
+| Android app | `0.1.0-alpha05` / `versionCode 5` |
+| Android OS | Android 8.0（API 26）以上 |
+| target / compile SDK | 36 / 36 |
+| Android database | Room24 |
+| Runner | `0.1.0-alpha02` |
+| Runner database | SQLite12 |
+| Runner API | v1、v2、pairing v1 |
+| Provider | public GitHub、public Codeberg |
+| Package format | 単一APK |
 
-## Build
+詳細は[Compatibility](docs/compatibility.md)を参照してください。
 
-Android SDKの場所は、Git管理外の`local.properties`または`ANDROID_SDK_ROOT`で指定します。
+## Androidアプリのインストール
 
-```bash
-./gradlew testDebugUnitTest
-./gradlew lintDebug
-./gradlew assembleDebug
-```
+1. [v0.1.0-alpha05 release](https://github.com/Sanka1610/reprodroid/releases/tag/v0.1.0-alpha05)から次を取得します。
+   - `reprodroid-0.1.0-alpha05.apk`
+   - `reprodroid-0.1.0-alpha05.cyclonedx.json`
+   - `SHA256SUMS`
+   - `release-manifest.json`
+2. checksumを確認します。
 
-release候補の生成・署名・公開は通常のdeveloper buildと分離します。署名鍵をrepository、CI、Runner、build containerへ渡してはいけません。公開署名ポリシーは[`release/README.md`](release/README.md)を参照してください。
+   ```bash
+   sha256sum -c SHA256SUMS
+   ```
 
-## Documentation
+3. 必要に応じてAndroid SDKの`apksigner`で署名証明書を確認します。
+
+   ```bash
+   apksigner verify --verbose --print-certs reprodroid-0.1.0-alpha05.apk
+   ```
+
+4. signer SHA-256が[公開署名identity](docs/security.md#公開releaseの確認)と一致することを確認し、Android標準installerでAPKを開きます。
+
+filenameだけを根拠にinstallしません。APK、checksum、release manifestを同じGitHub Releaseから取得します。
+
+## クイックスタート
+
+1. 対応する[ReproDroid Runner v0.1.0-alpha02](https://github.com/Sanka1610/reprodroid-runner/releases/tag/v0.1.0-alpha02)を導入します。
+2. Runnerでpaired HTTPSを初期化し、`pairing-open`を実行します。
+3. ReproDroidのSettings → Runner → Runner settings and authenticationでmanual pairingします。
+4. Add appでpublic GitHubまたはCodeberg repository URLを登録します。
+5. releaseを確認し、必要な場合は公式APK assetを明示選択します。
+6. build configurationとtoolchainを確認し、Build AとBuild Bを個別に承認します。
+7. Comparison evidenceでraw三軸と補助証拠を確認します。
+
+詳しい導入は[Getting started](docs/getting-started.md)、画面操作は[User guide](docs/user-guide.md)を参照してください。
+
+## 比較結果の読み方
+
+| 表示 | 条件 |
+|---|---|
+| `Reproducible` | 同じrelease observationのOfficial vs A、Official vs B、A vs Bがすべて`MATCH`し、必要なidentity/trust/install条件も成立 |
+| `Different` | 定義済みraw軸の少なくとも1つが`DIFFERENT` |
+| `Incomparable` | artifact、identity、configuration、evidenceの不足または不整合により比較条件が成立しない |
+
+build成功、scan findingなし、Build AとBの一致、意味比較の一致のいずれか1つだけでは`Reproducible`になりません。詳しくは[Reproducibility](docs/reproducibility.md)を参照してください。
+
+## セキュリティと既知の制限
+
+- generic buildはRunnerのDocker内で任意コードを実行します。現在のprofileには固定egress allowlistとJob単位のhard disk／inode quotaがありません。
+- release接続はmanual pairingとroot pin付きHTTPSを使用します。
+- APK install/updateではAndroid標準`PackageInstaller`が開き、利用者の確認とplatformのsigner-lineage判定が必要です。
+- scheduled release checkはmetadataを取得して通知します。buildはJobs画面、installはAndroid標準installerから開始します。
+- private repository、GitLab、任意Forgejo/Gitea、split APK/APKS/AAB、silent install、backup/restoreには対応しません。
+- analytics、広告、tracking、自動crash uploadはありません。
+
+詳細は[Security](docs/security.md)を参照してください。
+
+## ドキュメント
 
 - [Documentation index](docs/README.md)
-- [Current status](docs/status/current.md)
+- [Getting started](docs/getting-started.md)
+- [User guide](docs/user-guide.md)
+- [Reproducibility](docs/reproducibility.md)
+- [Security](docs/security.md)
+- [Compatibility](docs/compatibility.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Development](docs/development.md)
+- [Releasing](docs/releasing.md)
 - [Architecture overview](docs/architecture/overview.md)
-- [UI architecture and navigation](docs/architecture/ui.md)
-- [Getting started](docs/guides/getting-started.md)
-- [Operations and recovery](docs/guides/operations.md)
-- [0.1.0-alpha05 release notes](docs/releases/0.1.0-alpha05.md)
-- [Unreleased notes](docs/releases/unreleased.md)
-- [ADR index](docs/adr/README.md)
-- [Runner API](docs/api/README.md)
-- [Feature contracts](docs/design/README.md)
-- [Public/private documentation boundary](docs/adr/0027-public-documentation-and-private-development-boundary.md)
-- [Release signing policy](release/README.md)
+- [UI architecture](docs/architecture/ui.md)
+- [Changelog](CHANGELOG.md)
 
-## License
+Runnerの設定、CLI、API、Docker、state管理は[Runner documentation](https://github.com/Sanka1610/reprodroid-runner/tree/main/docs)を参照してください。
 
-ReproDroid自身のcode、設定、script、文書、resourceは[Apache License 2.0](LICENSE)です。第三者componentとassetには、それぞれのライセンスが適用されます。Androidアプリには利用中componentのライセンス表示を同梱します。
+## ソースからビルドする
+
+debug APKのbuildとtestは[Development](docs/development.md)を参照してください。debug APKはapplication ID、署名、dataがproduction APKと異なります。
+
+## ライセンス
+
+ReproDroidは[Apache License 2.0](LICENSE)です。Androidアプリ内でthird-party noticesを表示できます。

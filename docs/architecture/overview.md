@@ -1,8 +1,5 @@
 # Architecture overview
 
-- Status: Current public overview
-- Updated: 2026-09-14
-
 ## Purpose
 
 ReproDroidは、配布元が公開するAPKと、対応する公開sourceからローカルに生成したAPKを、同じrelease observationに結び付けて比較するためのシステムです。比較結果と補助証拠を提示しますが、sourceやAPKの安全性を自動的に証明しません。
@@ -20,10 +17,10 @@ ReproDroidは、配布元が公開するAPKと、対応する公開sourceから�
 - 補助的なDEX／Manifest／resource差異表示
 - 履歴、設定、保存容量、cleanup、監査export
 - scheduled metadata checkと通知
-- Android標準installerへのhandoff
+- Android標準installerによるinstall確認
 - Android自身のlog export
 
-Androidは、Runnerのfilesystem path、秘密情報、toolchain inventory truthを正本として複製しません。
+Androidは、Runnerのfilesystem path、秘密情報、toolchain inventory valueを複製しません。
 
 Androidのproduction UI rootは`MainActivity`から起動される単一の`ReproDroidApp`です。typed route、back、notification route、screen package、presentation state、one-shot resultの現在のownerは[UI architecture and navigation](ui.md)を参照してください。
 
@@ -50,7 +47,7 @@ Runnerが`SUCCEEDED`になっても、公式APKとの一致や`Reproducible`を�
 ```text
 Public repository URL
   -> bounded metadata and source discovery
-  -> release and APK candidate selection
+  -> release and APK asset selection
   -> official APK download and inspection
   -> explicit build approval
   -> independent Runner Build A and Build B
@@ -83,4 +80,6 @@ release経路はmanual pairingとroot pin付きHTTPSを使用します。Android
 
 ## Repository boundary
 
-公開製品codeと公開文書は`reprodroid`、Runner codeとRunner固有文書は`reprodroid-runner`、生の開発証跡と内部運用情報は非公開`reprodroid-project`に置きます。秘密鍵、credential、runtime DB、APK、log、build workspaceは、いずれのGit repositoryにも保存しません。
+Android codeと製品横断文書は`reprodroid`、Runner codeとRunner固有のinstallation／configuration／API文書は`reprodroid-runner`に置きます。秘密鍵、credential、runtime DB、APK、raw log、build workspaceはGit repositoryへ保存しません。
+
+対応versionとAPIは[Compatibility](../compatibility.md)、比較判定は[Reproducibility](../reproducibility.md)、具体的な安全境界は[Security](../security.md)を参照してください。
