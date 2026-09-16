@@ -1,9 +1,5 @@
 # UI architecture and navigation
 
-- Status: Current public architecture
-- Updated: 2026-09-14
-- Source baseline: Phase 5.5+ locally integrated source
-
 ## Production root
 
 Production has one UI call chain:
@@ -36,7 +32,7 @@ MainActivity
 | `ui/state` | immutable feature states and owner-scoped message／result contracts |
 | `ui/delegate` | feature state producers and mutation gates behind the ViewModel facade |
 
-The screen map describes responsibility, not a security-authority transfer. Repository, Room, API, authorization, comparison, signer, and install-policy validation remains below the UI.
+The screen map describes responsibility; repository、Room、API、authorization、comparison、signer、install-policy validation remains below the UI.
 
 ## Root information architecture
 
@@ -48,7 +44,7 @@ Registered apps <-> Add app <-> Settings
        +-- App information
        |     +-- Edit identity and source
        |     +-- App settings
-       |     +-- Technical evidence
+       |     +-- Open technical details
        |             +-- Comparison evidence
        +-- Tracking history
 
@@ -61,7 +57,7 @@ Settings
   +-- External tool integrations
   +-- Runner
   |     +-- Runner settings and authentication
-  |     +-- Jobs
+  |     +-- Runner jobs
   |     +-- Managed build toolchains
   |     +-- Runner storage
   +-- Backup (currently unavailable)
@@ -123,14 +119,14 @@ App detail routes return to the app overview. Inactive app overview retains its 
 | Apps | catalog, active／inactive records, groups, global settings | app-ID action gate; group operations remain explicit |
 | Registration | analysis preview, source-edit preview, registration result | cancellable generation and registration Jobs |
 | App detail | build manifests, Runner Jobs, source／scan／sandbox warnings, availability | authoritative repository validation remains below UI |
-| Release | release-check settings, per-app overrides, schedules, candidates | app-ID action gate; no automatic download／build／install |
+| Release | release-check settings, per-app overrides, schedules, release observations | app-ID action gate; no automatic download／build／install |
 | Storage | Android／Runner summaries, cleanup previews, audit／log export | single busy gate for storage mutations |
 | Runner | connection status and saved Runner identities | repository-owned pairing and authorization state machine |
 | Toolchain | catalog, install plan, progress, inventory, removal | coordinator-owned cancellation and identity checks |
 | Deletion／export | complete-deletion preview／result and export result | app-ID gate and preview identity |
 | Jobs | Job list, polling, RCE／scan acknowledgements, artifact actions | Job／artifact identity and visible polling lifecycle |
 
-Messages and one-shot results carry an owner and monotonically increasing local event ID. Navigation results are consumed only when the current encoded route and relevant app／candidate／removal identity still match. Leaving a screen therefore prevents a late callback from mutating navigation for another record.
+Messages and one-shot results carry an owner and monotonically increasing local event ID. Navigation results are consumed only when the current encoded route and relevant app／release／removal identity still match. Leaving a screen therefore prevents a late callback from mutating navigation for another record.
 
 ## Saved and transient state
 
@@ -148,4 +144,4 @@ Messages and one-shot results carry an owner and monotonically increasing local 
 - Scheduled checks stop at metadata and notification.
 - Release HTTPS requires manual pairing, root pinning, device credential authorization, and fail-closed transport.
 
-The system-wide component and trust boundaries are in the [Architecture overview](overview.md). Current verification and release status are in [Current status](../status/current.md).
+system-wide componentとtrust boundaryは[Architecture overview](overview.md)、version/API対応は[Compatibility](../compatibility.md)、比較判定は[Reproducibility](../reproducibility.md)を参照してください。
