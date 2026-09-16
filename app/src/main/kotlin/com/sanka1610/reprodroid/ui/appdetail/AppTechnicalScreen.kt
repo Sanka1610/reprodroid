@@ -120,7 +120,6 @@ internal fun AppDetailScreen(
 ) {
     BackHandler(onBack = onBack)
     val backContentDescription = stringResource(R.string.action_back)
-    val refreshContentDescription = stringResource(R.string.action_refresh)
     val settingsContentDescription = stringResource(R.string.nav_settings)
     val latest = record.latestRelease
     val asset = latest?.selectedAsset
