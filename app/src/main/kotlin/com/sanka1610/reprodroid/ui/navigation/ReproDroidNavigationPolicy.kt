@@ -40,6 +40,8 @@ internal fun backDestination(
     is ReproDroidRoute.AppEdit,
     is ReproDroidRoute.AppSettings,
     is ReproDroidRoute.AppTechnical,
+    is ReproDroidRoute.AppRegistrationComplete,
+    is ReproDroidRoute.AppInstall,
     -> ReproDroidRoute.AppInformation(requireNotNull(current.appId))
     is ReproDroidRoute.AppInformation ->
         if (context.currentAppIsInactive) {

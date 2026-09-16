@@ -48,6 +48,14 @@ class ReproDroidNavigationPolicyTest {
             ReproDroidRoute.AppInformation(appId),
             backDestination(ReproDroidRoute.AppTechnical(appId)),
         )
+        assertEquals(
+            ReproDroidRoute.AppInformation(appId),
+            backDestination(ReproDroidRoute.AppRegistrationComplete(appId)),
+        )
+        assertEquals(
+            ReproDroidRoute.AppInformation(appId),
+            backDestination(ReproDroidRoute.AppInstall(appId)),
+        )
     }
 
     @Test
