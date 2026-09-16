@@ -62,8 +62,9 @@ class ReleaseCheckPolicyTest {
             ReleaseCheckPolicy.validate(settings(intervalHours = 0))
         }
         assertThrows(IllegalArgumentException::class.java) {
-            ReleaseCheckPolicy.validate(settings(intervalHours = 25))
+            ReleaseCheckPolicy.validate(settings(intervalHours = 169))
         }
+        ReleaseCheckPolicy.validate(settings(intervalHours = 168))
         assertThrows(IllegalArgumentException::class.java) {
             ReleaseCheckPolicy.validate(settings(dailyLocalMinute = -1))
         }
@@ -94,6 +95,19 @@ class ReleaseCheckPolicyTest {
 
         assertEquals(
             Instant.parse("2026-09-06T06:00:00Z"),
+            ReleaseCheckPolicy.nextTerminalTime(effective, NOW, ZoneId.of("UTC")),
+        )
+    }
+
+    @Test
+    fun `weekly interval is measured as one hundred sixty eight hours`() {
+        val effective = ReleaseCheckPolicy.effective(
+            settings(scheduleMode = ReleaseCheckScheduleMode.INTERVAL.name, intervalHours = 168),
+            null,
+        )
+
+        assertEquals(
+            Instant.parse("2026-09-13T00:00:00Z"),
             ReleaseCheckPolicy.nextTerminalTime(effective, NOW, ZoneId.of("UTC")),
         )
     }

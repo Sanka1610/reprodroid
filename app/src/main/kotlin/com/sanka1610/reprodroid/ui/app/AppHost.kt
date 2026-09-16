@@ -2,6 +2,7 @@ package com.sanka1610.reprodroid.ui.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -181,6 +182,7 @@ fun ReproDroidApp(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var notificationsAllowed by remember { mutableStateOf(appNotificationsAllowed(context)) }
+    var backgroundWorkAllowed by remember { mutableStateOf(appBackgroundWorkAllowed(context)) }
 
     var encodedRoute by rememberSaveable(initialRoute) {
         mutableStateOf(ReproDroidRoute.parse(initialRoute).encode())
@@ -285,6 +287,7 @@ fun ReproDroidApp(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 notificationsAllowed = appNotificationsAllowed(context)
+                backgroundWorkAllowed = appBackgroundWorkAllowed(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -405,11 +408,13 @@ fun ReproDroidApp(
                 releaseSettings = releaseCheckSettings,
                 providerAuthState = providerAuthState,
                 notificationsAllowed = notificationsAllowed,
+                backgroundWorkAllowed = backgroundWorkAllowed,
                 onUpdate = managedViewModel::updateGlobalSettings,
                 onUpdateReleaseSettings = managedViewModel::updateReleaseCheckSettings,
                 onSaveProviderToken = managedViewModel::saveProviderToken,
                 onDeleteProviderToken = managedViewModel::deleteProviderToken,
                 onRequestNotifications = activityResults::requestNotificationPermission,
+                onOpenBackgroundSettings = activityResults::openBackgroundSettings,
                 onNavigate = ::navigate,
             )
             else -> Unit
@@ -597,11 +602,13 @@ fun ReproDroidApp(
                             releaseSettings = releaseCheckSettings,
                             providerAuthState = providerAuthState,
                             notificationsAllowed = notificationsAllowed,
+                            backgroundWorkAllowed = backgroundWorkAllowed,
                             onUpdate = managedViewModel::updateGlobalSettings,
                             onUpdateReleaseSettings = managedViewModel::updateReleaseCheckSettings,
                             onSaveProviderToken = managedViewModel::saveProviderToken,
                             onDeleteProviderToken = managedViewModel::deleteProviderToken,
                             onRequestNotifications = activityResults::requestNotificationPermission,
+                            onOpenBackgroundSettings = activityResults::openBackgroundSettings,
                             onNavigate = ::navigate,
                         )
                         ReproDroidRoute.DataManagement -> DataManagementScreen(
@@ -713,11 +720,13 @@ fun ReproDroidApp(
                             releaseSettings = releaseCheckSettings,
                             providerAuthState = providerAuthState,
                             notificationsAllowed = notificationsAllowed,
+                            backgroundWorkAllowed = backgroundWorkAllowed,
                             onUpdate = managedViewModel::updateGlobalSettings,
                             onUpdateReleaseSettings = managedViewModel::updateReleaseCheckSettings,
                             onSaveProviderToken = managedViewModel::saveProviderToken,
                             onDeleteProviderToken = managedViewModel::deleteProviderToken,
                             onRequestNotifications = activityResults::requestNotificationPermission,
+                            onOpenBackgroundSettings = activityResults::openBackgroundSettings,
                             onNavigate = ::navigate,
                         )
                         ReproDroidRoute.Authentication -> RunnerAuthenticationScreen(
@@ -1078,6 +1087,10 @@ private fun appNotificationsAllowed(context: Context): Boolean {
         PackageManager.PERMISSION_GRANTED
     return runtimeAllowed && NotificationManagerCompat.from(context).areNotificationsEnabled()
 }
+
+private fun appBackgroundWorkAllowed(context: Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.P ||
+        !(context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).isBackgroundRestricted
 
 @Composable
 private fun AppActionBar(

@@ -335,6 +335,12 @@ Custom colors are used when unavailable.</string>
     <string name="enum_debug">Debug</string>
     <string name="enum_universal">Universal</string>
     <string name="settings_updates">Update checks</string>
+    <string name="settings_permissions">Permissions</string>
+    <string name="settings_notification_permission">Notifications</string>
+    <string name="settings_background_work">Background operation</string>
+    <string name="settings_background_work_body">If Android restricts background operation, scheduled checks cannot run.</string>
+    <string name="settings_allow_permission">Allow</string>
+    <string name="settings_permission_allowed">Allowed</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_allow_notifications">Allow notifications</string>
     <string name="settings_notifications_allowed">Allowed</string>
@@ -515,10 +521,13 @@ Custom colors are used when unavailable.</string>
     <string name="future_update_interval">Check interval</string>
     <string name="release_check_global_settings">Scheduled release checks</string>
     <string name="release_check_scope_body">Only monitor releases.</string>
+    <string name="release_check_update_check">Update checks</string>
     <string name="release_check_schedule_mode">Schedule mode</string>
     <string name="release_check_interval_mode">Interval</string>
-    <string name="release_check_daily_mode">Specified time only</string>
+    <string name="release_check_daily_mode">Specified time</string>
+    <string name="release_check_disabled_mode">Do not check</string>
     <string name="release_check_daily_time">Check time (HH:MM)</string>
+    <string name="release_check_select_time">Select check time</string>
     <string name="release_check_daily_time_body">This is the earliest local time; Android may defer the check.</string>
     <string name="release_check_include_prerelease_toggle">Include prereleases</string>
     <string name="release_check_include_metered">Include metered connections</string>
@@ -547,6 +556,10 @@ Custom colors are used when unavailable.</string>
     <plurals name="release_check_hours">
         <item quantity="one">%d hour</item>
         <item quantity="other">%d hours</item>
+    </plurals>
+    <plurals name="release_check_days">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
     </plurals>
     <string name="log_export_choose_destination">Save operational logs</string>
     <string name="log_export_saved">Operational log export saved</string>
