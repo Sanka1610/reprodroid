@@ -89,8 +89,10 @@ import com.sanka1610.reprodroid.ui.add.UiRAddFlowScreen
 import com.sanka1610.reprodroid.ui.appdetail.AppEditScreen
 import com.sanka1610.reprodroid.ui.appdetail.AppDetailScreen
 import com.sanka1610.reprodroid.ui.appdetail.AppInformationScreen
+import com.sanka1610.reprodroid.ui.appdetail.AppRegistrationCompleteScreen
 import com.sanka1610.reprodroid.ui.appdetail.AppPreferencesScreen
 import com.sanka1610.reprodroid.ui.appdetail.RemoveTrackingDialog
+import com.sanka1610.reprodroid.ui.appdetail.latestInstallableCandidate
 import com.sanka1610.reprodroid.ui.apps.InactiveAppsScreen
 import com.sanka1610.reprodroid.ui.apps.UiRAppsScreen
 import com.sanka1610.reprodroid.ui.comparison.ComparisonEvidenceScreen
@@ -346,7 +348,8 @@ fun ReproDroidApp(
             routeApp?.app?.trackingState == AppTrackingState.INACTIVE.name &&
             (route is ReproDroidRoute.AppEdit ||
                 route is ReproDroidRoute.AppSettings ||
-                route is ReproDroidRoute.AppTechnical)
+                route is ReproDroidRoute.AppTechnical ||
+                route is ReproDroidRoute.AppInstall)
         ) {
             navigate(ReproDroidRoute.AppInformation(routeApp.app.registeredAppId))
         }
@@ -504,7 +507,12 @@ fun ReproDroidApp(
                     }
                 },
                 bottomBar = {
-                    if (route.appId != null && routeApp != null) AppActionBar(
+                    if (
+                        route.appId != null &&
+                        routeApp != null &&
+                        route !is ReproDroidRoute.AppRegistrationComplete &&
+                        route !is ReproDroidRoute.AppInstall
+                    ) AppActionBar(
                             route = route,
                             active = routeApp.app.trackingState == AppTrackingState.ACTIVE.name,
                             onNavigate = ::navigate,
@@ -759,21 +767,18 @@ fun ReproDroidApp(
                             onBack = { navigate(ReproDroidRoute.AddSource) },
                         )
                         is ReproDroidRoute.AppInformation -> routeApp?.let { record ->
+                            val appCandidates = releaseCandidates.filter {
+                                it.registeredAppId == record.app.registeredAppId
+                            }
                             AppInformationScreen(
                                 record = record,
                                 active = record.app.registeredAppId in activeAppIds,
                                 runnerJobs = runnerJobs.associateBy { it.job.jobId },
-                                candidates = releaseCandidates.filter {
-                                    it.registeredAppId == record.app.registeredAppId
-                                },
+                                candidates = appCandidates,
                                 schedule = releaseScheduleStates.firstOrNull {
                                     it.registeredAppId == record.app.registeredAppId
                                 },
                                 onBack = { navigate(backDestination(route)) },
-                                onRefresh = { managedViewModel.refresh(record.app.registeredAppId) },
-                                onCheckMetadata = {
-                                    managedViewModel.checkReleaseMetadataNow(record.app.registeredAppId)
-                                },
                                 onOpenCandidate = { candidate ->
                                     pendingCandidateId = candidate.candidateId
                                     managedViewModel.openReleaseCandidate(
@@ -785,11 +790,45 @@ fun ReproDroidApp(
                                 onTechnical = {
                                     navigate(ReproDroidRoute.AppTechnical(record.app.registeredAppId))
                                 },
+                                onInstall = {
+                                    navigate(ReproDroidRoute.AppInstall(record.app.registeredAppId))
+                                },
                                 onComparison = { comparisonId ->
                                     navigate(ReproDroidRoute.Comparison(comparisonId))
                                 },
                                 onResume = {
                                     managedViewModel.resumeTracking(record.app.registeredAppId)
+                                },
+                            )
+                        } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
+                        is ReproDroidRoute.AppRegistrationComplete -> routeApp?.let { record ->
+                            val candidate = releaseCandidates
+                                .filter { it.registeredAppId == record.app.registeredAppId }
+                                .latestInstallableCandidate()
+                            AppRegistrationCompleteScreen(
+                                record = record,
+                                candidate = candidate,
+                                schedule = releaseScheduleStates.firstOrNull {
+                                    it.registeredAppId == record.app.registeredAppId
+                                },
+                                active = record.app.registeredAppId in activeAppIds,
+                                onContinue = {
+                                    if (candidate != null) {
+                                        pendingCandidateId = candidate.candidateId
+                                        managedViewModel.openReleaseCandidate(
+                                            candidate.registeredAppId,
+                                            candidate.candidateId,
+                                            route.encode(),
+                                        )
+                                    } else {
+                                        navigate(ReproDroidRoute.AppInstall(record.app.registeredAppId))
+                                    }
+                                },
+                                onLater = {
+                                    navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId))
+                                },
+                                onRetry = {
+                                    managedViewModel.checkReleaseMetadataNow(record.app.registeredAppId)
                                 },
                             )
                         } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
@@ -876,6 +915,42 @@ fun ReproDroidApp(
                                 sourceScanWarnings = sourceScanWarnings,
                                 sandboxWarnings = sandboxWarnings,
                                 availability = availability,
+                                focusedFlow = false,
+                            )
+                        } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
+                        is ReproDroidRoute.AppInstall -> routeApp?.let { record ->
+                            AppDetailScreen(
+                                record = record,
+                                globalSettings = globalSettings,
+                                active = record.app.registeredAppId in activeAppIds,
+                                onBack = { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
+                                onSettings = { navigate(ReproDroidRoute.AppSettings(record.app.registeredAppId)) },
+                                onRefresh = { managedViewModel.refresh(record.app.registeredAppId) },
+                                onSelectReleaseAsset = { snapshotId, assetId, saveCondition ->
+                                    managedViewModel.selectReleaseAsset(
+                                        record.app.registeredAppId,
+                                        snapshotId,
+                                        assetId,
+                                        saveCondition,
+                                    )
+                                },
+                                onClearSavedAssetSelection = {
+                                    managedViewModel.clearSavedAssetSelection(record.app.registeredAppId)
+                                },
+                                onInstall = { confirmed -> managedViewModel.install(record.app.registeredAppId, confirmed) },
+                                onStartComparison = { managedViewModel.startComparison(record.app.registeredAppId) },
+                                onRefreshComparison = { managedViewModel.refreshComparison(record.app.registeredAppId, it) },
+                                onConfirmComparison = { managedViewModel.confirmComparison(record.app.registeredAppId, it) },
+                                onContinueComparisonSourceScan = {
+                                    managedViewModel.continueComparisonSourceScan(record.app.registeredAppId, it)
+                                },
+                                runnerJobs = runnerJobs.associateBy { it.job.jobId },
+                                buildEnvironmentManifests = buildEnvironmentManifests.associateBy { it.manifest.jobId },
+                                buildManifestWarnings = buildManifestWarnings,
+                                sourceScanWarnings = sourceScanWarnings,
+                                sandboxWarnings = sandboxWarnings,
+                                availability = availability,
+                                focusedFlow = true,
                             )
                         } ?: MissingRecordScreen { navigate(ReproDroidRoute.Apps) }
                         is ReproDroidRoute.Comparison -> comparisonRouteApp?.let { record ->

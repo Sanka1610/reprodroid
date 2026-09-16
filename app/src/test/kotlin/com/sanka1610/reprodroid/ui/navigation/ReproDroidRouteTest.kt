@@ -39,6 +39,8 @@ class ReproDroidRouteTest {
         val id = "00000000-0000-0000-0000-000000000001"
         val routes = listOf(
             ReproDroidRoute.AppInformation(id),
+            ReproDroidRoute.AppRegistrationComplete(id),
+            ReproDroidRoute.AppInstall(id),
             ReproDroidRoute.AppEdit(id),
             ReproDroidRoute.AppSettings(id),
             ReproDroidRoute.AppTechnical(id),

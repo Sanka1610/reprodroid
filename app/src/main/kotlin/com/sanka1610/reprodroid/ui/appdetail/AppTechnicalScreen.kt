@@ -116,6 +116,7 @@ internal fun AppDetailScreen(
     sourceScanWarnings: Map<String, SourceScanWarning>,
     sandboxWarnings: Map<String, String>,
     availability: List<ResourceAvailabilityEntity>,
+    focusedFlow: Boolean,
 ) {
     BackHandler(onBack = onBack)
     val backContentDescription = stringResource(R.string.action_back)
@@ -173,7 +174,21 @@ internal fun AppDetailScreen(
         globalSettings.installerMode == InstallerMode.SHIZUKU.name && privilegedEligible
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text(record.app.resolvedDisplayName) },
+            title = {
+                Text(
+                    if (focusedFlow) {
+                        stringResource(
+                            if (record.app.managementMode == ManagementMode.VERIFICATION.name) {
+                                R.string.install_flow_verify_title
+                            } else {
+                                R.string.install_flow_acquire_title
+                            },
+                        )
+                    } else {
+                        record.app.resolvedDisplayName
+                    },
+                )
+            },
             navigationIcon = {
                 IconButton(
                     onClick = onBack,
@@ -181,17 +196,15 @@ internal fun AppDetailScreen(
                 ) { NavigationGlyph("‹") }
             },
             actions = {
-                IconButton(
-                    enabled = !active,
-                    onClick = onRefresh,
-                    modifier = Modifier.semantics { contentDescription = refreshContentDescription },
-                ) {
-                    NavigationGlyph("↻")
+                if (!focusedFlow) {
+                    TextButton(enabled = !active, onClick = onRefresh) {
+                        Text(stringResource(R.string.action_refresh_release_data))
+                    }
+                    IconButton(
+                        onClick = onSettings,
+                        modifier = Modifier.semantics { contentDescription = settingsContentDescription },
+                    ) { NavigationGlyph("⚙") }
                 }
-                IconButton(
-                    onClick = onSettings,
-                    modifier = Modifier.semantics { contentDescription = settingsContentDescription },
-                ) { NavigationGlyph("⚙") }
             },
         )
         if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -211,40 +224,42 @@ internal fun AppDetailScreen(
                     )
                 }
             }
-            item {
-                DetailCard(stringResource(R.string.technical_repository)) {
-                    DetailValue(stringResource(R.string.label_provider), record.app.provider)
-                    DetailValue(stringResource(R.string.label_source_url), record.app.canonicalRepositoryUrl, true)
-                    DetailValue(stringResource(R.string.technical_repository_id), record.repositoryBinding?.providerRepositoryId ?: stringResource(R.string.value_unknown), true)
-                    DetailValue(stringResource(R.string.technical_identity), record.repositoryBinding?.identityStatus ?: stringResource(R.string.value_not_available))
-                    record.latestSourceDiscovery?.let { discovery ->
-                        DetailValue(stringResource(R.string.technical_source_discovery), discovery.state)
-                        discovery.reason?.let { DetailValue(stringResource(R.string.technical_discovery_reason), it) }
-                        DetailValue(stringResource(R.string.technical_source_commit), discovery.resolvedCommitSha ?: stringResource(R.string.value_not_available), true)
-                        DetailValue(stringResource(R.string.add_gradle_candidates), discovery.candidateCount.toString())
-                    }
-                    record.selectedBuildConfiguration?.let { configuration ->
-                        DetailValue(
-                            stringResource(R.string.technical_build_settings),
-                            stringResource(
-                                R.string.technical_build_settings_summary,
-                                configuration.revision,
-                                configuration.validationState,
-                            ),
-                        )
-                        DetailValue(stringResource(R.string.technical_settings_sha256), configuration.contentSha256, true)
-                    }
-                    DetailValue(stringResource(R.string.technical_release_last_checked), record.app.lastReleaseCheckedAt ?: stringResource(R.string.value_never))
-                    DetailValue(stringResource(R.string.technical_release_variant), effectiveVariant(record, globalSettings).displayName())
-                    DetailValue(stringResource(R.string.settings_abi), effectiveAbi(record, globalSettings).displayName())
-                    DetailValue(stringResource(R.string.technical_apk_limit), "${effectiveLimit(record, globalSettings) / MIB} MiB")
-                    if (record.app.savedAssetSelectionJson != null) {
-                        DetailValue(
-                            stringResource(R.string.technical_saved_selection),
-                            stringResource(R.string.technical_saved_selection_active),
-                        )
-                        TextButton(enabled = !active, onClick = onClearSavedAssetSelection) {
-                            Text(stringResource(R.string.technical_clear_saved_selection))
+            if (!focusedFlow) {
+                item {
+                    DetailCard(stringResource(R.string.technical_repository)) {
+                        DetailValue(stringResource(R.string.label_provider), record.app.provider)
+                        DetailValue(stringResource(R.string.label_source_url), record.app.canonicalRepositoryUrl, true)
+                        DetailValue(stringResource(R.string.technical_repository_id), record.repositoryBinding?.providerRepositoryId ?: stringResource(R.string.value_unknown), true)
+                        DetailValue(stringResource(R.string.technical_identity), record.repositoryBinding?.identityStatus ?: stringResource(R.string.value_not_available))
+                        record.latestSourceDiscovery?.let { discovery ->
+                            DetailValue(stringResource(R.string.technical_source_discovery), discovery.state)
+                            discovery.reason?.let { DetailValue(stringResource(R.string.technical_discovery_reason), it) }
+                            DetailValue(stringResource(R.string.technical_source_commit), discovery.resolvedCommitSha ?: stringResource(R.string.value_not_available), true)
+                            DetailValue(stringResource(R.string.add_gradle_candidates), discovery.candidateCount.toString())
+                        }
+                        record.selectedBuildConfiguration?.let { configuration ->
+                            DetailValue(
+                                stringResource(R.string.technical_build_settings),
+                                stringResource(
+                                    R.string.technical_build_settings_summary,
+                                    configuration.revision,
+                                    configuration.validationState,
+                                ),
+                            )
+                            DetailValue(stringResource(R.string.technical_settings_sha256), configuration.contentSha256, true)
+                        }
+                        DetailValue(stringResource(R.string.technical_release_last_checked), record.app.lastReleaseCheckedAt ?: stringResource(R.string.value_never))
+                        DetailValue(stringResource(R.string.technical_release_variant), effectiveVariant(record, globalSettings).displayName())
+                        DetailValue(stringResource(R.string.settings_abi), effectiveAbi(record, globalSettings).displayName())
+                        DetailValue(stringResource(R.string.technical_apk_limit), "${effectiveLimit(record, globalSettings) / MIB} MiB")
+                        if (record.app.savedAssetSelectionJson != null) {
+                            DetailValue(
+                                stringResource(R.string.technical_saved_selection),
+                                stringResource(R.string.technical_saved_selection_active),
+                            )
+                            TextButton(enabled = !active, onClick = onClearSavedAssetSelection) {
+                                Text(stringResource(R.string.technical_clear_saved_selection))
+                            }
                         }
                     }
                 }
@@ -254,12 +269,14 @@ internal fun AppDetailScreen(
                     DetailCard(stringResource(R.string.technical_latest_release)) {
                         DetailValue(stringResource(R.string.technical_release), release.snapshot.releaseName)
                         DetailValue(stringResource(R.string.technical_tag), release.snapshot.tagName)
-                        DetailValue(stringResource(R.string.technical_resolved_commit), release.snapshot.resolvedCommitSha, true)
-                        DetailValue(stringResource(R.string.technical_target_commitish), release.snapshot.targetCommitishRaw)
-                        DetailValue(
-                            stringResource(R.string.technical_published),
-                            release.snapshot.publishedAt ?: stringResource(R.string.technical_not_supplied),
-                        )
+                        if (!focusedFlow) {
+                            DetailValue(stringResource(R.string.technical_resolved_commit), release.snapshot.resolvedCommitSha, true)
+                            DetailValue(stringResource(R.string.technical_target_commitish), release.snapshot.targetCommitishRaw)
+                            DetailValue(
+                                stringResource(R.string.technical_published),
+                                release.snapshot.publishedAt ?: stringResource(R.string.technical_not_supplied),
+                            )
+                        }
                     }
                 }
             }
@@ -349,17 +366,6 @@ internal fun AppDetailScreen(
                 item {
                     DetailCard(stringResource(R.string.technical_official_apk)) {
                         DetailValue(stringResource(R.string.technical_asset), current.assetName)
-                        DetailValue(stringResource(R.string.technical_selection), current.selectionReason)
-                        DetailValue(
-                            stringResource(R.string.technical_provider_created),
-                            current.providerCreatedAt ?: stringResource(R.string.value_not_available),
-                        )
-                        DetailValue(
-                            stringResource(R.string.technical_download_content_type),
-                            current.downloadContentType ?: stringResource(R.string.value_not_available),
-                        )
-                        DetailValue(stringResource(R.string.technical_provider_sha256), current.providerDigestSha256 ?: stringResource(R.string.value_not_available), true)
-                        DetailValue(stringResource(R.string.technical_computed_sha256), current.computedRawSha256 ?: stringResource(R.string.value_not_available), true)
                         DetailValue(stringResource(R.string.label_package), current.packageName ?: stringResource(R.string.value_unknown))
                         DetailValue(stringResource(R.string.technical_version), current.versionName ?: stringResource(R.string.value_not_available))
                         DetailValue(
@@ -369,53 +375,68 @@ internal fun AppDetailScreen(
                         )
                         DetailValue(stringResource(R.string.label_update), updateLabel(current.updateStatus))
                         DetailValue(stringResource(R.string.technical_signer_relation), signerLabel(current.existingInstallStatus))
-                        DetailValue(stringResource(R.string.technical_signer), current.currentSignerSha256 ?: stringResource(R.string.value_unknown), true)
                         DetailValue(stringResource(R.string.technical_comparison), current.comparisonEligibility)
+                        if (!focusedFlow) {
+                            DetailValue(stringResource(R.string.technical_selection), current.selectionReason)
+                            DetailValue(
+                                stringResource(R.string.technical_provider_created),
+                                current.providerCreatedAt ?: stringResource(R.string.value_not_available),
+                            )
+                            DetailValue(
+                                stringResource(R.string.technical_download_content_type),
+                                current.downloadContentType ?: stringResource(R.string.value_not_available),
+                            )
+                            DetailValue(stringResource(R.string.technical_provider_sha256), current.providerDigestSha256 ?: stringResource(R.string.value_not_available), true)
+                            DetailValue(stringResource(R.string.technical_computed_sha256), current.computedRawSha256 ?: stringResource(R.string.value_not_available), true)
+                            DetailValue(stringResource(R.string.technical_signer), current.currentSignerSha256 ?: stringResource(R.string.value_unknown), true)
+                        }
                         current.incomparableReason?.let { DetailValue(stringResource(R.string.storage_reason), it) }
                         current.downloadErrorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                 }
             }
-            item {
-                DetailCard(stringResource(R.string.technical_history)) {
-                    Text(
-                        stringResource(R.string.technical_history_body),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    record.releases
-                        .sortedWith(
-                            compareByDescending<com.sanka1610.reprodroid.data.local.ReleaseSnapshotWithAssets> {
-                                it.snapshot.lastObservedAt
-                            }.thenByDescending { it.snapshot.releaseSnapshotId },
+            if (!focusedFlow) {
+                item {
+                    DetailCard(stringResource(R.string.technical_history)) {
+                        Text(
+                            stringResource(R.string.technical_history_body),
+                            style = MaterialTheme.typography.bodySmall,
                         )
-                        .forEach { observation ->
-                            val observedAsset = observation.selectedAsset
-                            val availabilityState = observedAsset?.let { selected ->
-                                availability.firstOrNull {
-                                    it.ownerType == "ANDROID" &&
-                                        it.resourceKind == "REFERENCE_APK" &&
-                                        it.resourceId == selected.releaseAssetId
-                                }?.state
-                            } ?: stringResource(R.string.value_unknown)
-                            HorizontalDivider()
-                            DetailValue(stringResource(R.string.technical_release), "${observation.snapshot.tagName} · ${observation.snapshot.publishedAt}")
-                            DetailValue(stringResource(R.string.technical_observation), observation.snapshot.observationSha256, monospace = true)
-                            DetailValue(stringResource(R.string.technical_last_observed), observation.snapshot.lastObservedAt)
-                            DetailValue(stringResource(R.string.technical_apk_availability), availabilityState)
-                        }
-                    record.comparisons.sortedByDescending { it.createdAt }.forEach { comparison ->
-                        HorizontalDivider()
-                        DetailValue(stringResource(R.string.technical_comparison), "${comparison.createdAt} · ${comparison.status}")
-                        DetailValue(stringResource(R.string.technical_raw_outcomes), buildString {
-                            append(comparison.outcome)
-                            if (comparison.protocolVersion >= 2) {
-                                append(" / ${comparison.repeatOfficialOutcome} / ${comparison.repeatabilityOutcome}")
+                        record.releases
+                            .sortedWith(
+                                compareByDescending<com.sanka1610.reprodroid.data.local.ReleaseSnapshotWithAssets> {
+                                    it.snapshot.lastObservedAt
+                                }.thenByDescending { it.snapshot.releaseSnapshotId },
+                            )
+                            .forEach { observation ->
+                                val observedAsset = observation.selectedAsset
+                                val availabilityState = observedAsset?.let { selected ->
+                                    availability.firstOrNull {
+                                        it.ownerType == "ANDROID" &&
+                                            it.resourceKind == "REFERENCE_APK" &&
+                                            it.resourceId == selected.releaseAssetId
+                                    }?.state
+                                } ?: stringResource(R.string.value_unknown)
+                                HorizontalDivider()
+                                DetailValue(stringResource(R.string.technical_release), "${observation.snapshot.tagName} · ${observation.snapshot.publishedAt}")
+                                DetailValue(stringResource(R.string.technical_observation), observation.snapshot.observationSha256, monospace = true)
+                                DetailValue(stringResource(R.string.technical_last_observed), observation.snapshot.lastObservedAt)
+                                DetailValue(stringResource(R.string.technical_apk_availability), availabilityState)
                             }
-                        })
-                    }
-                    record.releaseInstallAttempts.sortedByDescending { it.createdAt }.forEach { attempt ->
-                        HorizontalDivider()
-                        DetailValue(stringResource(R.string.technical_install_attempt), "${attempt.createdAt} · ${attempt.status}")
+                        record.comparisons.sortedByDescending { it.createdAt }.forEach { comparison ->
+                            HorizontalDivider()
+                            DetailValue(stringResource(R.string.technical_comparison), "${comparison.createdAt} · ${comparison.status}")
+                            DetailValue(stringResource(R.string.technical_raw_outcomes), buildString {
+                                append(comparison.outcome)
+                                if (comparison.protocolVersion >= 2) {
+                                    append(" / ${comparison.repeatOfficialOutcome} / ${comparison.repeatabilityOutcome}")
+                                }
+                            })
+                        }
+                        record.releaseInstallAttempts.sortedByDescending { it.createdAt }.forEach { attempt ->
+                            HorizontalDivider()
+                            DetailValue(stringResource(R.string.technical_install_attempt), "${attempt.createdAt} · ${attempt.status}")
+                        }
                     }
                 }
             }

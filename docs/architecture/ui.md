@@ -42,10 +42,12 @@ The three root pages are horizontally pageable and use the same typed route stat
 Registered apps <-> Add app <-> Settings
        |
        +-- App information
+       |     +-- Install or verification flow
        |     +-- Edit identity and source
        |     +-- App settings
        |     +-- Open technical details
        |             +-- Comparison evidence
+       +-- Registration complete
        +-- Tracking history
 
 Settings
@@ -90,6 +92,8 @@ The root navigation capsule and pager are synchronized immediately. Add analysis
 | `settings/updates` | accepted compatibility input and immediately normalized to inline Settings |
 | `settings/backup` | old compatibility alias parsed as `settings/log-export` |
 | `apps/{registeredAppId}/information` | app overview; missing or non-canonical identity fails closed to Apps |
+| `apps/{registeredAppId}/registration-complete` | post-registration decision using the metadata result already persisted by registration |
+| `apps/{registeredAppId}/install` | focused acquisition or verification workflow; mode determines the available work and no verification completion auto-installs |
 | `apps/{registeredAppId}/edit`, `/settings`, `/technical` | app detail tabs; inactive records cannot enter mutation screens |
 | `comparisons/{comparisonRunId}` | raw comparison; Back uses the owning app when known, otherwise Apps |
 | unknown or malformed input | Apps |

@@ -353,7 +353,30 @@ internal class RegistrationDelegate(
                     installationSource = installationSource,
                     separateManagementTarget = separateManagementTarget,
                 )
-                ReleaseCheckScheduler.reconcile(application, releaseRepository, forceRecalculate = true)
+                try {
+                    releaseRepository.checkNow(appId)
+                    ReleaseCheckScheduler.enqueueDelivery(application)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (failure: Throwable) {
+                    // Registration is already durable. Keep it and let the scheduled check or the
+                    // explicit recovery action retry metadata discovery later.
+                    events.publishMessage(ManagedUiOwner.REGISTRATION, failure.userMessage())
+                }
+                // checkNow persists the exact terminal/backoff/cooldown state used by the
+                // completion screen. Only reschedule WorkManager here; recalculating would erase
+                // that state before the user sees it.
+                try {
+                    ReleaseCheckScheduler.scheduleNext(
+                        application,
+                        releaseRepository,
+                        ExistingWorkPolicy.REPLACE,
+                    )
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (failure: Throwable) {
+                    events.publishMessage(ManagedUiOwner.REGISTRATION, failure.userMessage())
+                }
                 if (previewGeneration.isCurrent(request)) {
                     mutablePreview.value = RepositoryPreviewState(generation = request.generation)
                     events.publishResult(
@@ -361,7 +384,7 @@ internal class RegistrationDelegate(
                             owner = ManagedUiOwner.REGISTRATION,
                             kind = ManagedUiResultKind.REGISTERED,
                             originRoute = originRoute,
-                            destination = ReproDroidRoute.AppInformation(appId),
+                            destination = ReproDroidRoute.AppRegistrationComplete(appId),
                             registeredAppId = appId,
                             resetRegistrationDraft = true,
                         ),
@@ -666,7 +689,7 @@ internal class ReleaseDelegate(
                     owner = ManagedUiOwner.RELEASE,
                     kind = ManagedUiResultKind.RELEASE_CANDIDATE_READY,
                     originRoute = originRoute,
-                    destination = ReproDroidRoute.AppTechnical(registeredAppId),
+                    destination = ReproDroidRoute.AppInstall(registeredAppId),
                     registeredAppId = registeredAppId,
                     candidateId = candidateId,
                 ),

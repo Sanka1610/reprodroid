@@ -27,6 +27,8 @@ sealed interface ReproDroidRoute {
     data object ThirdPartyNotices : ReproDroidRoute
     data object GitHubStarsImport : ReproDroidRoute
     data class AppInformation(val registeredAppId: String) : ReproDroidRoute
+    data class AppRegistrationComplete(val registeredAppId: String) : ReproDroidRoute
+    data class AppInstall(val registeredAppId: String) : ReproDroidRoute
     data class AppEdit(val registeredAppId: String) : ReproDroidRoute
     data class AppSettings(val registeredAppId: String) : ReproDroidRoute
     data class AppTechnical(val registeredAppId: String) : ReproDroidRoute
@@ -48,6 +50,8 @@ sealed interface ReproDroidRoute {
     val appId: String?
         get() = when (this) {
             is AppInformation -> registeredAppId
+            is AppRegistrationComplete -> registeredAppId
+            is AppInstall -> registeredAppId
             is AppEdit -> registeredAppId
             is AppSettings -> registeredAppId
             is AppTechnical -> registeredAppId
@@ -76,6 +80,8 @@ sealed interface ReproDroidRoute {
         ThirdPartyNotices -> "settings/third-party-notices"
         GitHubStarsImport -> "import/github-stars"
         is AppInformation -> "apps/${registeredAppId.segment()}/information"
+        is AppRegistrationComplete -> "apps/${registeredAppId.segment()}/registration-complete"
+        is AppInstall -> "apps/${registeredAppId.segment()}/install"
         is AppEdit -> "apps/${registeredAppId.segment()}/edit"
         is AppSettings -> "apps/${registeredAppId.segment()}/settings"
         is AppTechnical -> "apps/${registeredAppId.segment()}/technical"
@@ -123,6 +129,8 @@ sealed interface ReproDroidRoute {
             val appId = canonicalUuid(segments[1].unsegment()) ?: return null
             return when (segments[2]) {
                 "information" -> AppInformation(appId)
+                "registration-complete" -> AppRegistrationComplete(appId)
+                "install" -> AppInstall(appId)
                 "edit" -> AppEdit(appId)
                 "settings" -> AppSettings(appId)
                 "technical" -> AppTechnical(appId)
