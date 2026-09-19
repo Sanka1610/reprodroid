@@ -8,7 +8,7 @@ Production has one UI call chain:
 MainActivity
   -> ReproDroidApp in ui/app/AppHost.kt
        -> typed route and back policy
-       -> root pager, drawer, and top-level scaffold
+       -> single list entry and top-level scaffold
        -> activity-result coordinator
        -> feature UiState collection and screen wiring
 ```
@@ -23,9 +23,9 @@ MainActivity
 | `ui/navigation` | route parse／encode, back destinations, missing-record policy, notification route |
 | `ui/apps` | registered-app list, search／filter, groups, tracking history |
 | `ui/add` | repository URL, bounded analysis, options, confirmation |
-| `ui/appdetail` | overview, source edit, app settings, technical evidence, removal confirmation |
+| `ui/appdetail` | overview, acquisition, verification, installation content, source edit, app settings and read-only technical evidence |
 | `ui/comparison` | raw comparison evidence |
-| `ui/settings` | Settings accordion, update policy, data management, Android storage, logs, licenses |
+| `ui/settings` | category navigation and separate appearance, updates, acquisition, provider, data and about screens |
 | `ui/runner` | Runner connection／authentication, confirmations, Runner storage, toolchains |
 | `ui/jobs` | Runner Job creation, RCE confirmation, scan review, artifact actions |
 | `ui/shared` | reusable components, technical rows, labels, and formatters |
@@ -36,45 +36,27 @@ The screen map describes responsibility; repository、Room、API、authorization
 
 ## Root information architecture
 
-The three root pages are horizontally pageable and use the same typed route state as the navigation controls.
+The registered-app list is the root. Its FAB opens registration; the toolbar opens Settings. There is one route state, without a root pager, drawer or duplicate navigation capsule.
 
 ```text
-Registered apps <-> Add app <-> Settings
-       |
-       +-- App information
-       |     +-- Install or verification flow
-       |     +-- Edit identity and source
-       |     +-- App settings
-       |     +-- Open technical details
-       |             +-- Comparison evidence
-       +-- Registration complete
-       +-- Tracking history
-
-Settings
-  +-- Appearance
-  +-- App defaults
-  +-- Update checks
-  +-- Notifications
-  +-- Service authentication
-  +-- External tool integrations
-  +-- Runner
-  |     +-- Runner settings and authentication
-  |     +-- Runner jobs
-  |     +-- Managed build toolchains
-  |     +-- Runner storage
-  +-- Backup (currently unavailable)
-  +-- Warnings and guidance
-  +-- Data management
-  |     +-- Android storage and cleanup
-  |     +-- Tracking history and complete deletion
-  |     +-- Audit export
-  +-- Operational log export
-  +-- About ReproDroid
-        +-- ReproDroid license
-        +-- Third-party notices
+Registered apps
+  +-- Add: URL -> app review and registration -> app information
+  +-- App information
+  |     +-- APK acquisition and installation
+  |     +-- Verification: preparation, approval, progress and results
+  |     +-- App settings / source edit
+  |     +-- Technical evidence and history
+  +-- Settings
+        +-- Appearance and hints
+        +-- Update checks, notifications and permissions
+        +-- Acquisition defaults and installer
+        +-- Provider credentials
+        +-- Verification environment / Runner
+        +-- Data management and exports
+        +-- About and licenses
 ```
 
-The root navigation capsule and pager are synchronized immediately. Add analysis／options／confirmation remain nested routes and cannot be paged away as root pages. The drawer provides secondary navigation without becoming a second route model.
+Registration options and analysis details expand within the review page. Legacy option and confirmation routes render the same review page. Provider secrets stay local to the credential editor. Category navigation does not rewrite stored expansion preferences.
 
 ## Encoded route contract
 
@@ -84,16 +66,20 @@ The root navigation capsule and pager are synchronized immediately. Add analysis
 |---|---|
 | `apps` | registered apps root |
 | `apps/inactive` | tracking history; Back returns to Settings |
-| `add/source` -> `add/analysis` -> `add/options` -> `add/confirm` | validated registration flow; missing preview returns to Add source |
-| `settings` | Settings root |
+| `add/source` -> `add/analysis` | two-step registration; legacy `/options` and `/confirm` open the same review content; missing preview offers return to source |
+| `settings` | category list |
+| `settings/appearance`, `settings/acquisition`, `settings/providers`, `settings/about` | category detail screens |
 | `settings/data`, `settings/data/storage`, `settings/data/inactive` | data management hierarchy |
 | `settings/runner`, `settings/runner/storage`, `settings/toolchains`, `settings/jobs` | Runner hierarchy |
-| `settings/authentication`, `settings/log-export`, `settings/licenses`, `settings/third-party-notices` | Settings detail routes |
-| `settings/updates` | accepted compatibility input and immediately normalized to inline Settings |
+| `settings/authentication` | Runner authentication; Back returns to Runner settings |
+| `settings/log-export` | Log export; Back returns to Data management |
+| `settings/licenses`, `settings/third-party-notices` | License screens; Back returns to About |
+| `settings/updates` | update schedule, notifications and permissions |
 | `settings/backup` | old compatibility alias parsed as `settings/log-export` |
 | `apps/{registeredAppId}/information` | app overview; missing or non-canonical identity fails closed to Apps |
-| `apps/{registeredAppId}/registration-complete` | post-registration decision using the metadata result already persisted by registration |
-| `apps/{registeredAppId}/install` | focused acquisition or verification workflow; mode determines the available work and no verification completion auto-installs |
+| `apps/{registeredAppId}/registration-complete` | compatibility input, redirected to app information |
+| `apps/{registeredAppId}/install` | compatibility input; opens acquisition or verification according to the saved mode |
+| `apps/{registeredAppId}/acquisition`, `/verification` | independent acquisition and verification workflows |
 | `apps/{registeredAppId}/edit`, `/settings`, `/technical` | app detail tabs; inactive records cannot enter mutation screens |
 | `comparisons/{comparisonRunId}` | raw comparison; Back uses the owning app when known, otherwise Apps |
 | unknown or malformed input | Apps |
@@ -106,17 +92,17 @@ Release notifications carry `apps/{registeredAppId}/information` through `MainAc
 
 Back handling is ordered and deterministic:
 
-1. close an open drawer;
-2. return a nested route to its recorded parent;
-3. return Add app or Settings root to Registered apps;
-4. close Apps search／filter state;
-5. show the application close confirmation.
+1. return a verification prerequisite screen to the recorded verification owner;
+2. return a nested route to its parent;
+3. return Add source or Settings to the app list;
+4. close the list search state;
+5. let Android handle normal exit without an application confirmation.
 
 App detail routes return to the app overview. Inactive app overview retains its recorded origin. Comparison returns to its owning app when that owner can be proven. A stale app route is normalized only after the catalog has loaded and proven the record missing.
 
 ## Presentation state ownership
 
-`ManagedAppsViewModel` remains a lifecycle facade. It exposes eight immutable owner states produced by delegates; `JobViewModel` separately owns Jobs.
+`ManagedAppsViewModel` remains a lifecycle facade. It exposes nine immutable owner states produced by delegates; `JobViewModel` separately owns Jobs.
 
 | Owner | State and actions | Concurrency boundary |
 |---|---|---|
@@ -134,7 +120,7 @@ Messages and one-shot results carry an owner and monotonically increasing local 
 
 ## Saved and transient state
 
-- Encoded route, root form selections, removal target, search visibility, and identity-bound acknowledgements use saveable UI state where process recreation must preserve them.
+- Encoded route, form selections, removal target, search visibility and the verification return owner use saveable UI state. Install and source-scan acknowledgements are transient and tied to their exact current target.
 - Room25 owns persistent settings, expansion preferences, release-check policy, self-registration bootstrap state, installer preferences and attempts, records, and history.
 - Pairing invitation secrets, replacement payloads, active confirmation dialogs, and temporary license-load results are intentionally not placed in saved state.
 - Missing, malformed, stale, unknown, or mismatched identity never defaults to success, trust, reproducibility, or install eligibility.
@@ -144,8 +130,16 @@ Messages and one-shot results carry an owner and monotonically increasing local 
 - A successful Runner Job means build completion, not reproducibility or safety.
 - Source-scan and build-environment evidence are explanatory and cannot promote a raw mismatch.
 - Build execution, source-scan continuation, comparison, trust, and installation remain separate explicit decisions.
-- Installation uses Android's standard installer and its signer-lineage decision.
+- Installation uses the standard installer, or the existing eligible Shizuku/Sui path; signer and reproducibility gates remain below UI.
 - Scheduled checks stop at metadata and notification.
 - Release HTTPS requires manual pairing, root pinning, device credential authorization, and fail-closed transport.
 
 system-wide componentとtrust boundaryは[Architecture overview](overview.md)、version/API対応は[Compatibility](../compatibility.md)、比較判定は[Reproducibility](../reproducibility.md)を参照してください。
+
+## Refactored operation owners
+
+`ManagedAppRepository` remains the public compatibility facade for existing callers. `AppComparisonCoordinator` owns comparison execution, its identity checks and transactional evidence updates. `AppInstallationCoordinator` owns installed-state refresh, install selection, callbacks and interrupted-attempt recovery. Their existing validation and transaction bodies were moved together.
+
+Feature delegates now live in separate files. `ManagedAppsDelegates` constructs them with one shared `AppActionDelegate` and event store; the split does not create independent competing app-ID gates. The common ViewModel facade and some host-level subscriptions remain. Gradle modules, Room25 schema and Runner APIs are unchanged.
+
+`AppActionPolicy` derives the primary action from candidate preparation, inspected version relation and active comparison state. Uninspected candidates lead to acquisition; verification remains reachable for same-version APKs. Metadata refresh no longer downloads a previously selected APK. Selection and explicit acquisition retain the existing download identity checks.
