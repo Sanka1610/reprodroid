@@ -17,8 +17,7 @@ object CodebergRepositoryParser {
         val trimmed = repositoryUrl.trim()
         if (
             trimmed.toByteArray(Charsets.UTF_8).size > MAX_URL_BYTES ||
-            trimmed.any { it == '\u0000' || it.isISOControl() || it.isSurrogate() } ||
-            '%' in trimmed
+            trimmed.any { it == '\u0000' || it.isISOControl() || it.isSurrogate() }
         ) {
             throw InvalidCodebergRepositoryException("Codeberg repository URL contains unsupported characters.")
         }
@@ -28,19 +27,17 @@ object CodebergRepositoryParser {
             uri.scheme?.lowercase() != "https" ||
             uri.host?.lowercase() != HOST ||
             uri.userInfo != null ||
-            uri.port != -1 ||
-            uri.query != null ||
-            uri.fragment != null
+            uri.port != -1
         ) {
             throw InvalidCodebergRepositoryException(
                 "Only public https://codeberg.org/{owner}/{repository} URLs are supported.",
             )
         }
-        val normalizedPath = uri.path.removeSuffix("/")
+        val normalizedPath = uri.rawPath.removeSuffix("/")
         val segments = normalizedPath.removePrefix("/").split('/')
-        if (segments.size != 2) {
+        if (segments.size < 2) {
             throw InvalidCodebergRepositoryException(
-                "Codeberg repository URL must identify exactly one owner and repository.",
+                "Codeberg repository URL must identify an owner and repository.",
             )
         }
         val owner = segments[0]

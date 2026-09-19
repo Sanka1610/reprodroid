@@ -9,8 +9,7 @@ object GitHubRepositoryParser {
         val trimmed = repositoryUrl.trim()
         if (
             trimmed.toByteArray(Charsets.UTF_8).size > MAX_URL_BYTES ||
-            trimmed.any { it == '\u0000' || it.isISOControl() || it.isSurrogate() } ||
-            '%' in trimmed
+            trimmed.any { it == '\u0000' || it.isISOControl() || it.isSurrogate() }
         ) {
             throw InvalidGitHubRepositoryException("GitHub repository URL contains unsupported characters.")
         }
@@ -20,19 +19,17 @@ object GitHubRepositoryParser {
             uri.scheme?.lowercase() != "https" ||
             uri.host?.lowercase() != GITHUB_HOST ||
             uri.userInfo != null ||
-            uri.port != -1 ||
-            uri.query != null ||
-            uri.fragment != null
+            uri.port != -1
         ) {
             throw InvalidGitHubRepositoryException(
                 "Only public https://github.com/{owner}/{repository} URLs are supported.",
             )
         }
-        val normalizedPath = uri.path.removeSuffix("/")
+        val normalizedPath = uri.rawPath.removeSuffix("/")
         val segments = normalizedPath.removePrefix("/").split('/')
-        if (segments.size != 2) {
+        if (segments.size < 2) {
             throw InvalidGitHubRepositoryException(
-                "GitHub repository URL must identify exactly one owner and repository.",
+                "GitHub repository URL must identify an owner and repository.",
             )
         }
         val owner = segments[0]

@@ -14,6 +14,37 @@ import org.junit.Test
 
 class CodebergReleasesClientTest {
     @Test
+    fun `repository page suffixes are ignored without changing owner or repository`() {
+        listOf(
+            "/release", "/releases", "/releases/tag/v1.0", "/tree/main/app",
+            "/releases/download/v1/app.apk?download=1#asset", "/issues/123",
+            "?tab=readme#readme", "/releases/tag/v1%2Fbeta", ".git/releases/latest/",
+        ).forEach { suffix ->
+            assertEquals(
+                "https://codeberg.org/example/project",
+                CodebergRepositoryParser.parse("https://codeberg.org/Example/Project$suffix").canonicalUrl,
+            )
+        }
+    }
+
+    @Test
+    fun `repository suffix support preserves authority and identity validation`() {
+        listOf(
+            "https://codeberg.org.example.org/example/project/releases",
+            "https://codeberg.org:443/example/project/releases",
+            "https://codeberg.org/example", "https://codeberg.org//project/releases",
+            "https://codeberg.org/example/../releases",
+            "https://codeberg.org/example%2fother/project/releases",
+            "https://codeberg.org/example/pro%6aect/releases",
+            "https://codeberg.org/example/project/" + "x".repeat(4096),
+        ).forEach { invalid ->
+            assertThrows(InvalidCodebergRepositoryException::class.java) {
+                CodebergRepositoryParser.parse(invalid)
+            }
+        }
+    }
+
+    @Test
     fun `parser canonicalizes public Codeberg repository and rejects locator escapes`() {
         assertEquals(
             "https://codeberg.org/example/project",
@@ -22,8 +53,6 @@ class CodebergReleasesClientTest {
         listOf(
             "http://codeberg.org/example/project",
             "https://user@codeberg.org/example/project",
-            "https://codeberg.org/example/project/issues",
-            "https://codeberg.org/example/project?ref=main",
             "https://github.com/example/project",
         ).forEach { invalid ->
             assertThrows(InvalidCodebergRepositoryException::class.java) {

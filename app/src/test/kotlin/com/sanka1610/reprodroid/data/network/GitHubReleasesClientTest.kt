@@ -16,7 +16,38 @@ import org.junit.Test
 
 class GitHubReleasesClientTest {
     @Test
-    fun `repository parser accepts only canonical public GitHub repository URLs`() {
+    fun `repository page suffixes are ignored without changing owner or repository`() {
+        listOf(
+            "/release", "/releases", "/releases/tag/v1.0", "/tree/main/app",
+            "/releases/download/v1/app.apk?download=1#asset", "/issues/123",
+            "?tab=readme#readme", "/releases/tag/v1%2Fbeta", ".git/releases/latest/",
+        ).forEach { suffix ->
+            assertEquals(
+                "https://github.com/example/project",
+                GitHubRepositoryParser.parse("https://github.com/Example/Project$suffix").canonicalUrl,
+            )
+        }
+    }
+
+    @Test
+    fun `repository suffix support preserves authority and identity validation`() {
+        listOf(
+            "https://github.com.example.org/example/project/releases",
+            "https://github.com:443/example/project/releases",
+            "https://github.com/example", "https://github.com//project/releases",
+            "https://github.com/example/../releases",
+            "https://github.com/example%2fother/project/releases",
+            "https://github.com/example/pro%6aect/releases",
+            "https://github.com/example/project/" + "x".repeat(4096),
+        ).forEach { invalid ->
+            assertThrows(InvalidGitHubRepositoryException::class.java) {
+                GitHubRepositoryParser.parse(invalid)
+            }
+        }
+    }
+
+    @Test
+    fun `repository parser normalizes public GitHub repository URLs`() {
         assertEquals(
             "https://github.com/morpheapp/microg-re",
             GitHubRepositoryParser.parse("https://github.com/MorpheApp/MicroG-RE.git").canonicalUrl,
@@ -24,7 +55,6 @@ class GitHubReleasesClientTest {
         listOf(
             "http://github.com/MorpheApp/MicroG-RE",
             "https://user@github.com/MorpheApp/MicroG-RE",
-            "https://github.com/MorpheApp/MicroG-RE/issues",
             "https://example.com/MorpheApp/MicroG-RE",
         ).forEach { invalid ->
             assertThrows(InvalidGitHubRepositoryException::class.java) {
