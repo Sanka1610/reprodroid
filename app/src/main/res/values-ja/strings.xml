@@ -93,8 +93,9 @@
     <string name="technical_select_apk">Official APKの選択</string>
     <string name="technical_select_apk_body">対象Releaseに複数の適格なAPKがあります。明示的に1件選択してください。選択前にAPKをダウンロードしません。</string>
     <string name="technical_select_apk_unknown_body">パッケージと署名者は、ダウンロード後のAPK検査で確定するまで表示しません。</string>
+    <string name="technical_single_apk_body">このリリースのAPKは1件のため、自動選択しました。</string>
+    <string name="technical_download_apk">公式APKをダウンロード</string>
     <string name="technical_select_download">Official APKを選択して取得</string>
-    <string name="technical_remember_exact_filename">今後のreleaseでも、同名APKが1件だけ一致した場合に使用する</string>
     <string name="technical_saved_selection">保存済みAPK選択</string>
     <string name="technical_saved_selection_active">明示的なversion付きファイル名条件が有効です</string>
     <string name="technical_clear_saved_selection">保存済みAPK選択を解除</string>

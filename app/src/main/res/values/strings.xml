@@ -93,8 +93,9 @@
     <string name="technical_select_apk">Select official APK</string>
     <string name="technical_select_apk_body">This release has multiple eligible APK assets. Select one explicitly; no APK is downloaded before selection.</string>
     <string name="technical_select_apk_unknown_body">Package and signer are not shown because they are not established until download and APK inspection.</string>
+    <string name="technical_single_apk_body">The only APK in this release is selected.</string>
+    <string name="technical_download_apk">Download official APK</string>
     <string name="technical_select_download">Select and download official APK</string>
-    <string name="technical_remember_exact_filename">Use this exact filename for future releases when it matches exactly one APK</string>
     <string name="technical_saved_selection">Saved APK selection</string>
     <string name="technical_saved_selection_active">An explicit versioned filename condition is active</string>
     <string name="technical_clear_saved_selection">Clear saved APK selection</string>

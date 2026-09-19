@@ -12,11 +12,11 @@ root navigationと横swipeは同じ選択状態を共有します。Add appのan
 
 ## Appを登録する
 
-Add appへpublic GitHub/Codeberg repository URLを入力します。analysisでprovider identity、repository、release条件を確認し、management mode、installation source、variant、ABIを選択します。
+Add appへpublic GitHub/Codeberg repository URLを入力します。リリース、タグ、IssueなどのページURLも使用でき、owner/repositoryより後のパス、クエリ、フラグメントは登録対象に含めません。analysisでprovider identity、repository、release条件を確認し、management mode、installation source、variant、ABIを選択します。
 
 登録後は最新Releaseのmetadataだけを確認し、結果を登録完了画面に表示します。取得モードでは公式APKの取得・installへ進むか、検証モードでは再現性検証を開始するかを選べます。「後で」を選んだ場合も、Informationの状態行に必要なactionが残ります。metadata確認だけではAPK download、Runner Job、build、comparison、installを開始しません。
 
-複数APK assetをfilenameだけで自動確定できない場合は、状態行のactionからexact assetを選択します。選択前にAPKをdownloadしません。
+APKが1件の場合は取得画面で自動選択され、「公式APKをダウンロード」から取得できます。複数ある場合は対象を選んで取得します。将来のリリースにも同名APKを使用するかの確認項目は表示しません。自動選択だけではダウンロードを開始しません。
 
 ## Registered appsを整理する
 
@@ -28,7 +28,7 @@ Add appへpublic GitHub/Codeberg repository URLを入力します。analysisでp
 
 ## Releaseを確認する
 
-Informationは、登録時またはscheduled checkで保存されたRelease metadataを表示します。インストール可能なReleaseがある場合だけ、状態行の右側に取得または検証のactionを表示します。通常のInformation画面には独立した更新確認actionを置きません。global/per-app policyでは次を設定できます。
+Informationは、登録時またはscheduled checkで保存されたRelease metadataを表示します。インストール可能なReleaseがある場合だけ、状態行の右側に取得または検証のactionを表示します。検査済みAPKと同じリリース観測で、インストール済みのversionCodeが同じか新しい場合は、候補が残っていても更新actionを表示しません。詳細画面を開いたときと復帰時には保存済みAPKを使ってインストール状態を再確認します。通常のInformation画面には独立した更新確認actionを置きません。global/per-app policyでは次を設定できます。
 
 - 1/2/3/4/5/6/12時間、1/3/5/7日interval、24時間dialで選ぶ指定時刻、または更新しない
 - network/battery policy

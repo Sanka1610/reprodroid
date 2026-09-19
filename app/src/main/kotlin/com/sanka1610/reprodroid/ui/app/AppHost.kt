@@ -296,6 +296,17 @@ fun ReproDroidApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val installedStateAppId = routeApp?.app?.registeredAppId
+    DisposableEffect(lifecycleOwner, installedStateAppId) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                installedStateAppId?.let(managedViewModel::refreshInstalledState)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(
         appCatalogLoaded,
         globalSettings.notificationPermissionPrompted,
@@ -804,7 +815,7 @@ fun ReproDroidApp(
                         is ReproDroidRoute.AppRegistrationComplete -> routeApp?.let { record ->
                             val candidate = releaseCandidates
                                 .filter { it.registeredAppId == record.app.registeredAppId }
-                                .latestInstallableCandidate()
+                                .latestInstallableCandidate(record.latestRelease)
                             AppRegistrationCompleteScreen(
                                 record = record,
                                 candidate = candidate,

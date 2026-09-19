@@ -1,5 +1,8 @@
 package com.sanka1610.reprodroid.ui.appdetail
 
+import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
+import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
+import com.sanka1610.reprodroid.data.local.ReleaseSnapshotWithAssets
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateEntity
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateState
 import com.sanka1610.reprodroid.data.local.ManagementMode
@@ -94,6 +97,74 @@ class AppInformationCandidateTest {
 
         assertNull(action)
     }
+
+    @Test
+    fun inspectedSameOrOlderVersionDoesNotOfferAnUpdateDespiteRetainedCandidate() {
+        val observed = candidate("current", "20", null, ReleaseCandidateState.VERIFICATION_REQUIRED)
+        for (status in listOf(UpdateStatus.UP_TO_DATE, UpdateStatus.OLDER_THAN_INSTALLED)) {
+            val actionable = listOf(observed).latestInstallableCandidate(inspectedRelease(observed, status))
+            assertNull(actionable)
+            assertNull(appInformationPrimaryAction(
+                ManagementMode.ACQUISITION.name, null, "1.0", status.name, actionable,
+            ))
+        }
+    }
+
+    @Test
+    fun inspectedUpdateAndUninstalledApkRemainActionable() {
+        val observed = candidate("current", "20", null, ReleaseCandidateState.NEW_RELEASE_DISCOVERED)
+        for (status in listOf(UpdateStatus.UPDATE_AVAILABLE, UpdateStatus.NOT_INSTALLED, UpdateStatus.UNKNOWN)) {
+            assertEquals(observed, listOf(observed).latestInstallableCandidate(inspectedRelease(observed, status)))
+        }
+    }
+
+    @Test
+    fun changedObservationWithSameTagIsNotHiddenByPreviousVersionInspection() {
+        val old = candidate("old", "20", null, ReleaseCandidateState.NEW_RELEASE_DISCOVERED)
+        val changed = old.copy(candidateId = "changed", observationSha256 = "c".repeat(64))
+        assertEquals(changed, listOf(changed).latestInstallableCandidate(inspectedRelease(old, UpdateStatus.UP_TO_DATE)))
+    }
+
+    @Test
+    fun completedNewestCandidateDoesNotFallBackToAnOlderCandidate() {
+        val older = candidate("old", "19", null, ReleaseCandidateState.NEW_RELEASE_DISCOVERED)
+        val current = older.copy(candidateId = "current", providerReleaseId = "20")
+        assertNull(listOf(older, current).latestInstallableCandidate(inspectedRelease(current, UpdateStatus.UP_TO_DATE)))
+    }
+
+    @Test
+    fun missingSelectionOrDifferentAppDoesNotSuppressCandidate() {
+        val observed = candidate("current", "20", null, ReleaseCandidateState.NEW_RELEASE_DISCOVERED)
+        val inspected = inspectedRelease(observed, UpdateStatus.UP_TO_DATE)
+        assertEquals(observed, listOf(observed).latestInstallableCandidate(
+            inspected.copy(snapshot = inspected.snapshot.copy(selectedProviderAssetId = null)),
+        ))
+        assertEquals(observed, listOf(observed).latestInstallableCandidate(
+            inspected.copy(snapshot = inspected.snapshot.copy(registeredAppId = "another-app")),
+        ))
+    }
+
+    private fun inspectedRelease(candidate: ReleaseCandidateEntity, status: UpdateStatus) = ReleaseSnapshotWithAssets(
+        snapshot = ReleaseSnapshotEntity(
+            releaseSnapshotId = "snapshot", registeredAppId = candidate.registeredAppId,
+            providerReleaseId = candidate.providerReleaseId, tagName = candidate.tagName,
+            resolvedCommitSha = candidate.resolvedCommitSha, releaseName = candidate.releaseName,
+            releaseUrl = candidate.releaseUrl, targetCommitishRaw = candidate.targetCommitishRaw,
+            isDraft = false, isPrerelease = false, isImmutable = true,
+            releaseCreatedAt = candidate.releaseCreatedAt, publishedAt = candidate.publishedAt,
+            fetchedAt = candidate.lastSeenAt, lastObservedAt = candidate.lastSeenAt,
+            observationSha256 = "d".repeat(64), metadataObservationSha256 = candidate.observationSha256,
+            selectedProviderAssetId = "asset", observationSchemaVersion = 2,
+        ),
+        assets = listOf(ReleaseAssetEntity(
+            releaseAssetId = "local-asset", releaseSnapshotId = "snapshot", providerAssetId = "asset",
+            assetName = "app.apk", stableAssetUrl = "https://example.invalid/app.apk",
+            selectionReason = "MANUAL_RELEASE_ASSET", contentType = "application/vnd.android.package-archive",
+            providerSizeBytes = 1024, providerDigestSha256 = null, versionCode = 10,
+            installedVersionCode = if (status == UpdateStatus.OLDER_THAN_INSTALLED) 11 else 10,
+            updateStatus = status.name,
+        )),
+    )
 
     private fun candidate(
         id: String,

@@ -127,10 +127,8 @@ internal fun AppDetailScreen(
         record.app.registeredAppId,
         latest?.snapshot?.releaseSnapshotId,
     ) { mutableStateOf<String?>(null) }
-    var saveExactFilenameCondition by rememberSaveable(
-        record.app.registeredAppId,
-        latest?.snapshot?.releaseSnapshotId,
-    ) { mutableStateOf(false) }
+    val effectiveSelectedAssetId = selectedReleaseAssetId
+        ?: latest?.assets?.singleOrNull()?.providerAssetId
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var installRiskConfirmed by rememberSaveable(record.app.registeredAppId) { mutableStateOf(false) }
@@ -287,7 +285,10 @@ internal fun AppDetailScreen(
                 item {
                     DetailCard(stringResource(R.string.technical_select_apk)) {
                         Text(
-                            stringResource(R.string.technical_select_apk_body),
+                            stringResource(
+                                if (latest.assets.size == 1) R.string.technical_single_apk_body
+                                else R.string.technical_select_apk_body,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
@@ -300,14 +301,14 @@ internal fun AppDetailScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable(enabled = !active) {
+                                        .clickable(enabled = !active && latest.assets.size > 1) {
                                             selectedReleaseAssetId = candidate.providerAssetId
                                         }
                                         .padding(vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    RadioButton(
-                                        selected = selectedReleaseAssetId == candidate.providerAssetId,
+                                    if (latest.assets.size > 1) RadioButton(
+                                        selected = effectiveSelectedAssetId == candidate.providerAssetId,
                                         onClick = {
                                             selectedReleaseAssetId = candidate.providerAssetId
                                         },
@@ -334,30 +335,26 @@ internal fun AppDetailScreen(
                                     }
                                 }
                             }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = saveExactFilenameCondition,
-                                onCheckedChange = { saveExactFilenameCondition = it },
-                                enabled = !active,
-                            )
-                            Text(
-                                stringResource(R.string.technical_remember_exact_filename),
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
                         Button(
-                            enabled = !active && selectedReleaseAssetId != null,
+                            enabled = !active && effectiveSelectedAssetId != null,
                             onClick = {
-                                selectedReleaseAssetId?.let { providerAssetId ->
+                                effectiveSelectedAssetId?.let { providerAssetId ->
                                     onSelectReleaseAsset(
                                         latest.snapshot.releaseSnapshotId,
                                         providerAssetId,
-                                        saveExactFilenameCondition,
+                                        false,
                                     )
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text(stringResource(R.string.technical_select_download)) }
+                        ) {
+                            Text(
+                                stringResource(
+                                    if (latest.assets.size == 1) R.string.technical_download_apk
+                                    else R.string.technical_select_download,
+                                ),
+                            )
+                        }
                     }
                 }
             }

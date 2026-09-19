@@ -67,6 +67,7 @@ import com.sanka1610.reprodroid.data.local.ReleaseCandidateEntity
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateState
 import com.sanka1610.reprodroid.data.local.ReleaseScheduleStateEntity
 import com.sanka1610.reprodroid.data.local.TrustLevel
+import com.sanka1610.reprodroid.data.local.ReleaseSnapshotWithAssets
 import com.sanka1610.reprodroid.data.local.UpdateStatus
 import com.sanka1610.reprodroid.ui.*
 import com.sanka1610.reprodroid.ui.shared.*
@@ -92,7 +93,7 @@ internal fun AppInformationScreen(
     val asset = record.latestRelease?.selectedAsset
     val comparison = record.currentComparison
     val currentJob = comparison?.let { runnerJobs[it.repeatRunnerJobId ?: it.runnerJobId] }
-    val candidate = candidates.latestInstallableCandidate()
+    val candidate = candidates.latestInstallableCandidate(record.latestRelease)
     val isUpdate = asset?.installedVersionName != null
     val primaryAction = appInformationPrimaryAction(
         managementMode = record.app.managementMode,
@@ -125,6 +126,7 @@ internal fun AppInformationScreen(
             asset.versionName ?: stringResource(R.string.value_unknown),
         )
         asset?.updateStatus == UpdateStatus.UP_TO_DATE.name -> stringResource(R.string.app_status_latest)
+        asset?.updateStatus == UpdateStatus.OLDER_THAN_INSTALLED.name -> stringResource(R.string.state_older_than_installed)
         record.app.trackingState != AppTrackingState.ACTIVE.name -> stringResource(R.string.tracking_inactive)
         else -> stringResource(R.string.app_status_tracking)
     }
@@ -338,7 +340,11 @@ internal fun AppRegistrationCompleteScreen(
             } else {
                 Text(
                     stringResource(
-                        if (schedule?.waitingReason == "PROVIDER_COOLDOWN") {
+                        if (asset?.updateStatus == UpdateStatus.UP_TO_DATE.name) {
+                            R.string.app_status_latest
+                        } else if (asset?.updateStatus == UpdateStatus.OLDER_THAN_INSTALLED.name) {
+                            R.string.state_older_than_installed
+                        } else if (schedule?.waitingReason == "PROVIDER_COOLDOWN") {
                             R.string.registration_complete_cooldown
                         } else {
                             R.string.registration_complete_no_release
@@ -423,7 +429,9 @@ private fun formatAppTimestamp(value: String): String = runCatching {
 
 private val APP_TIMESTAMP_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("M/d HH:mm")
 
-internal fun List<ReleaseCandidateEntity>.latestInstallableCandidate(): ReleaseCandidateEntity? =
+internal fun List<ReleaseCandidateEntity>.latestInstallableCandidate(
+    inspectedRelease: ReleaseSnapshotWithAssets? = null,
+): ReleaseCandidateEntity? =
     asSequence()
         .filter {
             it.state != ReleaseCandidateState.NO_APK_ASSET.name &&
@@ -433,7 +441,17 @@ internal fun List<ReleaseCandidateEntity>.latestInstallableCandidate(): ReleaseC
             compareBy<ReleaseCandidateEntity> { it.publishedAt.orEmpty() }
                 .thenBy { it.providerReleaseId.length }
                 .thenBy { it.providerReleaseId },
-        )
+        )?.takeUnless { candidate ->
+            val snapshot = inspectedRelease?.snapshot
+            val sameObservation = snapshot?.registeredAppId == candidate.registeredAppId &&
+                snapshot.providerReleaseId == candidate.providerReleaseId &&
+                candidate.observationSha256.isNotBlank() &&
+                candidate.observationSha256 == (snapshot.metadataObservationSha256 ?: snapshot.observationSha256)
+            sameObservation && inspectedRelease.selectedAsset?.updateStatus in setOf(
+                UpdateStatus.UP_TO_DATE.name,
+                UpdateStatus.OLDER_THAN_INSTALLED.name,
+            )
+        }
 
 internal enum class AppInformationPrimaryAction {
     INSTALL,
