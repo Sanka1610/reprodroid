@@ -1,15 +1,19 @@
 package com.sanka1610.reprodroid.ui.appdetail
 
+import com.sanka1610.reprodroid.data.local.ComparisonRunStatus
+import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
-import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
-import com.sanka1610.reprodroid.data.local.ReleaseSnapshotWithAssets
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateEntity
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateState
-import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.ReleaseSnapshotEntity
+import com.sanka1610.reprodroid.data.local.ReleaseSnapshotWithAssets
+import com.sanka1610.reprodroid.data.local.ResourceAvailabilityEntity
 import com.sanka1610.reprodroid.data.local.TrustLevel
 import com.sanka1610.reprodroid.data.local.UpdateStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppInformationCandidateTest {
@@ -50,11 +54,10 @@ class AppInformationCandidateTest {
     }
 
     @Test
-    fun verificationCandidateUsesVerificationActionEvenWhenPreviousReleaseWasReproducible() {
+    fun uninspectedCandidateRequiresAcquisitionEvenWhenPreviousReleaseWasReproducible() {
         val action = appInformationPrimaryAction(
             managementMode = ManagementMode.VERIFICATION.name,
             trustLevel = TrustLevel.REPRODUCIBLE,
-            installedVersionName = "1.0.0",
             updateStatus = UpdateStatus.UP_TO_DATE.name,
             candidate = candidate(
                 "new-release",
@@ -64,15 +67,14 @@ class AppInformationCandidateTest {
             ),
         )
 
-        assertEquals(AppInformationPrimaryAction.VERIFY_UPDATE, action)
+        assertEquals(AppInformationPrimaryAction.ACQUIRE, action)
     }
 
     @Test
-    fun acquisitionCandidateUsesInstallActionForFreshInstall() {
+    fun uninspectedCandidateDoesNotPromiseAnInstallation() {
         val action = appInformationPrimaryAction(
             managementMode = ManagementMode.ACQUISITION.name,
             trustLevel = null,
-            installedVersionName = null,
             updateStatus = null,
             candidate = candidate(
                 "new-release",
@@ -82,7 +84,7 @@ class AppInformationCandidateTest {
             ),
         )
 
-        assertEquals(AppInformationPrimaryAction.INSTALL, action)
+        assertEquals(AppInformationPrimaryAction.ACQUIRE, action)
     }
 
     @Test
@@ -90,7 +92,6 @@ class AppInformationCandidateTest {
         val action = appInformationPrimaryAction(
             managementMode = ManagementMode.ACQUISITION.name,
             trustLevel = null,
-            installedVersionName = "1.0.0",
             updateStatus = UpdateStatus.UP_TO_DATE.name,
             candidate = null,
         )
@@ -105,7 +106,7 @@ class AppInformationCandidateTest {
             val actionable = listOf(observed).latestInstallableCandidate(inspectedRelease(observed, status))
             assertNull(actionable)
             assertNull(appInformationPrimaryAction(
-                ManagementMode.ACQUISITION.name, null, "1.0", status.name, actionable,
+                ManagementMode.ACQUISITION.name, null, status.name, actionable,
             ))
         }
     }
@@ -142,6 +143,59 @@ class AppInformationCandidateTest {
         assertEquals(observed, listOf(observed).latestInstallableCandidate(
             inspected.copy(snapshot = inspected.snapshot.copy(registeredAppId = "another-app")),
         ))
+    }
+
+    @Test
+    fun inspectedVersionRelationControlsInstallLabelWithoutDisplayName() {
+        assertEquals(AppInformationPrimaryAction.UPDATE, appInformationPrimaryAction(
+            ManagementMode.ACQUISITION.name, null, UpdateStatus.UPDATE_AVAILABLE.name, null,
+        ))
+        assertEquals(AppInformationPrimaryAction.INSTALL, appInformationPrimaryAction(
+            ManagementMode.ACQUISITION.name, null, UpdateStatus.NOT_INSTALLED.name, null,
+        ))
+        assertNull(appInformationPrimaryAction(ManagementMode.ACQUISITION.name, null, UpdateStatus.UNKNOWN.name, null))
+    }
+
+    @Test
+    fun activeVerificationTakesPriorityOverASeparateNewCandidate() {
+        val next = candidate("new", "30", null, ReleaseCandidateState.NEW_RELEASE_DISCOVERED)
+        ComparisonRunStatus.entries.filter { it != ComparisonRunStatus.COMPLETED }.forEach { state ->
+            assertEquals(AppInformationPrimaryAction.VIEW_VERIFICATION, appInformationPrimaryAction(
+                ManagementMode.VERIFICATION.name, null, UpdateStatus.UP_TO_DATE.name, next, state.name,
+            ))
+        }
+        assertEquals(AppInformationPrimaryAction.ACQUIRE, appInformationPrimaryAction(
+            ManagementMode.VERIFICATION.name, null, UpdateStatus.UP_TO_DATE.name, next, ComparisonRunStatus.COMPLETED.name,
+        ))
+    }
+
+    @Test
+    fun candidatePreparationRequiresTheSameObservationAndAnInspectedSelection() {
+        val current = candidate("current", "20", null, ReleaseCandidateState.NEW_RELEASE_DISCOVERED)
+        val uninspected = inspectedRelease(current, UpdateStatus.UPDATE_AVAILABLE)
+        assertTrue(candidateNeedsPreparation(current, uninspected))
+        val inspected = uninspected.copy(assets = uninspected.assets.map { it.copy(downloadStatus = "VERIFIED") })
+        assertFalse(candidateNeedsPreparation(current, inspected))
+        assertTrue(candidateNeedsPreparation(current.copy(observationSha256 = "c".repeat(64)), inspected))
+        assertTrue(candidateNeedsPreparation(current, inspected.copy(snapshot = inspected.snapshot.copy(selectedProviderAssetId = null))))
+    }
+
+    @Test
+    fun anInspectedApkNeedsPresentBytesBeforeOfferingVerificationOrInstallation() {
+        val current = candidate("current", "20", null, ReleaseCandidateState.NEW_RELEASE_DISCOVERED)
+        val asset = inspectedRelease(current, UpdateStatus.UPDATE_AVAILABLE).selectedAsset!!.copy(downloadStatus = "VERIFIED")
+        val present = ResourceAvailabilityEntity(
+            ownerType = "ANDROID", ownerId = "local", resourceKind = "REFERENCE_APK", resourceId = asset.releaseAssetId,
+            state = "PRESENT", observedBytes = 1024, knownSha256 = null, lastUsedAt = null,
+            checkedAt = "2026-09-20T00:00:00Z", deletionRunId = null, deletionReason = null,
+        )
+        assertTrue(referenceApkAvailable(asset, listOf(present)))
+        assertFalse(referenceApkAvailable(asset, emptyList()))
+        assertFalse(referenceApkAvailable(asset, listOf(present.copy(resourceId = "different-apk"))))
+        listOf("MISSING", "CORRUPT", "DELETED", "UNKNOWN").forEach { state ->
+            assertFalse(referenceApkAvailable(asset, listOf(present.copy(state = state))))
+        }
+        assertFalse(referenceApkAvailable(asset.copy(downloadStatus = "FAILED"), listOf(present)))
     }
 
     private fun inspectedRelease(candidate: ReleaseCandidateEntity, status: UpdateStatus) = ReleaseSnapshotWithAssets(

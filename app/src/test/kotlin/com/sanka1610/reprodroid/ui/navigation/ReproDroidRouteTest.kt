@@ -1,6 +1,7 @@
 package com.sanka1610.reprodroid.ui.navigation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -15,6 +16,10 @@ class ReproDroidRouteTest {
             ReproDroidRoute.AddOptions,
             ReproDroidRoute.AddConfirm,
             ReproDroidRoute.Settings,
+            ReproDroidRoute.AppearanceSettings,
+            ReproDroidRoute.AcquisitionSettings,
+            ReproDroidRoute.ProviderSettings,
+            ReproDroidRoute.AboutSettings,
             ReproDroidRoute.DataManagement,
             ReproDroidRoute.DataStorage,
             ReproDroidRoute.DataInactive,
@@ -41,6 +46,8 @@ class ReproDroidRouteTest {
             ReproDroidRoute.AppInformation(id),
             ReproDroidRoute.AppRegistrationComplete(id),
             ReproDroidRoute.AppInstall(id),
+            ReproDroidRoute.AppAcquisition(id),
+            ReproDroidRoute.AppVerification(id),
             ReproDroidRoute.AppEdit(id),
             ReproDroidRoute.AppSettings(id),
             ReproDroidRoute.AppTechnical(id),
@@ -62,8 +69,10 @@ class ReproDroidRouteTest {
     }
 
     @Test
-    fun onlySourceIsRootButEveryAddStepIsInAddFlow() {
-        assertTrue(ReproDroidRoute.AddSource.isRoot)
+    fun appsIsTheOnlyRootAndLegacyAddStepsRemainReadable() {
+        assertTrue(ReproDroidRoute.Apps.isRoot)
+        assertFalse(ReproDroidRoute.AddSource.isRoot)
+        assertFalse(ReproDroidRoute.Settings.isRoot)
         ReproDroidRoute.addFlowRoutes.forEach { route -> assertTrue(route.isAddFlow) }
     }
 }

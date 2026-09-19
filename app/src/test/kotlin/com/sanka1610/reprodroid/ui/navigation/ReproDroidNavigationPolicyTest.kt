@@ -12,12 +12,18 @@ class ReproDroidNavigationPolicyTest {
     fun settingsAndRunnerChildrenReturnToTheirCurrentParents() {
         val expected = mapOf(
             ReproDroidRoute.InactiveApps to ReproDroidRoute.Settings,
+            ReproDroidRoute.AppearanceSettings to ReproDroidRoute.Settings,
+            ReproDroidRoute.AcquisitionSettings to ReproDroidRoute.Settings,
+            ReproDroidRoute.ProviderSettings to ReproDroidRoute.Settings,
+            ReproDroidRoute.AboutSettings to ReproDroidRoute.Settings,
+            ReproDroidRoute.Settings to ReproDroidRoute.Apps,
+            ReproDroidRoute.AddSource to ReproDroidRoute.Apps,
             ReproDroidRoute.DataManagement to ReproDroidRoute.Settings,
             ReproDroidRoute.RunnerSettings to ReproDroidRoute.Settings,
             ReproDroidRoute.UpdateSettings to ReproDroidRoute.Settings,
-            ReproDroidRoute.Authentication to ReproDroidRoute.Settings,
-            ReproDroidRoute.LogExport to ReproDroidRoute.Settings,
-            ReproDroidRoute.Licenses to ReproDroidRoute.Settings,
+            ReproDroidRoute.Authentication to ReproDroidRoute.RunnerSettings,
+            ReproDroidRoute.LogExport to ReproDroidRoute.DataManagement,
+            ReproDroidRoute.Licenses to ReproDroidRoute.AboutSettings,
             ReproDroidRoute.DataStorage to ReproDroidRoute.DataManagement,
             ReproDroidRoute.DataInactive to ReproDroidRoute.DataManagement,
             ReproDroidRoute.RunnerStorage to ReproDroidRoute.RunnerSettings,
@@ -34,8 +40,8 @@ class ReproDroidNavigationPolicyTest {
     fun addFlowAndAppChildrenReturnOneCurrentStep() {
         assertEquals(ReproDroidRoute.AddSource, backDestination(ReproDroidRoute.GitHubStarsImport))
         assertEquals(ReproDroidRoute.AddSource, backDestination(ReproDroidRoute.AddAnalysis))
-        assertEquals(ReproDroidRoute.AddAnalysis, backDestination(ReproDroidRoute.AddOptions))
-        assertEquals(ReproDroidRoute.AddOptions, backDestination(ReproDroidRoute.AddConfirm))
+        assertEquals(ReproDroidRoute.AddSource, backDestination(ReproDroidRoute.AddOptions))
+        assertEquals(ReproDroidRoute.AddSource, backDestination(ReproDroidRoute.AddConfirm))
         assertEquals(
             ReproDroidRoute.AppInformation(appId),
             backDestination(ReproDroidRoute.AppEdit(appId)),
@@ -85,6 +91,17 @@ class ReproDroidNavigationPolicyTest {
             ),
         )
         assertEquals(ReproDroidRoute.Apps, backDestination(ReproDroidRoute.Comparison(comparisonId)))
+    }
+
+    @Test
+    fun verificationPrerequisitesReturnOnlyToTheMatchingWorkflow() {
+        val context = ReproDroidBackContext(verificationOwnerAppId = appId)
+        listOf(ReproDroidRoute.AppAcquisition(appId), ReproDroidRoute.AppSettings(appId), ReproDroidRoute.RunnerSettings).forEach {
+            assertEquals(ReproDroidRoute.AppVerification(appId), backDestination(it, context))
+        }
+        assertEquals(ReproDroidRoute.AppInformation(comparisonId), backDestination(ReproDroidRoute.AppSettings(comparisonId), context))
+        assertEquals(ReproDroidRoute.RunnerSettings, backDestination(ReproDroidRoute.Authentication, context))
+        assertEquals(ReproDroidRoute.Settings, backDestination(ReproDroidRoute.RunnerSettings, ReproDroidBackContext(verificationOwnerAppId = "invalid")))
     }
 
     @Test

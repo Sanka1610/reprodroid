@@ -13,10 +13,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
@@ -26,9 +25,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -37,7 +36,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -60,14 +58,11 @@ import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.local.AppGroupEntity
 import com.sanka1610.reprodroid.data.local.AppMetadataUpdate
 import com.sanka1610.reprodroid.data.local.AppTrackingState
-import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.JobRecord
+import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateEntity
-import com.sanka1610.reprodroid.data.local.ReleaseCandidateState
 import com.sanka1610.reprodroid.data.local.ReleaseScheduleStateEntity
-import com.sanka1610.reprodroid.data.local.TrustLevel
-import com.sanka1610.reprodroid.data.local.ReleaseSnapshotWithAssets
 import com.sanka1610.reprodroid.data.local.UpdateStatus
 import com.sanka1610.reprodroid.ui.*
 import com.sanka1610.reprodroid.ui.shared.*
@@ -87,22 +82,25 @@ internal fun AppInformationScreen(
     onOpenCandidate: (ReleaseCandidateEntity) -> Unit,
     onTechnical: () -> Unit,
     onInstall: () -> Unit,
+    onVerification: () -> Unit,
+    onCheckRelease: () -> Unit,
     onComparison: (String) -> Unit,
     onResume: () -> Unit,
 ) {
     val asset = record.latestRelease?.selectedAsset
     val comparison = record.currentComparison
     val currentJob = comparison?.let { runnerJobs[it.repeatRunnerJobId ?: it.runnerJobId] }
-    val candidate = candidates.latestInstallableCandidate(record.latestRelease)
-    val isUpdate = asset?.installedVersionName != null
+    val candidate = candidates.latestInstallableCandidate(record.latestRelease)?.takeIf { candidateNeedsPreparation(it, record.latestRelease) }
     val primaryAction = appInformationPrimaryAction(
         managementMode = record.app.managementMode,
         trustLevel = record.trustLevel,
-        installedVersionName = asset?.installedVersionName,
         updateStatus = asset?.updateStatus,
         candidate = candidate,
+        comparisonStatus = comparison?.status,
     )
     val primaryActionLabel = when (primaryAction) {
+        AppInformationPrimaryAction.VIEW_VERIFICATION -> stringResource(R.string.app_verification_open)
+        AppInformationPrimaryAction.ACQUIRE -> stringResource(R.string.app_action_acquire)
         AppInformationPrimaryAction.INSTALL -> stringResource(R.string.technical_install)
         AppInformationPrimaryAction.UPDATE -> stringResource(R.string.technical_update)
         AppInformationPrimaryAction.VERIFY -> stringResource(R.string.app_action_start_verification)
@@ -110,12 +108,7 @@ internal fun AppInformationScreen(
         null -> ""
     }
     val statusSummary = when {
-        candidate != null && isUpdate -> stringResource(
-            R.string.app_status_update_summary,
-            asset.installedVersionName.orEmpty(),
-            candidate.tagName,
-        )
-        candidate != null -> stringResource(R.string.app_status_install_summary, candidate.tagName)
+        candidate != null -> stringResource(R.string.app_status_uninspected)
         asset?.updateStatus == UpdateStatus.UPDATE_AVAILABLE.name -> stringResource(
             R.string.app_status_update_summary,
             asset.installedVersionName.orEmpty(),
@@ -168,20 +161,21 @@ internal fun AppInformationScreen(
                         icon = Icons.Default.Info,
                         label = stringResource(R.string.label_tracking),
                         value = statusSummary,
-                        trailing = if (
-                            primaryAction != null &&
-                            record.app.trackingState == AppTrackingState.ACTIVE.name
-                        ) {
-                            {
-                                Button(
-                                    enabled = !active,
-                                    onClick = { candidate?.let(onOpenCandidate) ?: onInstall() },
-                                ) { Text(primaryActionLabel) }
-                            }
-                        } else {
-                            null
-                        },
                     )
+                    if (primaryAction != null && record.app.trackingState == AppTrackingState.ACTIVE.name) {
+                        Button(
+                            enabled = !active,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                when {
+                                    primaryAction == AppInformationPrimaryAction.VIEW_VERIFICATION -> onVerification()
+                                    candidate != null -> onOpenCandidate(candidate)
+                                    primaryAction == AppInformationPrimaryAction.VERIFY || primaryAction == AppInformationPrimaryAction.VERIFY_UPDATE -> onVerification()
+                                    else -> onInstall()
+                                }
+                            },
+                        ) { Text(primaryActionLabel) }
+                    }
                     HorizontalDivider()
                     CompactAppRow(Icons.Default.CheckCircle, stringResource(R.string.label_latest_version), latestVersion)
                     HorizontalDivider()
@@ -236,6 +230,18 @@ internal fun AppInformationScreen(
                     }
                 }
             }
+            if (record.app.trackingState == AppTrackingState.ACTIVE.name) {
+                if (record.app.managementMode == ManagementMode.VERIFICATION.name) item {
+                    OutlinedButton(onClick = onVerification, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.app_verification_open)) }
+                }
+                item {
+                    TextButton(onClick = onInstall) { Text(stringResource(R.string.app_acquisition_open)) }
+                    TextButton(enabled = !active, onClick = onCheckRelease) { Text(stringResource(R.string.app_flow_check_release)) }
+                    if (schedule?.waitingReason in setOf("RETRY_BACKOFF", "PROVIDER_COOLDOWN", "INVALID_STATE")) {
+                        Text(stringResource(if (schedule?.waitingReason == "PROVIDER_COOLDOWN") R.string.registration_complete_cooldown else R.string.error_operation_failed), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
             if (record.app.note.isNotBlank()) {
                 item { CompactAppSection(stringResource(R.string.label_note)) { Text(record.app.note) } }
             }
@@ -260,113 +266,6 @@ internal fun AppInformationScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun AppRegistrationCompleteScreen(
-    record: RegisteredAppRecord,
-    candidate: ReleaseCandidateEntity?,
-    schedule: ReleaseScheduleStateEntity?,
-    active: Boolean,
-    onContinue: () -> Unit,
-    onLater: () -> Unit,
-    onRetry: () -> Unit,
-) {
-    val asset = record.latestRelease?.selectedAsset
-    val canContinue = candidate != null || asset?.updateStatus in setOf(
-        UpdateStatus.NOT_INSTALLED.name,
-        UpdateStatus.UPDATE_AVAILABLE.name,
-    )
-    val verificationMode = record.app.managementMode == ManagementMode.VERIFICATION.name
-    val releaseName = candidate?.tagName ?: asset?.versionName
-    val retryable = schedule?.waitingReason in setOf("RETRY_BACKOFF", "INVALID_STATE")
-    Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text(stringResource(R.string.registration_complete_title)) },
-            navigationIcon = { BackButton(onLater) },
-        )
-        if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ManagedAppIcon(record, 48.dp)
-                Text(
-                    record.app.resolvedDisplayName,
-                    modifier = Modifier.padding(start = 12.dp),
-                    style = MaterialTheme.typography.headlineSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (canContinue) {
-                releaseName?.let {
-                    CompactAppSection(stringResource(R.string.technical_latest_release)) {
-                        CompactAppRow(
-                            Icons.Default.CheckCircle,
-                            stringResource(R.string.label_latest_version),
-                            it,
-                        )
-                    }
-                }
-                Text(
-                    stringResource(
-                        if (verificationMode) {
-                            R.string.registration_complete_verify_body
-                        } else {
-                            R.string.registration_complete_acquire_body
-                        },
-                    ),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Button(
-                    enabled = !active,
-                    onClick = onContinue,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        stringResource(
-                            if (verificationMode) {
-                                R.string.app_action_start_verification
-                            } else {
-                                R.string.registration_complete_install
-                            },
-                        ),
-                    )
-                }
-            } else {
-                Text(
-                    stringResource(
-                        if (asset?.updateStatus == UpdateStatus.UP_TO_DATE.name) {
-                            R.string.app_status_latest
-                        } else if (asset?.updateStatus == UpdateStatus.OLDER_THAN_INSTALLED.name) {
-                            R.string.state_older_than_installed
-                        } else if (schedule?.waitingReason == "PROVIDER_COOLDOWN") {
-                            R.string.registration_complete_cooldown
-                        } else {
-                            R.string.registration_complete_no_release
-                        },
-                    ),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                if (retryable) {
-                    OutlinedButton(
-                        enabled = !active,
-                        onClick = onRetry,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.action_retry)) }
-                }
-            }
-            OutlinedButton(onClick = onLater, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.registration_complete_later))
-            }
-        }
-    }
-}
-
 @Composable
 private fun CompactAppSection(
     title: String,
@@ -374,7 +273,7 @@ private fun CompactAppSection(
 ) {
     Card(
         Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -388,24 +287,12 @@ private fun CompactAppRow(
     icon: ImageVector,
     label: String,
     value: String,
-    trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
-            modifier = Modifier.size(36.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.padding(8.dp),
-            )
-        }
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(label, style = MaterialTheme.typography.titleSmall)
             Text(
@@ -416,10 +303,7 @@ private fun CompactAppRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (trailing != null) {
-            Spacer(Modifier.size(8.dp))
-            trailing()
-        }
+
     }
 }
 
@@ -428,63 +312,6 @@ private fun formatAppTimestamp(value: String): String = runCatching {
 }.getOrDefault(value)
 
 private val APP_TIMESTAMP_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("M/d HH:mm")
-
-internal fun List<ReleaseCandidateEntity>.latestInstallableCandidate(
-    inspectedRelease: ReleaseSnapshotWithAssets? = null,
-): ReleaseCandidateEntity? =
-    asSequence()
-        .filter {
-            it.state != ReleaseCandidateState.NO_APK_ASSET.name &&
-                it.state != ReleaseCandidateState.OBSOLETE.name
-        }
-        .maxWithOrNull(
-            compareBy<ReleaseCandidateEntity> { it.publishedAt.orEmpty() }
-                .thenBy { it.providerReleaseId.length }
-                .thenBy { it.providerReleaseId },
-        )?.takeUnless { candidate ->
-            val snapshot = inspectedRelease?.snapshot
-            val sameObservation = snapshot?.registeredAppId == candidate.registeredAppId &&
-                snapshot.providerReleaseId == candidate.providerReleaseId &&
-                candidate.observationSha256.isNotBlank() &&
-                candidate.observationSha256 == (snapshot.metadataObservationSha256 ?: snapshot.observationSha256)
-            sameObservation && inspectedRelease.selectedAsset?.updateStatus in setOf(
-                UpdateStatus.UP_TO_DATE.name,
-                UpdateStatus.OLDER_THAN_INSTALLED.name,
-            )
-        }
-
-internal enum class AppInformationPrimaryAction {
-    INSTALL,
-    UPDATE,
-    VERIFY,
-    VERIFY_UPDATE,
-}
-
-internal fun appInformationPrimaryAction(
-    managementMode: String,
-    trustLevel: TrustLevel?,
-    installedVersionName: String?,
-    updateStatus: String?,
-    candidate: ReleaseCandidateEntity?,
-): AppInformationPrimaryAction? {
-    val updateAvailable = candidate != null || updateStatus in setOf(
-        UpdateStatus.NOT_INSTALLED.name,
-        UpdateStatus.UPDATE_AVAILABLE.name,
-    )
-    if (!updateAvailable) return null
-
-    val isUpdate = installedVersionName != null
-    val verificationRequired = managementMode == ManagementMode.VERIFICATION.name && when {
-        candidate != null -> candidate.state != ReleaseCandidateState.VERIFIED_UPDATE_AVAILABLE.name
-        else -> trustLevel != TrustLevel.REPRODUCIBLE
-    }
-    return when {
-        verificationRequired && isUpdate -> AppInformationPrimaryAction.VERIFY_UPDATE
-        verificationRequired -> AppInformationPrimaryAction.VERIFY
-        isUpdate -> AppInformationPrimaryAction.UPDATE
-        else -> AppInformationPrimaryAction.INSTALL
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

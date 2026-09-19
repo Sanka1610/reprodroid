@@ -10,48 +10,66 @@ internal data class ReproDroidBackContext(
     val currentAppIsInactive: Boolean = false,
     val inactiveReturnRoute: String = ReproDroidRoute.InactiveApps.encode(),
     val comparisonOwnerAppId: String? = null,
+    val verificationOwnerAppId: String? = null,
 )
 
 internal fun backDestination(
     current: ReproDroidRoute,
     context: ReproDroidBackContext = ReproDroidBackContext(),
-): ReproDroidRoute = when (current) {
-    ReproDroidRoute.InactiveApps,
-    ReproDroidRoute.DataManagement,
-    ReproDroidRoute.RunnerSettings,
-    ReproDroidRoute.UpdateSettings,
-    ReproDroidRoute.Authentication,
-    ReproDroidRoute.LogExport,
-    ReproDroidRoute.Licenses,
-    ReproDroidRoute.ThirdPartyNotices,
-    -> ReproDroidRoute.Settings
-    ReproDroidRoute.DataStorage,
-    ReproDroidRoute.DataInactive,
-    -> ReproDroidRoute.DataManagement
-    ReproDroidRoute.RunnerStorage,
-    ReproDroidRoute.Toolchains,
-    ReproDroidRoute.Jobs,
-    -> ReproDroidRoute.RunnerSettings
-    ReproDroidRoute.GitHubStarsImport,
-    ReproDroidRoute.AddAnalysis,
-    -> ReproDroidRoute.AddSource
-    ReproDroidRoute.AddOptions -> ReproDroidRoute.AddAnalysis
-    ReproDroidRoute.AddConfirm -> ReproDroidRoute.AddOptions
-    is ReproDroidRoute.AppEdit,
-    is ReproDroidRoute.AppSettings,
-    is ReproDroidRoute.AppTechnical,
-    is ReproDroidRoute.AppRegistrationComplete,
-    is ReproDroidRoute.AppInstall,
-    -> ReproDroidRoute.AppInformation(requireNotNull(current.appId))
-    is ReproDroidRoute.AppInformation ->
-        if (context.currentAppIsInactive) {
-            ReproDroidRoute.parse(context.inactiveReturnRoute)
-        } else {
-            ReproDroidRoute.Apps
-        }
-    is ReproDroidRoute.Comparison -> context.comparisonOwnerAppId?.let(ReproDroidRoute::AppInformation)
-        ?: ReproDroidRoute.Apps
-    else -> current
+): ReproDroidRoute {
+    val owner = context.verificationOwnerAppId
+    if (owner != null && ReproDroidRoute.appInformation(owner) is ReproDroidRoute.AppInformation &&
+        (current == ReproDroidRoute.RunnerSettings ||
+            (current is ReproDroidRoute.AppAcquisition || current is ReproDroidRoute.AppSettings) && current.appId == owner)
+    ) return ReproDroidRoute.AppVerification(owner)
+    return when (current) {
+        ReproDroidRoute.AppearanceSettings,
+        ReproDroidRoute.AcquisitionSettings,
+        ReproDroidRoute.ProviderSettings,
+        ReproDroidRoute.AboutSettings,
+        ReproDroidRoute.InactiveApps,
+        ReproDroidRoute.DataManagement,
+        ReproDroidRoute.RunnerSettings,
+        ReproDroidRoute.UpdateSettings,
+        -> ReproDroidRoute.Settings
+        ReproDroidRoute.Licenses,
+        ReproDroidRoute.ThirdPartyNotices,
+        -> ReproDroidRoute.AboutSettings
+        ReproDroidRoute.LogExport,
+        ReproDroidRoute.DataStorage,
+        ReproDroidRoute.DataInactive,
+        -> ReproDroidRoute.DataManagement
+        ReproDroidRoute.Authentication,
+        ReproDroidRoute.RunnerStorage,
+        ReproDroidRoute.Toolchains,
+        ReproDroidRoute.Jobs,
+        -> ReproDroidRoute.RunnerSettings
+        ReproDroidRoute.GitHubStarsImport,
+        ReproDroidRoute.AddAnalysis,
+        -> ReproDroidRoute.AddSource
+        ReproDroidRoute.AddOptions -> ReproDroidRoute.AddSource
+        ReproDroidRoute.AddConfirm -> ReproDroidRoute.AddSource
+        is ReproDroidRoute.AppEdit,
+        is ReproDroidRoute.AppSettings,
+        is ReproDroidRoute.AppTechnical,
+        is ReproDroidRoute.AppRegistrationComplete,
+        is ReproDroidRoute.AppAcquisition,
+        is ReproDroidRoute.AppVerification,
+        is ReproDroidRoute.AppInstall,
+        -> ReproDroidRoute.AppInformation(requireNotNull(current.appId))
+        is ReproDroidRoute.AppInformation ->
+            if (context.currentAppIsInactive) {
+                ReproDroidRoute.parse(context.inactiveReturnRoute)
+            } else {
+                ReproDroidRoute.Apps
+            }
+        is ReproDroidRoute.Comparison -> context.comparisonOwnerAppId?.let(ReproDroidRoute::AppInformation)
+            ?: ReproDroidRoute.Apps
+        ReproDroidRoute.Settings,
+        ReproDroidRoute.AddSource,
+        -> ReproDroidRoute.Apps
+        else -> current
+    }
 }
 
 /** Returns the fail-closed destination used after the app catalog proves an app route is stale. */

@@ -52,12 +52,11 @@ class NavigationStateRestorationTest {
     }
 
     @Test
-    fun rootNavigationKeepsSelectedPageAndContentInSync() {
+    fun settingsCategoryAndBackNavigationReturnToTheList() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val settings = context.getString(R.string.root_open_settings)
         val appearance = context.getString(R.string.settings_appearance)
-        val apps = context.getString(R.string.nav_apps)
-        val openApps = context.getString(R.string.root_page_open, apps)
+        val back = context.getString(R.string.action_back)
         val appsTitle = context.getString(R.string.apps_title)
 
         compose.waitUntil(timeoutMillis = 10_000) {
@@ -66,7 +65,13 @@ class NavigationStateRestorationTest {
         compose.onAllNodesWithContentDescription(settings)[0].performClick()
         compose.onNodeWithText(appearance).assertExists()
 
-        compose.onNodeWithContentDescription(openApps).performClick()
+        compose.onNodeWithText(appearance).performClick()
+        compose.onNodeWithText(context.getString(R.string.settings_theme)).assertExists()
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithText(context.getString(R.string.settings_theme)).assertExists()
+        compose.onNodeWithContentDescription(back).performClick()
+        compose.onNodeWithText(appearance).assertExists()
+        compose.onNodeWithContentDescription(back).performClick()
         compose.onNodeWithText(appsTitle).assertExists()
         compose.onNodeWithText(appearance).assertDoesNotExist()
     }

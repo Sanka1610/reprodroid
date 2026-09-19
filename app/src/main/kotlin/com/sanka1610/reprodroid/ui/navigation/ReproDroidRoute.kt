@@ -12,6 +12,10 @@ sealed interface ReproDroidRoute {
     data object AddAnalysis : ReproDroidRoute
     data object AddOptions : ReproDroidRoute
     data object AddConfirm : ReproDroidRoute
+    data object AppearanceSettings : ReproDroidRoute
+    data object AcquisitionSettings : ReproDroidRoute
+    data object ProviderSettings : ReproDroidRoute
+    data object AboutSettings : ReproDroidRoute
     data object Settings : ReproDroidRoute
     data object DataManagement : ReproDroidRoute
     data object DataStorage : ReproDroidRoute
@@ -28,6 +32,8 @@ sealed interface ReproDroidRoute {
     data object GitHubStarsImport : ReproDroidRoute
     data class AppInformation(val registeredAppId: String) : ReproDroidRoute
     data class AppRegistrationComplete(val registeredAppId: String) : ReproDroidRoute
+    data class AppAcquisition(val registeredAppId: String) : ReproDroidRoute
+    data class AppVerification(val registeredAppId: String) : ReproDroidRoute
     data class AppInstall(val registeredAppId: String) : ReproDroidRoute
     data class AppEdit(val registeredAppId: String) : ReproDroidRoute
     data class AppSettings(val registeredAppId: String) : ReproDroidRoute
@@ -35,7 +41,7 @@ sealed interface ReproDroidRoute {
     data class Comparison(val comparisonRunId: String) : ReproDroidRoute
 
     val isRoot: Boolean
-        get() = this == Apps || this == AddSource || this == Settings
+        get() = this == Apps
 
     val isAddFlow: Boolean
         get() = when (this) {
@@ -51,6 +57,8 @@ sealed interface ReproDroidRoute {
         get() = when (this) {
             is AppInformation -> registeredAppId
             is AppRegistrationComplete -> registeredAppId
+            is AppAcquisition -> registeredAppId
+            is AppVerification -> registeredAppId
             is AppInstall -> registeredAppId
             is AppEdit -> registeredAppId
             is AppSettings -> registeredAppId
@@ -65,6 +73,10 @@ sealed interface ReproDroidRoute {
         AddAnalysis -> "add/analysis"
         AddOptions -> "add/options"
         AddConfirm -> "add/confirm"
+        AppearanceSettings -> "settings/appearance"
+        AcquisitionSettings -> "settings/acquisition"
+        ProviderSettings -> "settings/providers"
+        AboutSettings -> "settings/about"
         Settings -> "settings"
         DataManagement -> "settings/data"
         DataStorage -> "settings/data/storage"
@@ -81,6 +93,8 @@ sealed interface ReproDroidRoute {
         GitHubStarsImport -> "import/github-stars"
         is AppInformation -> "apps/${registeredAppId.segment()}/information"
         is AppRegistrationComplete -> "apps/${registeredAppId.segment()}/registration-complete"
+        is AppAcquisition -> "apps/${registeredAppId.segment()}/acquisition"
+        is AppVerification -> "apps/${registeredAppId.segment()}/verification"
         is AppInstall -> "apps/${registeredAppId.segment()}/install"
         is AppEdit -> "apps/${registeredAppId.segment()}/edit"
         is AppSettings -> "apps/${registeredAppId.segment()}/settings"
@@ -98,6 +112,10 @@ sealed interface ReproDroidRoute {
                 "add/analysis" -> AddAnalysis
                 "add/options" -> AddOptions
                 "add/confirm" -> AddConfirm
+                "settings/appearance" -> AppearanceSettings
+                "settings/acquisition" -> AcquisitionSettings
+                "settings/providers" -> ProviderSettings
+                "settings/about" -> AboutSettings
                 "settings" -> Settings
                 "settings/data" -> DataManagement
                 "settings/data/storage" -> DataStorage
@@ -130,6 +148,8 @@ sealed interface ReproDroidRoute {
             return when (segments[2]) {
                 "information" -> AppInformation(appId)
                 "registration-complete" -> AppRegistrationComplete(appId)
+                "acquisition" -> AppAcquisition(appId)
+                "verification" -> AppVerification(appId)
                 "install" -> AppInstall(appId)
                 "edit" -> AppEdit(appId)
                 "settings" -> AppSettings(appId)
