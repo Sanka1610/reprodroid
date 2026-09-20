@@ -29,7 +29,9 @@ internal fun AppearanceSettingsScreen(settings: GlobalSettingsEntity, onUpdate: 
                 ThemeMode.PURE_BLACK.name to stringResource(R.string.settings_theme_pure_black),
             ),
             onSelect = { onUpdate(settings.copy(themeMode = it)) },
+            compact = true,
         )
+        SettingDivider(settings.showSettingsDividers)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.settings_dynamic_color), style = MaterialTheme.typography.titleSmall)

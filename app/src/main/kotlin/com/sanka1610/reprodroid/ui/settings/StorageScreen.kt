@@ -12,16 +12,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,21 +40,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
+import com.sanka1610.reprodroid.data.network.V2CleanupPreviewResponse
+import com.sanka1610.reprodroid.data.network.V2CleanupRunResponse
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupPreview
 import com.sanka1610.reprodroid.data.storage.AndroidStorageSummary
 import com.sanka1610.reprodroid.data.storage.RunnerStorageConnectionState
 import com.sanka1610.reprodroid.data.storage.StagedAuditExport
-import com.sanka1610.reprodroid.data.network.V2CleanupPreviewResponse
-import com.sanka1610.reprodroid.data.network.V2CleanupRunResponse
-
-
 import com.sanka1610.reprodroid.ui.*
 import com.sanka1610.reprodroid.ui.shared.*
+internal enum class StoragePage { USAGE, CLEANUP, AUDIT }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun StorageScreen(
@@ -70,6 +75,8 @@ internal fun StorageScreen(
     onChooseAuditDestination: (String) -> Unit,
     onPreviewRunnerCleanup: () -> Unit,
     onExecuteRunnerCleanup: (Set<String>) -> Unit,
+    page: StoragePage = StoragePage.USAGE,
+    onClearAudit: () -> Unit = {},
     showAndroid: Boolean = true,
     showRunner: Boolean = true,
 ) {
@@ -79,12 +86,18 @@ internal fun StorageScreen(
     var selectedItemIds by remember(cleanupPreview?.previewId) { mutableStateOf(emptySet<String>()) }
     var auditScope by rememberSaveable { mutableStateOf("ALL") }
     var selectedRunnerItemIds by remember(runnerCleanupPreview?.previewId) { mutableStateOf(emptySet<String>()) }
+    var confirmCleanup by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
+            expandedHeight = 56.dp,
             title = {
                 Text(
                     stringResource(
-                        if (showAndroid) R.string.data_management_title else R.string.data_runner_separate,
+                        if (!showAndroid) R.string.data_runner_separate else when (page) {
+                            StoragePage.USAGE -> R.string.data_usage_settings
+                            StoragePage.CLEANUP -> R.string.data_cleanup
+                            StoragePage.AUDIT -> R.string.data_audit_export
+                        },
                     ),
                 )
             },
@@ -92,14 +105,16 @@ internal fun StorageScreen(
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier.semantics { contentDescription = storageBackDescription },
-                ) { NavigationGlyph("‹") }
+                ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null) }
             },
             actions = {
-                IconButton(
-                    enabled = !busy,
-                    onClick = onRefresh,
-                    modifier = Modifier.semantics { contentDescription = storageRefreshDescription },
-                ) { NavigationGlyph("↻") }
+                if (!showAndroid || page != StoragePage.AUDIT) {
+                    IconButton(
+                        enabled = !busy,
+                        onClick = if (showAndroid && page == StoragePage.CLEANUP) onPreviewCleanup else onRefresh,
+                        modifier = Modifier.semantics { contentDescription = storageRefreshDescription },
+                    ) { Icon(Icons.Default.Refresh, contentDescription = null) }
+                }
             },
         )
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -107,28 +122,25 @@ internal fun StorageScreen(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (showAndroid) {
+            if (showAndroid && page == StoragePage.USAGE) {
             item {
                 DetailCard(stringResource(R.string.storage_android_private)) {
                     if (androidSummary == null) {
                         Text(stringResource(R.string.storage_not_measured))
                     } else {
-                        DetailValue(stringResource(R.string.storage_state), "${androidSummary.state} · ${androidSummary.measurementState}")
-                        DetailValue(stringResource(R.string.storage_used), formatBytes(androidSummary.usedBytes))
-                        DetailValue(stringResource(R.string.storage_reserved), formatBytes(androidSummary.reservedBytes))
-                        DetailValue(stringResource(R.string.storage_budget), formatBytes(androidSummary.budgetBytes))
-                        DetailValue(
+                        TechnicalValue(stringResource(R.string.storage_state), "${storageLabel(androidSummary.state)} · ${storageLabel(androidSummary.measurementState)}")
+                        TechnicalValue(stringResource(R.string.storage_used), formatBytes(androidSummary.usedBytes))
+                        TechnicalValue(stringResource(R.string.storage_reserved), formatBytes(androidSummary.reservedBytes))
+                        TechnicalValue(stringResource(R.string.storage_budget), formatBytes(androidSummary.budgetBytes))
+                        TechnicalValue(
                             stringResource(R.string.storage_unclassified),
                             androidSummary.unclassifiedBytes?.let(::formatBytes)
                                 ?: stringResource(R.string.value_not_available),
                         )
-                        DetailValue(stringResource(R.string.storage_usable_filesystem), androidSummary.usableBytes?.let(::formatBytes) ?: stringResource(R.string.value_not_available))
-                        DetailValue(stringResource(R.string.storage_measured), androidSummary.measuredAt)
+                        TechnicalValue(stringResource(R.string.storage_usable_filesystem), androidSummary.usableBytes?.let(::formatBytes) ?: stringResource(R.string.value_not_available))
+                        TechnicalValue(stringResource(R.string.storage_measured), androidSummary.measuredAt)
                     }
-                    Text(
-                        stringResource(R.string.storage_budget_no_automatic_delete),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    InformationButton(stringResource(R.string.storage_android_private), stringResource(R.string.storage_budget_no_automatic_delete))
                 }
             }
             item {
@@ -138,6 +150,7 @@ internal fun StorageScreen(
                     options = listOf(1L, 2L, 4L, 8L, 16L, 32L, 64L)
                         .associate { gib -> gib * 1024L * 1024L * 1024L to "$gib GiB" },
                     onSelect = { onUpdate(settings.copy(androidStorageBudgetBytes = it)) },
+                    compact = true,
                     enabled = !busy,
                 )
             }
@@ -147,6 +160,7 @@ internal fun StorageScreen(
                     value = settings.storageWarningPercent,
                     options = listOf(50, 60, 70, 80, 90, 95).associateWith { "$it%" },
                     onSelect = { onUpdate(settings.copy(storageWarningPercent = it)) },
+                    compact = true,
                     enabled = !busy,
                 )
             }
@@ -154,37 +168,32 @@ internal fun StorageScreen(
             if (showRunner) {
             item {
                 DetailCard(stringResource(R.string.storage_runner)) {
-                    DetailValue(stringResource(R.string.storage_connection), runnerState.status.name)
-                    runnerState.runnerId?.let { DetailValue(stringResource(R.string.storage_runner_id), it, monospace = true) }
+                    TechnicalValue(stringResource(R.string.storage_connection), storageLabel(runnerState.status.name))
+                    runnerState.runnerId?.let { TechnicalValue(stringResource(R.string.storage_runner_id), it, monospace = true) }
                     runnerState.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     runnerState.summary?.areas?.forEach { area ->
                         HorizontalDivider()
-                        DetailValue(stringResource(R.string.storage_area), area.area)
-                        DetailValue(stringResource(R.string.storage_state), "${area.state} · ${area.measurementState}")
-                        DetailValue(stringResource(R.string.storage_used_reserved), "${formatDecimalBytes(area.usedBytes)} / ${formatDecimalBytes(area.reservedBytes)}")
-                        DetailValue(stringResource(R.string.storage_budget), formatDecimalBytes(area.budgetBytes))
-                        DetailValue(stringResource(R.string.storage_usable_filesystem), formatDecimalBytes(area.usableBytes))
+                        TechnicalValue(stringResource(R.string.storage_area), area.area)
+                        TechnicalValue(stringResource(R.string.storage_state), "${storageLabel(area.state)} · ${storageLabel(area.measurementState)}")
+                        TechnicalValue(stringResource(R.string.storage_used_reserved), "${formatDecimalBytes(area.usedBytes)} / ${formatDecimalBytes(area.reservedBytes)}")
+                        TechnicalValue(stringResource(R.string.storage_budget), formatDecimalBytes(area.budgetBytes))
+                        TechnicalValue(stringResource(R.string.storage_usable_filesystem), formatDecimalBytes(area.usableBytes))
                     }
-                    Text(
-                        stringResource(R.string.storage_runner_unavailable),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    InformationButton(stringResource(R.string.storage_runner), stringResource(R.string.storage_runner_unavailable))
                 }
             }
             }
-            if (showAndroid) {
+            if (showAndroid && page == StoragePage.AUDIT) {
             item {
                 DetailCard(stringResource(R.string.storage_local_audit)) {
-                    Text(
-                        stringResource(R.string.storage_audit_boundary),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    InformationButton(stringResource(R.string.storage_local_audit), stringResource(R.string.storage_audit_boundary))
                     DropdownSetting(
                         label = stringResource(R.string.storage_scope),
                         value = auditScope,
                         options = linkedMapOf("ALL" to stringResource(R.string.storage_scope_all_apps)) +
                             apps.associate { it.app.registeredAppId to it.app.displayName },
-                        onSelect = { auditScope = it },
+                        onSelect = { auditScope = it; onClearAudit() },
+                        compact = true,
                         enabled = !busy,
                     )
                     Button(
@@ -193,11 +202,13 @@ internal fun StorageScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(stringResource(R.string.storage_stage_audit)) }
                     auditExport?.let { export ->
-                        DetailValue(stringResource(R.string.storage_state), export.state)
-                        DetailValue(stringResource(R.string.storage_records), export.recordCount.toString())
-                        DetailValue(stringResource(R.string.storage_size), formatBytes(export.sizeBytes))
-                        DetailValue(stringResource(R.string.storage_payload_sha256), export.payloadSha256, monospace = true)
-                        export.errorCode?.let { DetailValue(stringResource(R.string.storage_error), it) }
+                        TechnicalValue(stringResource(R.string.storage_state), storageLabel(export.state))
+                        TechnicalValue(stringResource(R.string.storage_records), export.recordCount.toString())
+                        TechnicalValue(stringResource(R.string.storage_size), formatBytes(export.sizeBytes))
+                        TechnicalSection(stringResource(R.string.app_flow_details)) {
+                            TechnicalValue(stringResource(R.string.storage_payload_sha256), export.payloadSha256, monospace = true)
+                        }
+                        export.errorCode?.let { TechnicalValue(stringResource(R.string.storage_error), it) }
                         Button(
                             enabled = !busy && export.state in setOf("STAGED", "FAILED"),
                             onClick = { onChooseAuditDestination(export.suggestedName) },
@@ -206,6 +217,8 @@ internal fun StorageScreen(
                     }
                 }
             }
+            }
+            if (showAndroid && page == StoragePage.CLEANUP) {
             item {
                 Button(enabled = !busy, onClick = onPreviewCleanup, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.storage_preview_android))
@@ -214,9 +227,9 @@ internal fun StorageScreen(
             cleanupPreview?.let { preview ->
                 item {
                     DetailCard(stringResource(R.string.storage_manual_preview)) {
-                        DetailValue(stringResource(R.string.storage_state), preview.state)
-                        DetailValue(stringResource(R.string.storage_expires), preview.expiresAt)
-                        DetailValue(stringResource(R.string.storage_items), preview.items.size.toString())
+                        TechnicalValue(stringResource(R.string.storage_state), storageLabel(preview.state))
+                        TechnicalValue(stringResource(R.string.storage_expires), preview.expiresAt)
+                        TechnicalValue(stringResource(R.string.storage_items), preview.items.size.toString())
                         if (preview.truncated) {
                             Text(stringResource(R.string.storage_truncated), color = MaterialTheme.colorScheme.error)
                         }
@@ -237,14 +250,13 @@ internal fun StorageScreen(
                                 },
                             )
                             Column(Modifier.weight(1f)) {
-                                Text("${item.resourceKind} · ${formatBytes(item.observedBytes)}")
-                                Text(item.resourceId, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                                Text(stringResource(R.string.storage_eligible, item.eligibleAt), style = MaterialTheme.typography.bodySmall)
+                                Text("${storageLabel(item.resourceKind)} · ${formatBytes(item.observedBytes)}")
+                                InformationButton(stringResource(R.string.app_flow_details), item.resourceId + "\n" + stringResource(R.string.storage_eligible, item.eligibleAt))
                                 if (item.protectionReasons.isNotEmpty()) {
-                                    Text(stringResource(R.string.storage_protected, item.protectionReasons.joinToString()), color = MaterialTheme.colorScheme.error)
+                                    Text(stringResource(R.string.storage_protected, item.protectionReasons.map { storageLabel(it) }.joinToString()), color = MaterialTheme.colorScheme.error)
                                 }
-                                item.result?.let { DetailValue(stringResource(R.string.storage_result), it) }
-                                item.reasonCode?.let { DetailValue(stringResource(R.string.storage_reason), it) }
+                                item.result?.let { TechnicalValue(stringResource(R.string.storage_result), storageLabel(it)) }
+                                item.reasonCode?.let { TechnicalValue(stringResource(R.string.storage_reason), storageLabel(it)) }
                             }
                         }
                     }
@@ -252,7 +264,7 @@ internal fun StorageScreen(
                 item {
                     Button(
                         enabled = !busy && selectedItemIds.isNotEmpty() && !preview.truncated && preview.state == "PREVIEWED",
-                        onClick = { onExecuteCleanup(selectedItemIds) },
+                        onClick = { confirmCleanup = true },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(stringResource(R.string.storage_delete_android)) }
                 }
@@ -270,9 +282,9 @@ internal fun StorageScreen(
             runnerCleanupPreview?.let { preview ->
                 item {
                     DetailCard(stringResource(R.string.storage_runner_manual_preview)) {
-                        DetailValue(stringResource(R.string.storage_state), preview.state)
-                        DetailValue(stringResource(R.string.storage_expires), preview.expiresAt)
-                        DetailValue(stringResource(R.string.storage_items), preview.items.size.toString())
+                        TechnicalValue(stringResource(R.string.storage_state), storageLabel(preview.state))
+                        TechnicalValue(stringResource(R.string.storage_expires), preview.expiresAt)
+                        TechnicalValue(stringResource(R.string.storage_items), preview.items.size.toString())
                         if (preview.truncated) {
                             Text(stringResource(R.string.storage_truncated), color = MaterialTheme.colorScheme.error)
                         }
@@ -295,15 +307,14 @@ internal fun StorageScreen(
                                 },
                             )
                             Column(Modifier.weight(1f)) {
-                                Text("${item.resourceKind} · ${formatDecimalBytes(item.observedBytes)}")
-                                Text(item.resourceId, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                                Text(stringResource(R.string.storage_eligible, item.eligibleAt), style = MaterialTheme.typography.bodySmall)
+                                Text("${storageLabel(item.resourceKind)} · ${formatDecimalBytes(item.observedBytes)}")
+                                InformationButton(stringResource(R.string.app_flow_details), item.resourceId + "\n" + stringResource(R.string.storage_eligible, item.eligibleAt))
                                 if (item.protectionReasons.isNotEmpty()) {
-                                    Text(stringResource(R.string.storage_protected, item.protectionReasons.joinToString()), color = MaterialTheme.colorScheme.error)
+                                    Text(stringResource(R.string.storage_protected, item.protectionReasons.map { storageLabel(it) }.joinToString()), color = MaterialTheme.colorScheme.error)
                                 }
                                 runItem?.let {
-                                    DetailValue(stringResource(R.string.storage_result), it.result)
-                                    it.reason?.let { reason -> DetailValue(stringResource(R.string.storage_reason), reason.code) }
+                                    TechnicalValue(stringResource(R.string.storage_result), storageLabel(it.result))
+                                    it.reason?.let { reason -> TechnicalValue(stringResource(R.string.storage_reason), reason.code) }
                                 }
                             }
                         }
@@ -313,7 +324,7 @@ internal fun StorageScreen(
                     Button(
                         enabled = !busy && selectedRunnerItemIds.isNotEmpty() && !preview.truncated &&
                             runnerCleanupRun == null,
-                        onClick = { onExecuteRunnerCleanup(selectedRunnerItemIds) },
+                        onClick = { confirmCleanup = true },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(stringResource(R.string.storage_delete_runner)) }
                 }
@@ -322,4 +333,17 @@ internal fun StorageScreen(
             item { Spacer(Modifier.height(12.dp)) }
         }
     }
+    if (confirmCleanup) AlertDialog(
+        onDismissRequest = { confirmCleanup = false },
+        title = { Text(stringResource(R.string.data_cleanup_confirm)) },
+        text = { Text(stringResource(R.string.data_cleanup_selected, if (showAndroid) selectedItemIds.size else selectedRunnerItemIds.size)) },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = {
+                confirmCleanup = false
+                if (showAndroid) onExecuteCleanup(selectedItemIds) else onExecuteRunnerCleanup(selectedRunnerItemIds)
+            }) { Text(stringResource(R.string.action_delete)) }
+        },
+        dismissButton = { TextButton(onClick = { confirmCleanup = false }) { Text(stringResource(R.string.action_cancel)) } },
+    )
+
 }

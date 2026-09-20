@@ -31,12 +31,16 @@ internal fun backDestination(
         ReproDroidRoute.DataManagement,
         ReproDroidRoute.RunnerSettings,
         ReproDroidRoute.UpdateSettings,
+        ReproDroidRoute.NotificationSettings,
         -> ReproDroidRoute.Settings
         ReproDroidRoute.Licenses,
         ReproDroidRoute.ThirdPartyNotices,
         -> ReproDroidRoute.AboutSettings
         ReproDroidRoute.LogExport,
         ReproDroidRoute.DataStorage,
+        ReproDroidRoute.DataCleanup,
+        ReproDroidRoute.DataAudit,
+        ReproDroidRoute.DataRunnerStorage,
         ReproDroidRoute.DataInactive,
         -> ReproDroidRoute.DataManagement
         ReproDroidRoute.Authentication,
@@ -65,6 +69,7 @@ internal fun backDestination(
             }
         is ReproDroidRoute.Comparison -> context.comparisonOwnerAppId?.let(ReproDroidRoute::AppInformation)
             ?: ReproDroidRoute.Apps
+        ReproDroidRoute.Groups,
         ReproDroidRoute.Settings,
         ReproDroidRoute.AddSource,
         -> ReproDroidRoute.Apps

@@ -29,13 +29,13 @@ internal fun ComparisonTechnicalContent(
 ) {
     val comparison = record.currentComparison ?: return
     Column {
-        DetailValue(stringResource(R.string.technical_expected_recipe), comparison.expectedRecipeId)
-        DetailValue(
+        TechnicalValue(stringResource(R.string.technical_expected_recipe), comparison.expectedRecipeId)
+        TechnicalValue(
             stringResource(R.string.technical_dependency_pinning, "A"),
             dependencyPinningLabel(comparison.runnerDependencyPinning),
         )
         if (comparison.protocolVersion >= 2 && comparison.repeatRunnerJobId != null) {
-            DetailValue(
+            TechnicalValue(
                 stringResource(R.string.technical_dependency_pinning, "B"),
                 dependencyPinningLabel(comparison.repeatRunnerDependencyPinning),
             )
@@ -56,10 +56,10 @@ internal fun ComparisonTechnicalContent(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        DetailValue(stringResource(R.string.technical_expected_commit), comparison.expectedCommitSha, true)
-        comparison.runnerResolvedCommitSha?.let { DetailValue(stringResource(R.string.technical_runner_commit), it, true) }
+        TechnicalValue(stringResource(R.string.technical_expected_commit), comparison.expectedCommitSha, true)
+        comparison.runnerResolvedCommitSha?.let { TechnicalValue(stringResource(R.string.technical_runner_commit), it, true) }
         comparison.repeatRunnerResolvedCommitSha?.let {
-            DetailValue(stringResource(R.string.technical_repeat_runner_commit), it, true)
+            TechnicalValue(stringResource(R.string.technical_repeat_runner_commit), it, true)
         }
         if (comparison.protocolVersion >= 2) {
             val buildARecord = runnerJobs[comparison.runnerJobId]
@@ -75,12 +75,12 @@ internal fun ComparisonTechnicalContent(
                 buildBManifest,
             )
             Text(stringResource(R.string.technical_environment_evidence), style = MaterialTheme.typography.titleSmall)
-            DetailValue(stringResource(R.string.technical_build_sandbox, "A"), sandboxSelectionText(buildAJob))
-            DetailValue(stringResource(R.string.technical_build_sandbox, "B"), sandboxSelectionText(buildBJob))
-            DetailValue(stringResource(R.string.technical_build_execution, "A"), sandboxManifestText(buildAManifest?.manifest?.sandboxJson))
-            DetailValue(stringResource(R.string.technical_build_execution, "B"), sandboxManifestText(buildBManifest?.manifest?.sandboxJson))
-            sandboxWarnings[comparison.runnerJobId]?.let { DetailValue(stringResource(R.string.technical_build_sandbox_warning, "A"), it) }
-            comparison.repeatRunnerJobId?.let(sandboxWarnings::get)?.let { DetailValue(stringResource(R.string.technical_build_sandbox_warning, "B"), it) }
+            TechnicalValue(stringResource(R.string.technical_build_sandbox, "A"), sandboxSelectionText(buildAJob))
+            TechnicalValue(stringResource(R.string.technical_build_sandbox, "B"), sandboxSelectionText(buildBJob))
+            TechnicalValue(stringResource(R.string.technical_build_execution, "A"), sandboxManifestText(buildAManifest?.manifest?.sandboxJson))
+            TechnicalValue(stringResource(R.string.technical_build_execution, "B"), sandboxManifestText(buildBManifest?.manifest?.sandboxJson))
+            sandboxWarnings[comparison.runnerJobId]?.let { TechnicalValue(stringResource(R.string.technical_build_sandbox_warning, "A"), it) }
+            comparison.repeatRunnerJobId?.let(sandboxWarnings::get)?.let { TechnicalValue(stringResource(R.string.technical_build_sandbox_warning, "B"), it) }
             Text(
                 stringResource(R.string.technical_environment_evidence_body),
                 style = MaterialTheme.typography.bodySmall,
@@ -88,13 +88,13 @@ internal fun ComparisonTechnicalContent(
             SourceScanEvidence(stringResource(R.string.technical_build_source_scan, "A"), buildARecord?.sourceScan)
             SourceScanEvidence(stringResource(R.string.technical_build_source_scan, "B"), buildBRecord?.sourceScan)
             sourceScanWarnings[comparison.runnerJobId]?.let { warning ->
-                DetailValue(stringResource(R.string.technical_build_source_scan_warning, "A"), "${warning.code}: ${warning.message}")
+                TechnicalValue(stringResource(R.string.technical_build_source_scan_warning, "A"), "${warning.code}: ${warning.message}")
             }
             comparison.repeatRunnerJobId?.let(sourceScanWarnings::get)?.let { warning ->
-                DetailValue(stringResource(R.string.technical_build_source_scan_warning, "B"), "${warning.code}: ${warning.message}")
+                TechnicalValue(stringResource(R.string.technical_build_source_scan_warning, "B"), "${warning.code}: ${warning.message}")
             }
             buildAManifest?.let { evidence ->
-                DetailValue(
+                TechnicalValue(
                     stringResource(R.string.technical_build_environment, "A"),
                     stringResource(
                         R.string.technical_build_environment_value,
@@ -112,7 +112,7 @@ internal fun ComparisonTechnicalContent(
                 )
             }
             buildBManifest?.let { evidence ->
-                DetailValue(
+                TechnicalValue(
                     stringResource(R.string.technical_build_environment, "B"),
                     stringResource(
                         R.string.technical_build_environment_value,
@@ -130,13 +130,13 @@ internal fun ComparisonTechnicalContent(
                 )
             }
             buildManifestWarnings[comparison.runnerJobId]?.let { warning ->
-                DetailValue(stringResource(R.string.technical_build_manifest_warning, "A"), "${warning.code}: ${warning.message}")
+                TechnicalValue(stringResource(R.string.technical_build_manifest_warning, "A"), "${warning.code}: ${warning.message}")
             }
             comparison.repeatRunnerJobId?.let(buildManifestWarnings::get)?.let { warning ->
-                DetailValue(stringResource(R.string.technical_build_manifest_warning, "B"), "${warning.code}: ${warning.message}")
+                TechnicalValue(stringResource(R.string.technical_build_manifest_warning, "B"), "${warning.code}: ${warning.message}")
             }
             if (environmentComparison.comparable) {
-                DetailValue(
+                TechnicalValue(
                     stringResource(R.string.technical_dependency_multiset),
                     stringResource(
                         R.string.technical_dependency_multiset_value,
@@ -150,7 +150,7 @@ internal fun ComparisonTechnicalContent(
                     .filter { it.kind != DependencyDifferenceKind.SAME }
                     .take(MAX_DEPENDENCY_DIFFERENCES_IN_UI)
                     .forEach { difference ->
-                        DetailValue(
+                        TechnicalValue(
                             difference.fileName,
                             when (difference.kind) {
                                 DependencyDifferenceKind.CHANGED -> stringResource(R.string.technical_difference_changed)
@@ -161,7 +161,7 @@ internal fun ComparisonTechnicalContent(
                         )
                     }
             } else {
-                DetailValue(stringResource(R.string.technical_dependency_comparison), environmentComparison.reason ?: stringResource(R.string.value_not_available))
+                TechnicalValue(stringResource(R.string.technical_dependency_comparison), environmentComparison.reason ?: stringResource(R.string.value_not_available))
             }
             if (
                 buildAJob?.effectiveRecipeId != buildBJob?.effectiveRecipeId ||
@@ -178,8 +178,8 @@ internal fun ComparisonTechnicalContent(
                 )
             }
         }
-        comparison.incomparableReason?.let { DetailValue(stringResource(R.string.storage_reason), it) }
-        comparison.repeatIncomparableReason?.let { DetailValue(stringResource(R.string.technical_repeat_reason), it) }
+        comparison.incomparableReason?.let { TechnicalValue(stringResource(R.string.storage_reason), it) }
+        comparison.repeatIncomparableReason?.let { TechnicalValue(stringResource(R.string.technical_repeat_reason), it) }
         record.currentAdvancedComparisonSummaries.forEach { summary ->
             Text(
                 when (summary.axis) {
@@ -190,8 +190,8 @@ internal fun ComparisonTechnicalContent(
                 },
                 style = MaterialTheme.typography.titleSmall,
             )
-            DetailValue(stringResource(R.string.technical_apk_entries), "${summary.inventoryOutcome} (${summary.entryCount})")
-            DetailValue(
+            TechnicalValue(stringResource(R.string.technical_apk_entries), "${summary.inventoryOutcome} (${summary.entryCount})")
+            TechnicalValue(
                 stringResource(R.string.technical_entry_changes),
                 stringResource(
                     R.string.technical_entry_changes_value,
@@ -201,21 +201,21 @@ internal fun ComparisonTechnicalContent(
                     summary.missingCount,
                 ),
             )
-            DetailValue(stringResource(R.string.technical_dex_structure), summary.dexStructuralOutcome)
-            DetailValue(stringResource(R.string.technical_manifest_meaning), summary.manifestSemanticOutcome)
-            DetailValue(stringResource(R.string.technical_resource_table_meaning), summary.resourceTableSemanticOutcome)
-            DetailValue(stringResource(R.string.technical_semantic_differences), summary.semanticDifferenceCount.toString())
+            TechnicalValue(stringResource(R.string.technical_dex_structure), summary.dexStructuralOutcome)
+            TechnicalValue(stringResource(R.string.technical_manifest_meaning), summary.manifestSemanticOutcome)
+            TechnicalValue(stringResource(R.string.technical_resource_table_meaning), summary.resourceTableSemanticOutcome)
+            TechnicalValue(stringResource(R.string.technical_semantic_differences), summary.semanticDifferenceCount.toString())
             record.currentSemanticDifferenceEvidence
                 .asSequence()
                 .filter { it.axis == summary.axis }
                 .take(MAX_SEMANTIC_DIFFERENCES_IN_UI)
                 .forEach { difference ->
-                    DetailValue(
+                    TechnicalValue(
                         difference.component,
                         "${difference.result}: ${difference.stableKey}",
                     )
                 }
-            summary.reason?.let { DetailValue(stringResource(R.string.technical_advanced_reason), it) }
+            summary.reason?.let { TechnicalValue(stringResource(R.string.technical_advanced_reason), it) }
         }
     }
 }

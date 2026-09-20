@@ -154,6 +154,7 @@ internal fun AppPreferencesScreen(
     }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
+            expandedHeight = 56.dp,
             title = { Text(stringResource(R.string.app_settings_for, record.app.resolvedDisplayName)) },
             navigationIcon = {
                 IconButton(

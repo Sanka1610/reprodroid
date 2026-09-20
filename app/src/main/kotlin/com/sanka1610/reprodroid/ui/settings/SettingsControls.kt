@@ -8,8 +8,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -67,30 +71,18 @@ internal fun ProviderCredentialSetting(
         ProviderCredentialAvailability.CONFIGURED -> stringResource(R.string.provider_auth_configured_unverified)
         ProviderCredentialAvailability.UNAVAILABLE -> stringResource(R.string.provider_auth_unavailable)
     }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.titleSmall)
-        Text(statusText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = onEdit,
-                enabled = !busy && status.availability != ProviderCredentialAvailability.UNAVAILABLE,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(
-                    stringResource(
-                        if (status.availability == ProviderCredentialAvailability.CONFIGURED) {
-                            R.string.provider_auth_replace
-                        } else {
-                            R.string.provider_auth_configure
-                        },
-                    ),
-                )
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.titleSmall)
+            Text(statusText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        IconButton(onClick = onEdit, enabled = !busy && status.availability != ProviderCredentialAvailability.UNAVAILABLE) {
+            Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.provider_auth_edit_named, label))
+        }
+        if (status.availability != ProviderCredentialAvailability.NOT_CONFIGURED) {
+            IconButton(onClick = onDelete, enabled = !busy) {
+                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.provider_auth_delete_named, label))
             }
-            OutlinedButton(
-                onClick = onDelete,
-                enabled = !busy && status.availability != ProviderCredentialAvailability.NOT_CONFIGURED,
-                modifier = Modifier.weight(1f),
-            ) { Text(stringResource(R.string.action_delete)) }
         }
     }
 }
@@ -104,7 +96,8 @@ internal fun SwitchSetting(
     supportingText: String? = null,
     infoAction: (() -> Unit)? = null,
 ) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    val compact = LocalCompactSettings.current
+    Row(Modifier.fillMaxWidth().then(if (compact) Modifier.heightIn(min = 52.dp) else Modifier), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
                 label,
@@ -112,15 +105,11 @@ internal fun SwitchSetting(
                 color = if (enabled) MaterialTheme.colorScheme.onSurface
                 else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
             )
-            supportingText?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-                )
+            if (!compact && supportingText != null) {
+                Text(supportingText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        if (compact) supportingText?.let { InformationButton(label, it) }
         infoAction?.let { action ->
             IconButton(enabled = enabled, onClick = action) {
                 Icon(Icons.Default.Info, contentDescription = stringResource(R.string.action_more_information))
@@ -152,13 +141,11 @@ internal fun PermissionSetting(
     onRequest: () -> Unit,
     supportingText: String? = null,
 ) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.titleSmall)
-            supportingText?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall)
-            }
         }
+        supportingText?.let { InformationButton(label, it) }
         OutlinedButton(enabled = !allowed, onClick = onRequest) {
             Text(
                 stringResource(
@@ -193,6 +180,7 @@ private fun ScheduleSetting(
             }
         },
         supportingText = supportingText,
+        compact = LocalCompactSettings.current,
     )
 }
 
@@ -212,6 +200,7 @@ private fun IntervalHoursSetting(
         options = options,
         onSelect = onChange,
         enabled = enabled,
+        compact = LocalCompactSettings.current,
     )
 }
 
@@ -402,19 +391,29 @@ internal fun AppUpdateSettingsContent(
 @Composable
 internal fun DailyMinuteSetting(minute: Int, onSave: (Int) -> Unit, enabled: Boolean = true) {
     var showPicker by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.38f)) {
-        Text(stringResource(R.string.release_check_daily_time), style = MaterialTheme.typography.titleSmall)
+    if (!LocalCompactSettings.current) {
+        Column(Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.38f)) {
+            Text(stringResource(R.string.release_check_daily_time), style = MaterialTheme.typography.titleSmall)
+            OutlinedButton(enabled = enabled, onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("%02d:%02d".format(minute / 60, minute % 60))
+            }
+            Text(stringResource(R.string.release_check_daily_time_body), style = MaterialTheme.typography.bodySmall)
+        }
+    } else {
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            stringResource(R.string.release_check_daily_time),
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.weight(1f).alpha(if (enabled) 1f else 0.38f),
+        )
+        InformationButton(stringResource(R.string.release_check_daily_time), stringResource(R.string.release_check_daily_time_body))
         OutlinedButton(
             enabled = enabled,
             onClick = { showPicker = true },
-            modifier = Modifier.fillMaxWidth(),
         ) {
             Text("%02d:%02d".format(minute / 60, minute % 60))
         }
-        Text(
-            stringResource(R.string.release_check_daily_time_body),
-            style = MaterialTheme.typography.bodySmall,
-        )
+    }
     }
     if (showPicker) {
         val pickerState = rememberTimePickerState(
@@ -477,5 +476,13 @@ internal fun AccordionSection(
 
 @Composable
 internal fun SettingsLink(label: String, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, Modifier.fillMaxWidth()) { Text(label) }
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+internal fun SettingsSectionLabel(title: String) {
+    Text(title, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
 }

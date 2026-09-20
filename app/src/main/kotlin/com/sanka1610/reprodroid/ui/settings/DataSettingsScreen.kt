@@ -37,21 +37,25 @@ internal fun DataManagementScreen(
     onBack: () -> Unit,
     onStorage: () -> Unit,
     onInactive: () -> Unit,
+    onCleanup: () -> Unit,
+    onAudit: () -> Unit,
     onRunner: () -> Unit,
     onLogExport: () -> Unit,
 ) {
     BackScaffoldTitle(stringResource(R.string.data_management_title), onBack) {
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            SettingsLink(stringResource(R.string.data_android_storage), onStorage)
-            SettingsLink(stringResource(R.string.inactive_apps_title), onInactive)
-            Text(stringResource(R.string.data_android_deletion_note), style = MaterialTheme.typography.bodySmall)
+        SettingsPage {
+            SettingsSectionLabel(stringResource(R.string.data_this_device))
+            SettingsLink(stringResource(R.string.data_usage_settings), onStorage)
             HorizontalDivider()
-            SettingsLink(stringResource(R.string.data_runner_separate), onRunner)
-            Text(stringResource(R.string.data_runner_note), style = MaterialTheme.typography.bodySmall)
+            SettingsLink(stringResource(R.string.data_cleanup), onCleanup)
+            HorizontalDivider()
+            SettingsLink(stringResource(R.string.inactive_apps_title), onInactive)
+            SettingsSectionLabel(stringResource(R.string.data_export_section))
+            SettingsLink(stringResource(R.string.data_audit_export), onAudit)
+            HorizontalDivider()
             SettingsLink(stringResource(R.string.settings_log_export), onLogExport)
+            SettingsSectionLabel(stringResource(R.string.data_connected_pc))
+            SettingsLink(stringResource(R.string.data_runner_separate), onRunner)
         }
     }
 }
@@ -71,9 +75,11 @@ internal fun LogExportScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(stringResource(R.string.log_export_scope), style = MaterialTheme.typography.bodyMedium)
-            Text(stringResource(R.string.log_export_missing_warning), style = MaterialTheme.typography.bodySmall)
-            Text(stringResource(R.string.log_export_sensitive_warning), style = MaterialTheme.typography.bodySmall)
-            Text(stringResource(R.string.log_export_migration_warning), style = MaterialTheme.typography.bodySmall)
+            InformationButton(stringResource(R.string.settings_log_export), listOf(
+                stringResource(R.string.log_export_missing_warning),
+                stringResource(R.string.log_export_sensitive_warning),
+                stringResource(R.string.log_export_migration_warning),
+            ).joinToString("\n\n"))
             Button(
                 enabled = !busy,
                 onClick = onExport,

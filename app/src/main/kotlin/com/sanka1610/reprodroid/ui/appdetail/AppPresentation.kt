@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,11 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -34,8 +31,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -47,11 +44,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sanka1610.reprodroid.R
@@ -82,6 +81,7 @@ internal fun AppInformationScreen(
     onOpenCandidate: (ReleaseCandidateEntity) -> Unit,
     onTechnical: () -> Unit,
     onInstall: () -> Unit,
+    onInstallNow: () -> Unit,
     onVerification: () -> Unit,
     onCheckRelease: () -> Unit,
     onComparison: (String) -> Unit,
@@ -91,22 +91,9 @@ internal fun AppInformationScreen(
     val comparison = record.currentComparison
     val currentJob = comparison?.let { runnerJobs[it.repeatRunnerJobId ?: it.runnerJobId] }
     val candidate = candidates.latestInstallableCandidate(record.latestRelease)?.takeIf { candidateNeedsPreparation(it, record.latestRelease) }
-    val primaryAction = appInformationPrimaryAction(
-        managementMode = record.app.managementMode,
-        trustLevel = record.trustLevel,
-        updateStatus = asset?.updateStatus,
-        candidate = candidate,
-        comparisonStatus = comparison?.status,
-    )
-    val primaryActionLabel = when (primaryAction) {
-        AppInformationPrimaryAction.VIEW_VERIFICATION -> stringResource(R.string.app_verification_open)
-        AppInformationPrimaryAction.ACQUIRE -> stringResource(R.string.app_action_acquire)
-        AppInformationPrimaryAction.INSTALL -> stringResource(R.string.technical_install)
-        AppInformationPrimaryAction.UPDATE -> stringResource(R.string.technical_update)
-        AppInformationPrimaryAction.VERIFY -> stringResource(R.string.app_action_start_verification)
-        AppInformationPrimaryAction.VERIFY_UPDATE -> stringResource(R.string.app_action_verify_update)
-        null -> ""
-    }
+    val verificationInProgress = appInformationPrimaryAction(
+        record.app.managementMode, record.trustLevel, asset?.updateStatus, candidate, comparison?.status,
+    ) == AppInformationPrimaryAction.VIEW_VERIFICATION
     val statusSummary = when {
         candidate != null -> stringResource(R.string.app_status_uninspected)
         asset?.updateStatus == UpdateStatus.UPDATE_AVAILABLE.name -> stringResource(
@@ -130,6 +117,7 @@ internal fun AppInformationScreen(
     val lastChecked = schedule?.lastAttemptAt ?: record.app.lastReleaseCheckedAt
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
+            expandedHeight = 56.dp,
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ManagedAppIcon(record, 32.dp)
@@ -157,37 +145,36 @@ internal fun AppInformationScreen(
             }
             item {
                 CompactAppSection(stringResource(R.string.app_information_section)) {
-                    CompactAppRow(
-                        icon = Icons.Default.Info,
-                        label = stringResource(R.string.label_tracking),
-                        value = statusSummary,
-                    )
-                    if (primaryAction != null && record.app.trackingState == AppTrackingState.ACTIVE.name) {
-                        Button(
-                            enabled = !active,
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.label_tracking), style = MaterialTheme.typography.titleSmall)
+                            Text(statusSummary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (record.app.trackingState == AppTrackingState.ACTIVE.name) {
+                            val hasInstall = candidate != null || asset?.updateStatus in setOf(UpdateStatus.UPDATE_AVAILABLE.name, UpdateStatus.NOT_INSTALLED.name)
+                            OutlinedIconButton(enabled = !active, onClick = {
                                 when {
-                                    primaryAction == AppInformationPrimaryAction.VIEW_VERIFICATION -> onVerification()
+                                    verificationInProgress -> onVerification()
                                     candidate != null -> onOpenCandidate(candidate)
-                                    primaryAction == AppInformationPrimaryAction.VERIFY || primaryAction == AppInformationPrimaryAction.VERIFY_UPDATE -> onVerification()
-                                    else -> onInstall()
+                                    hasInstall -> onInstallNow()
+                                    else -> onCheckRelease()
                                 }
-                            },
-                        ) { Text(primaryActionLabel) }
+                            }) {
+                                if (verificationInProgress) Icon(Icons.Default.CheckCircle, stringResource(R.string.app_verification_open))
+                                else if (hasInstall) InstallActionIcon(stringResource(R.string.technical_install))
+                                else Icon(Icons.Default.Refresh, stringResource(R.string.app_flow_check_release))
+                            }
+                        }
                     }
                     HorizontalDivider()
-                    CompactAppRow(Icons.Default.CheckCircle, stringResource(R.string.label_latest_version), latestVersion)
+                    CompactAppRow(stringResource(R.string.label_latest_version), latestVersion)
                     HorizontalDivider()
                     CompactAppRow(
-                        Icons.Default.Info,
                         stringResource(R.string.label_verification),
-                        record.trustLevel?.name?.let { statusLabel(it) }
-                            ?: stringResource(R.string.value_unknown),
+                        trustLabel(record),
                     )
                     HorizontalDivider()
                     CompactAppRow(
-                        Icons.Default.DateRange,
                         stringResource(R.string.label_last_checked),
                         lastChecked?.let(::formatAppTimestamp) ?: stringResource(R.string.value_never),
                     )
@@ -196,19 +183,23 @@ internal fun AppInformationScreen(
             item {
                 CompactAppSection(stringResource(R.string.app_details_section)) {
                     CompactAppRow(
-                        Icons.Default.Home,
                         stringResource(R.string.section_source),
-                        repositoryOwner(record.app.canonicalRepositoryUrl),
+                        record.app.canonicalRepositoryUrl.trimEnd('/').substringAfterLast('/').removeSuffix(".git"),
+                        link = record.app.canonicalRepositoryUrl,
                     )
                     HorizontalDivider()
                     CompactAppRow(
-                        Icons.Default.Search,
+                        stringResource(R.string.label_author),
+                        record.app.authorDisplayOverride?.takeIf(String::isNotBlank) ?: repositoryOwner(record.app.canonicalRepositoryUrl),
+                        link = record.app.canonicalRepositoryUrl.trimEnd('/').substringBeforeLast('/'),
+                    )
+                    HorizontalDivider()
+                    CompactAppRow(
                         stringResource(R.string.label_package),
                         asset?.packageName ?: stringResource(R.string.value_unknown),
                     )
                     HorizontalDivider()
                     CompactAppRow(
-                        Icons.Default.DateRange,
                         stringResource(R.string.release_check_next),
                         schedule?.nextEligibleAt?.let(::formatAppTimestamp)
                             ?: stringResource(R.string.value_not_available),
@@ -216,7 +207,6 @@ internal fun AppInformationScreen(
                     currentJob?.let {
                         HorizontalDivider()
                         CompactAppRow(
-                            Icons.Default.Settings,
                             stringResource(R.string.section_build_summary),
                             "${statusLabel(it.job.state)} · ${it.job.progressPercent}%",
                         )
@@ -235,8 +225,13 @@ internal fun AppInformationScreen(
                     OutlinedButton(onClick = onVerification, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.app_verification_open)) }
                 }
                 item {
-                    TextButton(onClick = onInstall) { Text(stringResource(R.string.app_acquisition_open)) }
-                    TextButton(enabled = !active, onClick = onCheckRelease) { Text(stringResource(R.string.app_flow_check_release)) }
+                    AppOperationRow(stringResource(R.string.app_acquisition_open), onClick = onInstall) {
+                        InstallActionIcon(stringResource(R.string.app_acquisition_open))
+                    }
+                    HorizontalDivider()
+                    AppOperationRow(stringResource(R.string.app_flow_check_release), enabled = !active, onClick = onCheckRelease) {
+                        Icon(Icons.Default.Refresh, stringResource(R.string.app_flow_check_release))
+                    }
                     if (schedule?.waitingReason in setOf("RETRY_BACKOFF", "PROVIDER_COOLDOWN", "INVALID_STATE")) {
                         Text(stringResource(if (schedule?.waitingReason == "PROVIDER_COOLDOWN") R.string.registration_complete_cooldown else R.string.error_operation_failed), style = MaterialTheme.typography.bodySmall)
                     }
@@ -283,27 +278,25 @@ private fun CompactAppSection(
 }
 
 @Composable
-private fun CompactAppRow(
-    icon: ImageVector,
-    label: String,
-    value: String,
-) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(label, style = MaterialTheme.typography.titleSmall)
-            Text(
-                value,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+private fun CompactAppRow(label: String, value: String, link: String? = null) {
+    val uriHandler = LocalUriHandler.current
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(0.42f))
+        Text(
+            value, style = MaterialTheme.typography.bodyMedium,
+            color = if (link == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+            textDecoration = if (link != null) TextDecoration.Underline else null,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(0.58f).then(if (link != null) Modifier.clickable { uriHandler.openUri(link) }.padding(vertical = 12.dp) else Modifier),
+        )
+    }
+}
 
+@Composable
+private fun AppOperationRow(label: String, enabled: Boolean = true, onClick: () -> Unit, icon: @Composable () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+        OutlinedIconButton(enabled = enabled, onClick = onClick, content = icon)
     }
 }
 
@@ -345,7 +338,9 @@ internal fun AppEditScreen(
     val sourceResult = sourcePreview.repository.takeIf { sourcePreview.registeredAppId == record.app.registeredAppId }
     val identityMatches = sourceResult?.identity?.providerRepositoryId == record.repositoryBinding?.providerRepositoryId
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text(stringResource(R.string.app_edit_title)) }, navigationIcon = { BackButton(onBack) })
+        TopAppBar(
+            expandedHeight = 56.dp,
+            title = { Text(stringResource(R.string.app_edit_title)) }, navigationIcon = { BackButton(onBack) })
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -369,7 +364,7 @@ internal fun AppEditScreen(
                     onValueChange = { if (it.length <= MAX_AUTHOR_DISPLAY_LENGTH) author = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.label_author_display)) },
-                    supportingText = { Text(stringResource(R.string.label_author_not_verified)) },
+                    trailingIcon = { InformationButton(stringResource(R.string.label_author_display), stringResource(R.string.label_author_not_verified)) },
                     singleLine = true,
                 )
             }
@@ -379,18 +374,17 @@ internal fun AppEditScreen(
                     onValueChange = { if (it.length <= MAX_NOTE_LENGTH) note = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.label_note)) },
-                    supportingText = { Text(stringResource(R.string.label_note_support)) },
+                    trailingIcon = { InformationButton(stringResource(R.string.label_note), stringResource(R.string.label_note_support)) },
                     minLines = 3,
                     maxLines = 8,
                 )
             }
             item {
-                UiRDetailCard(stringResource(R.string.label_group)) {
-                    GroupChoice(null, stringResource(R.string.group_ungrouped), groupId) { groupId = null }
-                    groups.forEach { group ->
-                        GroupChoice(group.groupId, group.displayName, groupId) { groupId = group.groupId }
-                    }
-                }
+                DropdownSetting(
+                    label = stringResource(R.string.label_group), value = groupId,
+                    options = linkedMapOf<String?, String>(null to stringResource(R.string.group_ungrouped)) + groups.associate { it.groupId to it.displayName },
+                    onSelect = { groupId = it }, compact = true,
+                )
             }
             item {
                 Button(
@@ -409,14 +403,17 @@ internal fun AppEditScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(stringResource(R.string.action_save)) }
             }
-            item { HorizontalDivider() }
+            item {
+                HorizontalDivider()
+                Text(stringResource(R.string.section_source), Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleSmall)
+            }
             item {
                 OutlinedTextField(
                     value = sourceUrl,
                     onValueChange = { sourceUrl = it; onClearSource() },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.label_source_url)) },
-                    supportingText = { Text(stringResource(R.string.source_same_identity_required)) },
+                    trailingIcon = { InformationButton(stringResource(R.string.label_source_url), stringResource(R.string.source_same_identity_required)) },
                     singleLine = true,
                 )
             }
@@ -430,10 +427,10 @@ internal fun AppEditScreen(
             if (sourcePreview.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             sourceResult?.let { result ->
                 item {
-                    UiRDetailCard(stringResource(R.string.section_source)) {
-                        UiRDetailValue(stringResource(R.string.label_repository), result.normalizedInputUrl, true)
-                        UiRDetailValue(stringResource(R.string.label_branch), result.identity.defaultBranch)
-                        UiRDetailValue(
+                    CompactAppSection(stringResource(R.string.section_source)) {
+                        TechnicalValue(stringResource(R.string.label_repository), result.normalizedInputUrl, true)
+                        TechnicalValue(stringResource(R.string.label_branch), result.identity.defaultBranch)
+                        TechnicalValue(
                             stringResource(R.string.label_commit),
                             result.discovery.resolvedCommitSha ?: stringResource(R.string.value_unknown),
                             true,
@@ -462,18 +459,6 @@ internal fun AppEditScreen(
         }
     }
 }
-
-@Composable
-private fun GroupChoice(id: String?, label: String, selectedId: String?, onSelect: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onSelect).padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = id == selectedId, onClick = onSelect)
-        Text(label, Modifier.padding(start = 8.dp))
-    }
-}
-
 
 @Composable
 internal fun RemoveTrackingDialog(
@@ -523,7 +508,8 @@ internal fun RemoveTrackingDialog(
                             checked = removeRegistration,
                             onCheckedChange = { removeRegistration = it },
                         )
-                        Text(stringResource(R.string.remove_registration_option))
+                        Text(stringResource(R.string.remove_registration_option), Modifier.weight(1f))
+                        InformationButton(stringResource(R.string.remove_registration_option), stringResource(R.string.remove_registration_info))
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
@@ -531,28 +517,24 @@ internal fun RemoveTrackingDialog(
                             enabled = canUninstall,
                             onCheckedChange = { uninstallPackage = it },
                         )
-                        Text(stringResource(R.string.remove_uninstall_option))
+                        Text(stringResource(R.string.remove_uninstall_option), Modifier.weight(1f))
+                        InformationButton(stringResource(R.string.remove_uninstall_option), stringResource(R.string.remove_uninstall_info))
                     }
-                    Text(
-                        stringResource(
-                            if (canUninstall) R.string.remove_independent_body else R.string.remove_package_unknown,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    if (!canUninstall) Text(stringResource(R.string.remove_package_unknown), style = MaterialTheme.typography.bodySmall)
                 } else {
                     Text(record.app.resolvedDisplayName, style = MaterialTheme.typography.titleMedium)
                     if (uninstallPackage) Text(stringResource(R.string.remove_effect_uninstall))
                     if (removeRegistration) Text(stringResource(R.string.remove_effect_registration))
-                    UiRDetailValue(
+                    TechnicalValue(
                         stringResource(R.string.label_package),
                         packageName ?: stringResource(R.string.value_unknown),
                         true,
                     )
-                    UiRDetailValue(
+                    TechnicalValue(
                         stringResource(R.string.label_installed_version),
                         installedVersion ?: stringResource(R.string.value_not_available),
                     )
-                    UiRDetailValue(
+                    TechnicalValue(
                         stringResource(R.string.remove_other_references),
                         otherPackageReferenceCount.toString(),
                     )

@@ -7,10 +7,15 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
@@ -20,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -36,10 +42,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -58,6 +70,7 @@ import com.sanka1610.reprodroid.ui.appdetail.AppEditScreen
 import com.sanka1610.reprodroid.ui.appdetail.AppInformationScreen
 import com.sanka1610.reprodroid.ui.appdetail.AppPreferencesScreen
 import com.sanka1610.reprodroid.ui.appdetail.RemoveTrackingDialog
+import com.sanka1610.reprodroid.ui.apps.GroupManagementScreen
 import com.sanka1610.reprodroid.ui.apps.InactiveAppsScreen
 import com.sanka1610.reprodroid.ui.apps.UiRAppsScreen
 import com.sanka1610.reprodroid.ui.comparison.ComparisonEvidenceScreen
@@ -79,9 +92,9 @@ import com.sanka1610.reprodroid.ui.shared.BackScaffoldTitle
 import com.sanka1610.reprodroid.ui.shared.MissingRecordScreen
 import com.sanka1610.reprodroid.ui.shared.isSelfRegistration
 import com.sanka1610.reprodroid.ui.shared.knownPackageName
-import com.sanka1610.reprodroid.ui.state.ManagedUiResultKind
 import com.sanka1610.reprodroid.ui.state.ManagedUiMessage
 import com.sanka1610.reprodroid.ui.state.ManagedUiMessageCode
+import com.sanka1610.reprodroid.ui.state.ManagedUiResultKind
 import com.sanka1610.reprodroid.ui.state.relevantDisposition
 import com.sanka1610.reprodroid.ui.theme.ReproDroidTheme
 
@@ -180,6 +193,9 @@ fun ReproDroidApp(
     var addRiskConfirmed by rememberSaveable { mutableStateOf(false) }
     var addSeparateTarget by rememberSaveable { mutableStateOf(false) }
     var inactiveReturnRoute by rememberSaveable { mutableStateOf(ReproDroidRoute.InactiveApps.encode()) }
+    val displayPreferences = remember(context) { context.getSharedPreferences("app_list_display", Context.MODE_PRIVATE) }
+    var appsGrouped by remember { mutableStateOf(displayPreferences.getBoolean("grouped", true)) }
+    var appsQuery by rememberSaveable { mutableStateOf("") }
     var appsSearchExpanded by rememberSaveable { mutableStateOf(false) }
     fun navigate(destination: ReproDroidRoute) {
         if (destination is ReproDroidRoute.AppVerification) verificationReturnAppId = null
@@ -193,7 +209,7 @@ fun ReproDroidApp(
     }
 
     LaunchedEffect(route) {
-        if (route != ReproDroidRoute.Apps) appsSearchExpanded = false
+        if (route != ReproDroidRoute.Apps) { appsSearchExpanded = false; appsQuery = "" }
         if (route is ReproDroidRoute.AppRegistrationComplete) {
             navigate(ReproDroidRoute.AppInformation(route.registeredAppId))
         }
@@ -269,7 +285,7 @@ fun ReproDroidApp(
     )
 
     BackHandler(enabled = route != ReproDroidRoute.Apps || appsSearchExpanded) {
-        if (route == ReproDroidRoute.Apps) appsSearchExpanded = false
+        if (route == ReproDroidRoute.Apps) { appsSearchExpanded = false; appsQuery = "" }
         else navigate(backDestination(route, backContext))
     }
 
@@ -319,10 +335,29 @@ fun ReproDroidApp(
             topBar = {
                 if (route == ReproDroidRoute.Apps) {
                     TopAppBar(
-                        title = { Text(stringResource(R.string.apps_title)) },
+            expandedHeight = 56.dp,
+                        title = {
+                            if (appsSearchExpanded) {
+                                val requester = remember { FocusRequester() }
+                                val searchHint = stringResource(R.string.apps_search_hint)
+                                LaunchedEffect(Unit) { requester.requestFocus() }
+                                BasicTextField(
+                                    value = appsQuery, onValueChange = { appsQuery = it }, singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).focusRequester(requester).semantics { contentDescription = searchHint },
+                                    decorationBox = { input ->
+                                        Box(contentAlignment = Alignment.CenterStart) {
+                                            if (appsQuery.isEmpty()) Text(stringResource(R.string.apps_search_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            input()
+                                        }
+                                    },
+                                )
+                            } else Text(stringResource(R.string.apps_title))
+                        },
                         actions = {
-                            IconButton(onClick = { appsSearchExpanded = !appsSearchExpanded }) {
-                                Icon(Icons.Default.Search, contentDescription = stringResource(if (appsSearchExpanded) R.string.apps_close_search else R.string.apps_open_search))
+                            IconButton(onClick = { appsSearchExpanded = !appsSearchExpanded; if (!appsSearchExpanded) appsQuery = "" }) {
+                                Icon(if (appsSearchExpanded) Icons.Default.Close else Icons.Default.Search, contentDescription = stringResource(if (appsSearchExpanded) R.string.apps_close_search else R.string.apps_open_search))
                             }
                             IconButton(onClick = { navigate(ReproDroidRoute.Settings) }) {
                                 Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.root_open_settings))
@@ -344,18 +379,25 @@ fun ReproDroidApp(
                 }
             },
         ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
+            Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 when (route) {
                 ReproDroidRoute.Apps -> UiRAppsScreen(
                     apps = apps,
                     groups = groups,
-                    searchExpanded = appsSearchExpanded,
+                    query = appsQuery,
+                    grouped = appsGrouped,
                     onSelect = { navigate(ReproDroidRoute.AppInformation(it)) },
                     onAdd = { navigate(ReproDroidRoute.AddSource) },
-                    onCreateGroup = managedViewModel::createGroup,
-                    onRenameGroup = managedViewModel::renameGroup,
-                    onReorderGroups = managedViewModel::reorderGroups,
-                    onDeleteGroup = managedViewModel::deleteGroup,
+                    onManageGroups = { navigate(ReproDroidRoute.Groups) },
+                )
+                ReproDroidRoute.Groups -> GroupManagementScreen(
+                    groups, appsGrouped,
+                    onGroupingChange = { appsGrouped = it; displayPreferences.edit().putBoolean("grouped", it).apply() },
+                    onBack = { navigate(ReproDroidRoute.Apps) },
+                    onCreate = managedViewModel::createGroup,
+                    onRename = managedViewModel::renameGroup,
+                    onReorder = managedViewModel::reorderGroups,
+                    onDelete = managedViewModel::deleteGroup,
                 )
                 ReproDroidRoute.InactiveApps -> InactiveAppsScreen(
                     apps = inactiveApps,
@@ -417,7 +459,7 @@ fun ReproDroidApp(
                     },
                 )
                 ReproDroidRoute.Settings -> BackScaffoldTitle(stringResource(R.string.nav_settings), { navigate(ReproDroidRoute.Apps) }) {
-                    SettingsHomeScreen(::navigate)
+                    SettingsHomeScreen(globalSettings.showSettingsDividers, ::navigate)
                 }
                 ReproDroidRoute.AppearanceSettings -> BackScaffoldTitle(stringResource(R.string.settings_appearance), { navigate(ReproDroidRoute.Settings) }) {
                     AppearanceSettingsScreen(globalSettings, managedViewModel::updateGlobalSettings)
@@ -425,7 +467,7 @@ fun ReproDroidApp(
                 ReproDroidRoute.AcquisitionSettings -> BackScaffoldTitle(stringResource(R.string.settings_acquisition), { navigate(ReproDroidRoute.Settings) }) {
                     AcquisitionSettingsScreen(globalSettings, managedViewModel::updateGlobalSettings)
                 }
-                ReproDroidRoute.ProviderSettings -> BackScaffoldTitle(stringResource(R.string.settings_service_authentication), { navigate(ReproDroidRoute.Settings) }) {
+                ReproDroidRoute.ProviderSettings -> BackScaffoldTitle(stringResource(R.string.settings_service_authentication), { navigate(ReproDroidRoute.Settings) }, information = stringResource(R.string.provider_auth_info_body)) {
                     ProviderSettingsScreen(globalSettings, providerAuthState, managedViewModel::saveProviderToken, managedViewModel::deleteProviderToken)
                 }
                 ReproDroidRoute.AboutSettings -> BackScaffoldTitle(stringResource(R.string.settings_about), { navigate(ReproDroidRoute.Settings) }) {
@@ -437,8 +479,10 @@ fun ReproDroidApp(
                         managedViewModel.refreshAndroidStorage()
                         navigate(ReproDroidRoute.DataStorage)
                     },
+                    onCleanup = { navigate(ReproDroidRoute.DataCleanup) },
+                    onAudit = { managedViewModel.clearAuditExport(); navigate(ReproDroidRoute.DataAudit) },
                     onInactive = { navigate(ReproDroidRoute.DataInactive) },
-                    onRunner = { navigate(ReproDroidRoute.RunnerSettings) },
+                    onRunner = { managedViewModel.refreshRunnerStorage(); navigate(ReproDroidRoute.DataRunnerStorage) },
                     onLogExport = { navigate(ReproDroidRoute.LogExport) },
                 )
                 ReproDroidRoute.DataInactive -> InactiveAppsScreen(
@@ -459,7 +503,7 @@ fun ReproDroidApp(
                     onDelete = { managedViewModel.executeCompleteDeletion(route.encode()) },
                     onDismissDelete = managedViewModel::clearDeletionState,
                 )
-                ReproDroidRoute.DataStorage -> StorageScreen(
+                ReproDroidRoute.DataStorage, ReproDroidRoute.DataCleanup, ReproDroidRoute.DataAudit -> StorageScreen(
                     apps = allApps,
                     settings = globalSettings,
                     androidSummary = androidStorageSummary,
@@ -481,6 +525,12 @@ fun ReproDroidApp(
                     onChooseAuditDestination = activityResults::createAuditExportDocument,
                     onPreviewRunnerCleanup = managedViewModel::previewRunnerCleanup,
                     onExecuteRunnerCleanup = managedViewModel::executeRunnerCleanup,
+                    page = when (route) {
+                        ReproDroidRoute.DataCleanup -> StoragePage.CLEANUP
+                        ReproDroidRoute.DataAudit -> StoragePage.AUDIT
+                        else -> StoragePage.USAGE
+                    },
+                    onClearAudit = managedViewModel::clearAuditExport,
                     showAndroid = true,
                     showRunner = false,
                 )
@@ -497,7 +547,7 @@ fun ReproDroidApp(
                     },
                     onAuthentication = { navigate(ReproDroidRoute.Authentication) },
                 )
-                ReproDroidRoute.RunnerStorage -> StorageScreen(
+                ReproDroidRoute.RunnerStorage, ReproDroidRoute.DataRunnerStorage -> StorageScreen(
                     apps = allApps,
                     settings = globalSettings,
                     androidSummary = androidStorageSummary,
@@ -509,7 +559,7 @@ fun ReproDroidApp(
                     runnerCleanupRun = runnerCleanupRun,
                     onBack = {
                         managedViewModel.clearAndroidCleanupPreview()
-                        navigate(ReproDroidRoute.RunnerSettings)
+                        navigate(backDestination(route, backContext))
                     },
                     onUpdate = managedViewModel::updateGlobalSettings,
                     onRefresh = managedViewModel::refreshRunnerStorage,
@@ -537,6 +587,11 @@ fun ReproDroidApp(
                 ) { JobScreen(jobViewModel) }
                 ReproDroidRoute.UpdateSettings -> BackScaffoldTitle(stringResource(R.string.settings_updates_notifications), { navigate(ReproDroidRoute.Settings) }) {
                     UpdateSettingsScreen(
+                        globalSettings, releaseCheckSettings, managedViewModel::updateReleaseCheckSettings,
+                    )
+                }
+                ReproDroidRoute.NotificationSettings -> BackScaffoldTitle(stringResource(R.string.settings_notifications_permissions), { navigate(ReproDroidRoute.Settings) }) {
+                    NotificationSettingsScreen(
                         globalSettings, releaseCheckSettings, notificationsAllowed, backgroundWorkAllowed,
                         managedViewModel::updateReleaseCheckSettings,
                         activityResults::requestNotificationPermission, activityResults::openBackgroundSettings,
@@ -596,6 +651,15 @@ fun ReproDroidApp(
                             navigate(ReproDroidRoute.AppTechnical(record.app.registeredAppId))
                         },
                         onInstall = { navigate(ReproDroidRoute.AppAcquisition(record.app.registeredAppId)) },
+                        onInstallNow = {
+                            val shizuku = com.sanka1610.reprodroid.data.artifact.ShizukuPackageInstaller(context.applicationContext)
+                            if (canInstallFromTracking(record, availability, globalSettings.installerMode,
+                                context.packageManager.canRequestPackageInstalls(),
+                                shizuku.permissionState() == com.sanka1610.reprodroid.data.artifact.ShizukuPermissionState.GRANTED,
+                                runnerJobs.associateBy { it.job.jobId })) {
+                                managedViewModel.install(record.app.registeredAppId, false)
+                            } else navigate(ReproDroidRoute.AppAcquisition(record.app.registeredAppId))
+                        },
                         onVerification = { navigate(ReproDroidRoute.AppVerification(record.app.registeredAppId)) },
                         onCheckRelease = { managedViewModel.checkReleaseMetadataNow(record.app.registeredAppId) },
                         onComparison = { comparisonId ->
@@ -662,7 +726,7 @@ fun ReproDroidApp(
                     AppTechnicalScreen(
                         record, globalSettings, record.app.registeredAppId in activeAppIds,
                         { navigate(ReproDroidRoute.AppInformation(record.app.registeredAppId)) },
-                        { managedViewModel.refresh(record.app.registeredAppId) },
+                        { managedViewModel.checkReleaseMetadataNow(record.app.registeredAppId) },
                         { managedViewModel.clearSavedAssetSelection(record.app.registeredAppId) },
                         runnerJobs.associateBy { it.job.jobId }, buildEnvironmentManifests.associateBy { it.manifest.jobId },
                         buildManifestWarnings, sourceScanWarnings, sandboxWarnings, availability,

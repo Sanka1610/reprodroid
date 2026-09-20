@@ -17,7 +17,7 @@ import com.sanka1610.reprodroid.ui.*
 import com.sanka1610.reprodroid.ui.shared.*
 
 @Composable
-internal fun UpdateSettingsScreen(settings: GlobalSettingsEntity, releaseSettings: ReleaseCheckSettingsEntity, notificationsAllowed: Boolean, backgroundWorkAllowed: Boolean, onUpdateReleaseSettings: (ReleaseCheckSettingsEntity) -> Unit, onRequestNotifications: () -> Unit, onOpenBackgroundSettings: () -> Unit) {
+internal fun UpdateSettingsScreen(settings: GlobalSettingsEntity, releaseSettings: ReleaseCheckSettingsEntity, onUpdateReleaseSettings: (ReleaseCheckSettingsEntity) -> Unit) {
     var showBatteryInfo by remember { mutableStateOf(false) }
     SettingsPage {
         GlobalUpdateSettingsContent(
@@ -43,26 +43,6 @@ internal fun UpdateSettingsScreen(settings: GlobalSettingsEntity, releaseSetting
             },
         )
 
-        SettingDivider(settings.showSettingsDividers)
-        SwitchSetting(
-            label = stringResource(R.string.release_check_notifications),
-            checked = releaseSettings.releaseNotificationsEnabled,
-            onCheckedChange = {
-                onUpdateReleaseSettings(releaseSettings.copy(releaseNotificationsEnabled = it))
-            },
-        )
-        PermissionSetting(
-            label = stringResource(R.string.settings_notification_permission),
-            allowed = notificationsAllowed,
-            onRequest = onRequestNotifications,
-        )
-        SettingDivider(settings.showSettingsDividers)
-        PermissionSetting(
-            label = stringResource(R.string.settings_background_work),
-            allowed = backgroundWorkAllowed,
-            onRequest = onOpenBackgroundSettings,
-            supportingText = stringResource(R.string.settings_background_work_body),
-        )
     }
     if (showBatteryInfo) {
         AlertDialog(
@@ -76,5 +56,39 @@ internal fun UpdateSettingsScreen(settings: GlobalSettingsEntity, releaseSetting
             },
         )
 
+    }
+}
+
+@Composable
+internal fun NotificationSettingsScreen(
+    settings: GlobalSettingsEntity,
+    releaseSettings: ReleaseCheckSettingsEntity,
+    notificationsAllowed: Boolean,
+    backgroundWorkAllowed: Boolean,
+    onUpdateReleaseSettings: (ReleaseCheckSettingsEntity) -> Unit,
+    onRequestNotifications: () -> Unit,
+    onOpenBackgroundSettings: () -> Unit,
+) {
+    SettingsPage {
+        SwitchSetting(
+            label = stringResource(R.string.release_check_notifications),
+            checked = releaseSettings.releaseNotificationsEnabled,
+            onCheckedChange = {
+                onUpdateReleaseSettings(releaseSettings.copy(releaseNotificationsEnabled = it))
+            },
+        )
+        SettingDivider(settings.showSettingsDividers)
+        PermissionSetting(
+            label = stringResource(R.string.settings_notification_permission),
+            allowed = notificationsAllowed,
+            onRequest = onRequestNotifications,
+        )
+        SettingDivider(settings.showSettingsDividers)
+        PermissionSetting(
+            label = stringResource(R.string.settings_background_work),
+            allowed = backgroundWorkAllowed,
+            onRequest = onOpenBackgroundSettings,
+            supportingText = stringResource(R.string.settings_background_work_body),
+        )
     }
 }

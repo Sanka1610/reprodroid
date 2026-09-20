@@ -2,18 +2,12 @@ package com.sanka1610.reprodroid.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -22,7 +16,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -41,24 +34,9 @@ import com.sanka1610.reprodroid.ui.state.ProviderAuthUiState
 
 @Composable
 internal fun ProviderSettingsScreen(settings: GlobalSettingsEntity, providerAuthState: ProviderAuthUiState, onSaveProviderToken: (ProviderId, String) -> Unit, onDeleteProviderToken: (ProviderId) -> Unit) {
-    var showProviderAuthInfo by remember { mutableStateOf(false) }
     var editProvider by remember { mutableStateOf<ProviderId?>(null) }
     var deleteProvider by remember { mutableStateOf<ProviderId?>(null) }
     SettingsPage {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                stringResource(R.string.provider_auth_experimental),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = { showProviderAuthInfo = true }) {
-                Icon(
-                    Icons.Default.Info,
-                    contentDescription = stringResource(R.string.provider_auth_info_action),
-                )
-            }
-        }
         ProviderCredentialSetting(
             label = stringResource(R.string.settings_github_token),
             status = providerAuthState.statuses[ProviderId.GITHUB]
@@ -76,23 +54,6 @@ internal fun ProviderSettingsScreen(settings: GlobalSettingsEntity, providerAuth
             onEdit = { editProvider = ProviderId.CODEBERG },
             onDelete = { deleteProvider = ProviderId.CODEBERG },
         )
-    }
-    if (showProviderAuthInfo) {
-            AlertDialog(
-                onDismissRequest = { showProviderAuthInfo = false },
-                title = { Text(stringResource(R.string.provider_auth_info_title)) },
-                text = {
-                    Column(Modifier.verticalScroll(rememberScrollState())) {
-                        Text(stringResource(R.string.provider_auth_info_body))
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showProviderAuthInfo = false }) {
-                        Text(stringResource(R.string.action_close))
-                    }
-                },
-            )
-
     }
     editProvider?.let { provider ->
             var token by remember(provider) { mutableStateOf("") }

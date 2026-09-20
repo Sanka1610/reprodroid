@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertHasClickAction
@@ -19,8 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.local.AppGroupEntity
-import com.sanka1610.reprodroid.ui.apps.UiRAppsScreen
-import com.sanka1610.reprodroid.ui.shared.UiRDetailValue
+import com.sanka1610.reprodroid.ui.apps.GroupManagementScreen
+import com.sanka1610.reprodroid.ui.shared.TechnicalValue
 import org.junit.Rule
 import org.junit.Test
 
@@ -29,46 +30,46 @@ class Phase55PolishTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun groupFiltersRemainSelectableAndHorizontallyReachableAtFontScaleTwo() {
-        val allLabel = InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.group_all)
+    fun groupManagerKeepsDisplayChoiceAndLongGroupsReachableAtFontScaleTwo() {
+        val groupedLabel = InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.apps_display_grouped)
+        val grouped = mutableStateOf(true)
         val lastGroup = "A deliberately long final group"
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
                 MaterialTheme {
                     Box(Modifier.width(320.dp).height(640.dp)) {
-                        UiRAppsScreen(
-                            apps = emptyList(),
+                        GroupManagementScreen(
                             groups = listOf(
                                 group("one", "First long group", 0),
                                 group("two", "Second long group", 1),
                                 group("three", lastGroup, 2),
                             ),
-                            searchExpanded = true,
-                            onSelect = {},
-                            onAdd = {},
-                            onCreateGroup = {},
-                            onRenameGroup = { _, _ -> },
-                            onReorderGroups = {},
-                            onDeleteGroup = {},
+                            grouped = grouped.value,
+                            onGroupingChange = { grouped.value = it },
+                            onBack = {},
+                            onCreate = {},
+                            onRename = { _, _ -> },
+                            onReorder = {},
+                            onDelete = {},
                         )
                     }
                 }
             }
         }
 
-        composeRule.onNodeWithText(allLabel).assertIsDisplayed().assertIsSelected()
-        composeRule.onNodeWithText(lastGroup).performScrollTo().assertIsDisplayed().performClick().assertIsSelected()
+        composeRule.onNodeWithText(groupedLabel).assertIsDisplayed()
+        composeRule.onNodeWithText(lastGroup).performScrollTo().assertIsDisplayed()
     }
 
     @Test
-    fun truncatedLongTechnicalValueExposesCopyActionAtFontScaleTwo() {
+    fun longTechnicalValueExposesCopyActionAtFontScaleTwo() {
         val copyLabel = InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.action_copy)
         val value = "https://example.invalid/" + "a".repeat(160)
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
                 MaterialTheme {
                     Box(Modifier.width(320.dp)) {
-                        UiRDetailValue("Repository", value, monospace = true)
+                        TechnicalValue("Repository", value, monospace = true)
                     }
                 }
             }

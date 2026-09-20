@@ -12,11 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -38,8 +42,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.toolchain.ToolchainUiState
-
-
 import com.sanka1610.reprodroid.ui.*
 import com.sanka1610.reprodroid.ui.shared.*
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,19 +62,20 @@ internal fun ToolchainScreen(
     var selectedArtifacts by remember(state.inventory?.items?.map { it.artifactId }) { mutableStateOf(emptySet<String>()) }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
+            expandedHeight = 56.dp,
             title = { Text(stringResource(R.string.settings_toolchains)) },
             navigationIcon = {
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier.semantics { contentDescription = toolchainBackDescription },
-                ) { NavigationGlyph("‹") }
+                ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null) }
             },
             actions = {
                 IconButton(
                     enabled = !state.busy,
                     onClick = onRefresh,
                     modifier = Modifier.semantics { contentDescription = toolchainRefreshDescription },
-                ) { NavigationGlyph("↻") }
+                ) { Icon(Icons.Default.Refresh, contentDescription = null) }
             },
         )
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -81,7 +84,7 @@ internal fun ToolchainScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
-                SectionTitle(
+                ToolchainSectionHeading(
                     stringResource(R.string.toolchains_catalog_plan),
                     stringResource(R.string.toolchains_catalog_plan_body),
                 )
@@ -92,10 +95,10 @@ internal fun ToolchainScreen(
             } else {
                 items(plan.items, key = { "plan-${it.artifactId}" }) { item ->
                     DetailCard(item.component.name.displayEnum()) {
-                        DetailValue(stringResource(R.string.technical_version), item.version)
-                        DetailValue(stringResource(R.string.toolchains_download), formatBytes(item.downloadBytes.toLong()))
-                        DetailValue(stringResource(R.string.toolchains_reservation), formatBytes(item.reservedBytes.toLong()))
-                        DetailValue(
+                        TechnicalValue(stringResource(R.string.technical_version), item.version)
+                        TechnicalValue(stringResource(R.string.toolchains_download), formatBytes(item.downloadBytes.toLong()))
+                        TechnicalValue(stringResource(R.string.toolchains_reservation), formatBytes(item.reservedBytes.toLong()))
+                        TechnicalValue(
                             stringResource(R.string.technical_status),
                             stringResource(
                                 if (item.alreadyInstalled) {
@@ -136,9 +139,9 @@ internal fun ToolchainScreen(
             state.installation?.let { installation ->
                 item {
                     DetailCard(stringResource(R.string.toolchains_installation)) {
-                        DetailValue(stringResource(R.string.storage_state), installation.state.name.displayEnum())
-                        DetailValue(stringResource(R.string.toolchains_progress), "${installation.progressPercent}%")
-                        installation.reason?.let { DetailValue(stringResource(R.string.storage_reason), "${it.code}: ${it.message}") }
+                        TechnicalValue(stringResource(R.string.storage_state), installation.state.name.displayEnum())
+                        TechnicalValue(stringResource(R.string.toolchains_progress), "${installation.progressPercent}%")
+                        installation.reason?.let { TechnicalValue(stringResource(R.string.storage_reason), "${it.code}: ${it.message}") }
                         if (installation.state.name !in setOf("INSTALLED", "CANCELLED", "FAILED", "RECONCILIATION_REQUIRED")) {
                             TextButton(onClick = onCancel) { Text(stringResource(R.string.toolchains_cancel)) }
                         }
@@ -147,7 +150,7 @@ internal fun ToolchainScreen(
             }
             item {
                 HorizontalDivider()
-                SectionTitle(
+                ToolchainSectionHeading(
                     stringResource(R.string.toolchains_runner_inventory),
                     stringResource(R.string.toolchains_runner_inventory_body),
                 )
@@ -182,9 +185,9 @@ internal fun ToolchainScreen(
                 state.removalPreview?.let { preview ->
                     item {
                         DetailCard(stringResource(R.string.toolchains_removal_confirmation)) {
-                            DetailValue(stringResource(R.string.toolchains_selected_entries), preview.artifactIds.size.toString())
-                            DetailValue(stringResource(R.string.toolchains_releasable), formatBytes(preview.releasableBytes.toLong()))
-                            DetailValue(stringResource(R.string.toolchains_preview_expires), preview.expiresAt)
+                            TechnicalValue(stringResource(R.string.toolchains_selected_entries), preview.artifactIds.size.toString())
+                            TechnicalValue(stringResource(R.string.toolchains_releasable), formatBytes(preview.releasableBytes.toLong()))
+                            TechnicalValue(stringResource(R.string.toolchains_preview_expires), preview.expiresAt)
                             Text(stringResource(R.string.toolchains_removal_body))
                             Button(enabled = !state.busy, onClick = onExecuteRemoval, modifier = Modifier.fillMaxWidth()) {
                                 Text(stringResource(R.string.toolchains_confirm_removal))
@@ -195,5 +198,13 @@ internal fun ToolchainScreen(
             }
             item { Spacer(Modifier.height(24.dp)) }
         }
+    }
+}
+
+@Composable
+private fun ToolchainSectionHeading(title: String, description: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+        InformationButton(title, description)
     }
 }

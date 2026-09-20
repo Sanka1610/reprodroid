@@ -10,6 +10,11 @@ class ReproDroidRouteTest {
     fun fixedRoutesRoundTrip() {
         val routes = listOf(
             ReproDroidRoute.Apps,
+            ReproDroidRoute.Groups,
+            ReproDroidRoute.NotificationSettings,
+            ReproDroidRoute.DataCleanup,
+            ReproDroidRoute.DataAudit,
+            ReproDroidRoute.DataRunnerStorage,
             ReproDroidRoute.InactiveApps,
             ReproDroidRoute.AddSource,
             ReproDroidRoute.AddAnalysis,

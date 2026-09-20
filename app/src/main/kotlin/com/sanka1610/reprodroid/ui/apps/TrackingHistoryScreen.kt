@@ -7,10 +7,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,7 +44,9 @@ internal fun InactiveAppsScreen(
     onDismissDelete: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text(stringResource(R.string.inactive_apps_title)) }, navigationIcon = { BackButton(onBack) })
+        TopAppBar(
+            expandedHeight = 56.dp,
+            title = { Text(stringResource(R.string.inactive_apps_title)) }, navigationIcon = { BackButton(onBack) })
         if (apps.isEmpty()) {
             EmptyState(stringResource(R.string.inactive_apps_title), stringResource(R.string.inactive_apps_empty))
         } else {

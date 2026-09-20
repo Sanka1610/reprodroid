@@ -11,6 +11,11 @@ class ReproDroidNavigationPolicyTest {
     @Test
     fun settingsAndRunnerChildrenReturnToTheirCurrentParents() {
         val expected = mapOf(
+            ReproDroidRoute.Groups to ReproDroidRoute.Apps,
+            ReproDroidRoute.NotificationSettings to ReproDroidRoute.Settings,
+            ReproDroidRoute.DataCleanup to ReproDroidRoute.DataManagement,
+            ReproDroidRoute.DataAudit to ReproDroidRoute.DataManagement,
+            ReproDroidRoute.DataRunnerStorage to ReproDroidRoute.DataManagement,
             ReproDroidRoute.InactiveApps to ReproDroidRoute.Settings,
             ReproDroidRoute.AppearanceSettings to ReproDroidRoute.Settings,
             ReproDroidRoute.AcquisitionSettings to ReproDroidRoute.Settings,

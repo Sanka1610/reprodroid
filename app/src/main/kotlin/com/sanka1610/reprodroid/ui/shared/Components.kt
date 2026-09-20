@@ -40,9 +40,11 @@ import com.sanka1610.reprodroid.ui.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun BackScaffoldTitle(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+internal fun BackScaffoldTitle(title: String, onBack: () -> Unit, information: String? = null, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text(title) }, navigationIcon = { BackButton(onBack) })
+        TopAppBar(
+            expandedHeight = 56.dp,
+            title = { Row(verticalAlignment = Alignment.CenterVertically) { Text(title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis); information?.let { InformationButton(title, it) } } }, navigationIcon = { BackButton(onBack) })
         Box(Modifier.fillMaxSize()) { content() }
     }
 }

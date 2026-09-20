@@ -56,6 +56,7 @@ class SettingsLayoutStabilityTest {
                         options = mapOf("dark" to "Stable value"),
                         onSelect = {},
                         showOutline = outlineVisible.value,
+                        compact = true,
                     )
                 }
             }

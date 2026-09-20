@@ -2,6 +2,8 @@ package com.sanka1610.reprodroid.ui.appdetail
 
 import com.sanka1610.reprodroid.data.local.ComparisonRunStatus
 import com.sanka1610.reprodroid.data.local.ManagementMode
+import com.sanka1610.reprodroid.data.local.RegisteredAppEntity
+import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
 import com.sanka1610.reprodroid.data.local.ReleaseAssetEntity
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateEntity
 import com.sanka1610.reprodroid.data.local.ReleaseCandidateState
@@ -196,6 +198,44 @@ class AppInformationCandidateTest {
             assertFalse(referenceApkAvailable(asset, listOf(present.copy(state = state))))
         }
         assertFalse(referenceApkAvailable(asset.copy(downloadStatus = "FAILED"), listOf(present)))
+    }
+
+    @Test
+    fun trackingInstallRequiresPresentBytesPermissionAndNoUnacknowledgedWarning() {
+        val candidate = candidate("current", "20", null, ReleaseCandidateState.NEW_RELEASE_DISCOVERED)
+        val release = inspectedRelease(candidate, UpdateStatus.UPDATE_AVAILABLE)
+        val asset = release.selectedAsset!!.copy(downloadStatus = "VERIFIED", existingInstallStatus = "SIGNER_MATCH")
+        val app = RegisteredAppEntity(
+            registeredAppId = candidate.registeredAppId, displayName = "App",
+            repositoryUrl = "https://example.invalid/owner/repo", canonicalRepositoryUrl = "https://example.invalid/owner/repo",
+            provider = "GITHUB", managementMode = "ACQUISITION", createdAt = candidate.firstSeenAt, updatedAt = candidate.lastSeenAt,
+        )
+        val record = RegisteredAppRecord(app = app, releases = listOf(release.copy(assets = listOf(asset))), comparisons = emptyList(), releaseInstallAttempts = emptyList())
+        val present = ResourceAvailabilityEntity(
+            ownerType = "ANDROID", ownerId = "local", resourceKind = "REFERENCE_APK", resourceId = asset.releaseAssetId,
+            state = "PRESENT", observedBytes = 1024, knownSha256 = null, lastUsedAt = null,
+            checkedAt = candidate.lastSeenAt, deletionRunId = null, deletionReason = null,
+        )
+        assertTrue(canInstallFromTracking(record, listOf(present), "SYSTEM", true, false))
+        assertFalse(canInstallFromTracking(record, listOf(present), "SYSTEM", false, false))
+        assertFalse(canInstallFromTracking(record, emptyList(), "SYSTEM", true, false))
+        assertFalse(canInstallFromTracking(record, listOf(present.copy(state = "MISSING")), "SYSTEM", true, false))
+        assertFalse(canInstallFromTracking(record, listOf(present.copy(resourceId = "other")), "SYSTEM", true, false))
+        assertFalse(canInstallFromTracking(record.copy(app = app.copy(trackingState = "INACTIVE")), listOf(present), "SYSTEM", true, false))
+        assertFalse(canInstallFromTracking(record.copy(app = app.copy(managementMode = "VERIFICATION")), listOf(present), "SYSTEM", true, false))
+        assertFalse(canInstallFromTracking(record.copy(app = app.copy(installationSource = "LOCAL_BUILD")), listOf(present), "SYSTEM", true, false))
+        assertFalse(canInstallFromTracking(record, listOf(present), "UNKNOWN", true, true))
+        listOf("UNKNOWN", "UP_TO_DATE", "OLDER_THAN_INSTALLED").forEach { state ->
+            val noUpdate = record.copy(releases = listOf(release.copy(assets = listOf(asset.copy(updateStatus = state)))))
+            assertFalse(canInstallFromTracking(noUpdate, listOf(present), "SYSTEM", true, false))
+        }
+        val mismatch = record.copy(releases = listOf(release.copy(assets = listOf(asset.copy(existingInstallStatus = "SIGNER_MISMATCH")))))
+        assertFalse(canInstallFromTracking(mismatch, listOf(present), "SYSTEM", true, false))
+        assertFalse(canInstallFromTracking(mismatch, listOf(present), "SHIZUKU", true, true))
+        assertTrue(canInstallFromTracking(record, listOf(present), "SHIZUKU", false, true))
+        assertFalse(canInstallFromTracking(record, listOf(present), "SHIZUKU", true, false))
+        val untrustedNewApp = record.copy(releases = listOf(release.copy(assets = listOf(asset.copy(existingInstallStatus = "NOT_INSTALLED_OR_NOT_VISIBLE")))))
+        assertFalse(canInstallFromTracking(untrustedNewApp, listOf(present), "SHIZUKU", true, true))
     }
 
     private fun inspectedRelease(candidate: ReleaseCandidateEntity, status: UpdateStatus) = ReleaseSnapshotWithAssets(

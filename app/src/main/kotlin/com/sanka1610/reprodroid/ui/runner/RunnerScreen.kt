@@ -24,18 +24,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import com.sanka1610.reprodroid.data.connection.RunnerConnectionIssue
-import com.sanka1610.reprodroid.data.local.RunnerConnectionEntity
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.connection.ManualPairingPayloadParser
+import com.sanka1610.reprodroid.data.connection.RunnerConnectionIssue
 import com.sanka1610.reprodroid.data.connection.RunnerConnectionPhase
 import com.sanka1610.reprodroid.data.connection.RunnerConnectionStatus
+import com.sanka1610.reprodroid.data.local.RunnerConnectionEntity
 import com.sanka1610.reprodroid.ui.*
-import com.sanka1610.reprodroid.ui.settings.SettingsLink
+import com.sanka1610.reprodroid.ui.settings.*
 import com.sanka1610.reprodroid.ui.shared.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,12 +45,16 @@ internal fun RunnerSettingsScreen(
     onToolchains: () -> Unit,
     onAuthentication: () -> Unit,
 ) {
-    BackScaffoldTitle(stringResource(R.string.settings_runner), onBack) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SettingsLink(stringResource(R.string.settings_storage), onStorage)
+    BackScaffoldTitle(stringResource(R.string.settings_verification_environment), onBack, information = stringResource(R.string.runner_environment_info)) {
+        SettingsPage {
+            SettingsSectionLabel(stringResource(R.string.runner_environment_connection))
+            SettingsLink(stringResource(R.string.runner_connection_title), onAuthentication)
+            SettingsSectionLabel(stringResource(R.string.runner_environment_preparation))
             SettingsLink(stringResource(R.string.settings_toolchains), onToolchains)
+            HorizontalDivider()
             SettingsLink(stringResource(R.string.settings_jobs), onJobs)
-            SettingsLink(stringResource(R.string.settings_authentication), onAuthentication)
+            SettingsSectionLabel(stringResource(R.string.data_connected_pc))
+            SettingsLink(stringResource(R.string.data_runner_separate), onStorage)
         }
     }
 }
@@ -82,7 +85,7 @@ internal fun RunnerAuthenticationScreen(
     BackScaffoldTitle(stringResource(R.string.settings_authentication), onBack) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(stringResource(R.string.runner_connection_title), style = MaterialTheme.typography.titleMedium)
             Text(
@@ -100,6 +103,7 @@ internal fun RunnerAuthenticationScreen(
             status.issue?.let { Text(stringResource(runnerConnectionIssueString(it))) }
             active?.let { connection ->
                 ConnectionValue(stringResource(R.string.runner_endpoint), connection.endpoint)
+                TechnicalSection(stringResource(R.string.runner_connection_details)) {
                 ConnectionValue(stringResource(R.string.runner_id), connection.runnerId)
                 ConnectionValue(stringResource(R.string.runner_pin), connection.rootSpkiSha256)
                 ConnectionValue(stringResource(R.string.runner_transport), stringResource(
@@ -115,6 +119,7 @@ internal fun RunnerAuthenticationScreen(
                 ))
                 status.lastCheckedAt?.let {
                     ConnectionValue(stringResource(R.string.runner_last_checked), it)
+                }
                 }
                 if (connection.active) {
                     OutlinedButton(onClick = onRefresh, Modifier.fillMaxWidth()) {
@@ -166,7 +171,7 @@ internal fun RunnerAuthenticationScreen(
             }
             HorizontalDivider()
             Text(stringResource(R.string.runner_manual_pairing), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.runner_manual_pairing_help))
+            InformationButton(stringResource(R.string.runner_manual_pairing), stringResource(R.string.runner_manual_pairing_help) + "\n\n" + stringResource(R.string.runner_pairing_boundaries) + "\n\n" + stringResource(R.string.runner_lost_device_help))
             OutlinedTextField(
                 value = payload,
                 onValueChange = { if (it.length <= 5_464) payload = it },
@@ -202,8 +207,6 @@ internal fun RunnerAuthenticationScreen(
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.runner_start_pairing)) }
-            Text(stringResource(R.string.runner_pairing_boundaries), style = MaterialTheme.typography.bodySmall)
-            Text(stringResource(R.string.runner_lost_device_help), style = MaterialTheme.typography.bodySmall)
         }
     }
     if (confirmRevoke) {
@@ -300,10 +303,7 @@ private fun runnerConnectionIssueString(issue: RunnerConnectionIssue): Int = whe
 
 @Composable
 private fun ConnectionValue(label: String, value: String) {
-    Column(Modifier.fillMaxWidth()) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
-        Text(value, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-    }
+    TechnicalValue(label, value, monospace = value.length > 48)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -5,14 +5,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -31,18 +33,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sanka1610.reprodroid.R
-import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.ComparisonRunStatus
 import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
 import com.sanka1610.reprodroid.data.local.InstallationSource
+import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.PreferredAbi
 import com.sanka1610.reprodroid.data.local.RegisteredAppRecord
 import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
+import com.sanka1610.reprodroid.data.local.SourceScanWithDetails
 import com.sanka1610.reprodroid.data.local.TrustLevel
 import com.sanka1610.reprodroid.data.local.UpdateStatus
-import com.sanka1610.reprodroid.data.local.SourceScanWithDetails
-
-
 import com.sanka1610.reprodroid.ui.*
 import com.sanka1610.reprodroid.ui.theme.LocalSelectionBoxOutlines
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,6 +55,7 @@ internal fun <T> DropdownSetting(
     enabled: Boolean = true,
     supportingText: String? = null,
     showOutline: Boolean? = null,
+    compact: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val outlined = showOutline ?: LocalSelectionBoxOutlines.current
@@ -65,19 +66,20 @@ internal fun <T> DropdownSetting(
     ) {
         Column(Modifier.fillMaxWidth()) {
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().then(if (compact) Modifier.heightIn(min = 52.dp) else Modifier),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
                     label,
                     style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(0.56f),
+                    modifier = Modifier.weight(if (compact) 1f else 0.56f),
                 )
+                if (compact && supportingText != null) InformationButton(label, supportingText)
                 Surface(
                     modifier = Modifier
                         .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled)
-                        .weight(0.44f),
+                        .then(if (compact) Modifier.widthIn(max = 192.dp) else Modifier.weight(0.44f)),
                     color = Color.Transparent,
                     contentColor = if (enabled) {
                         MaterialTheme.colorScheme.onSurface
@@ -99,12 +101,12 @@ internal fun <T> DropdownSetting(
                     shape = MaterialTheme.shapes.extraSmall,
                 ) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                        (if (compact) Modifier.heightIn(min = 48.dp) else Modifier.fillMaxWidth()).padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             options[value] ?: value.toString(),
-                            modifier = Modifier.weight(1f),
+                            modifier = if (compact) Modifier.weight(1f, fill = false) else Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -113,7 +115,7 @@ internal fun <T> DropdownSetting(
                     }
                 }
             }
-            supportingText?.let { text ->
+            supportingText?.takeUnless { compact }?.let { text ->
                 Text(
                     text,
                     style = MaterialTheme.typography.bodySmall,

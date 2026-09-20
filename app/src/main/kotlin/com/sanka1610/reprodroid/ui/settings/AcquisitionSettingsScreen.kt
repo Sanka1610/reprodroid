@@ -1,5 +1,8 @@
 package com.sanka1610.reprodroid.ui.settings
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -8,8 +11,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.sanka1610.reprodroid.R
 import com.sanka1610.reprodroid.data.artifact.ShizukuPackageInstaller
 import com.sanka1610.reprodroid.data.artifact.ShizukuPermissionState
@@ -34,6 +40,7 @@ internal fun AcquisitionSettingsScreen(settings: GlobalSettingsEntity, onUpdate:
             settings.defaultPreferredAbi,
             PreferredAbi.entries.associate { it.name to abiLabel(it.name) },
             { onUpdate(settings.copy(defaultPreferredAbi = it)) },
+            compact = true,
         )
         SettingDivider(settings.showSettingsDividers)
         DropdownSetting(
@@ -55,6 +62,7 @@ internal fun AcquisitionSettingsScreen(settings: GlobalSettingsEntity, onUpdate:
                     ),
                 )
             },
+            compact = true,
         )
         SettingDivider(settings.showSettingsDividers)
         DropdownSetting(
@@ -75,6 +83,7 @@ internal fun AcquisitionSettingsScreen(settings: GlobalSettingsEntity, onUpdate:
                     )
                 },
             { onUpdate(settings.copy(defaultInstallationSource = it)) },
+            compact = true,
         )
         SettingDivider(settings.showSettingsDividers)
         DropdownSetting(
@@ -101,17 +110,22 @@ internal fun AcquisitionSettingsScreen(settings: GlobalSettingsEntity, onUpdate:
                     }
                 }
             },
+            compact = true,
         )
         if (settings.installerMode == InstallerMode.SHIZUKU.name || shizukuPermissionState == ShizukuPermissionState.DENIED) {
-            Text(
-                text = when (shizukuPermissionState) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.settings_shizuku_permission), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                InformationButton(
+                    stringResource(R.string.settings_shizuku_permission),
+                    when (shizukuPermissionState) {
                     ShizukuPermissionState.GRANTED -> stringResource(R.string.settings_shizuku_ready)
                     ShizukuPermissionState.SERVICE_UNAVAILABLE -> stringResource(R.string.settings_shizuku_unavailable)
                     ShizukuPermissionState.UNSUPPORTED -> stringResource(R.string.settings_shizuku_unsupported)
                     ShizukuPermissionState.DENIED -> stringResource(R.string.settings_shizuku_permission_required)
-                },
-                style = MaterialTheme.typography.bodySmall,
-            )
+                    } + "\n\n" + stringResource(R.string.settings_shizuku_safety_body),
+                )
+                Text(stringResource(if (shizukuPermissionState == ShizukuPermissionState.GRANTED) R.string.settings_permission_allowed else R.string.settings_permission_not_allowed), style = MaterialTheme.typography.bodyMedium)
+            }
         }
         if (settings.installerMode == InstallerMode.SHIZUKU.name) {
             SettingDivider(settings.showSettingsDividers)

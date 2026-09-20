@@ -40,22 +40,22 @@ internal fun AppTechnicalScreen(
     availability: List<ResourceAvailabilityEntity>,
 ) {
     BackScaffoldTitle(stringResource(R.string.app_flow_details), onBack) {
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { TextButton(enabled = !active, onClick = onRefresh) { Text(stringResource(R.string.action_refresh_release_data)) } }
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            item { TextButton(enabled = !active, onClick = onRefresh) { Text(stringResource(R.string.app_flow_check_release)) } }
             item {
-                    DetailCard(stringResource(R.string.technical_repository)) {
-                        DetailValue(stringResource(R.string.label_provider), record.app.provider)
-                        DetailValue(stringResource(R.string.label_source_url), record.app.canonicalRepositoryUrl, true)
-                        DetailValue(stringResource(R.string.technical_repository_id), record.repositoryBinding?.providerRepositoryId ?: stringResource(R.string.value_unknown), true)
-                        DetailValue(stringResource(R.string.technical_identity), record.repositoryBinding?.identityStatus ?: stringResource(R.string.value_not_available))
+                    TechnicalSection(stringResource(R.string.technical_repository)) {
+                        TechnicalValue(stringResource(R.string.label_provider), record.app.provider)
+                        TechnicalValue(stringResource(R.string.label_source_url), record.app.canonicalRepositoryUrl, true)
+                        TechnicalValue(stringResource(R.string.technical_repository_id), record.repositoryBinding?.providerRepositoryId ?: stringResource(R.string.value_unknown), true)
+                        TechnicalValue(stringResource(R.string.technical_identity), statusLabel(record.repositoryBinding?.identityStatus))
                         record.latestSourceDiscovery?.let { discovery ->
-                            DetailValue(stringResource(R.string.technical_source_discovery), discovery.state)
-                            discovery.reason?.let { DetailValue(stringResource(R.string.technical_discovery_reason), it) }
-                            DetailValue(stringResource(R.string.technical_source_commit), discovery.resolvedCommitSha ?: stringResource(R.string.value_not_available), true)
-                            DetailValue(stringResource(R.string.add_gradle_candidates), discovery.candidateCount.toString())
+                            TechnicalValue(stringResource(R.string.technical_source_discovery), statusLabel(discovery.state))
+                            discovery.reason?.let { TechnicalValue(stringResource(R.string.technical_discovery_reason), it) }
+                            TechnicalValue(stringResource(R.string.technical_source_commit), discovery.resolvedCommitSha ?: stringResource(R.string.value_not_available), true)
+                            TechnicalValue(stringResource(R.string.add_gradle_candidates), discovery.candidateCount.toString())
                         }
                         record.selectedBuildConfiguration?.let { configuration ->
-                            DetailValue(
+                            TechnicalValue(
                                 stringResource(R.string.technical_build_settings),
                                 stringResource(
                                     R.string.technical_build_settings_summary,
@@ -63,14 +63,14 @@ internal fun AppTechnicalScreen(
                                     configuration.validationState,
                                 ),
                             )
-                            DetailValue(stringResource(R.string.technical_settings_sha256), configuration.contentSha256, true)
+                            TechnicalValue(stringResource(R.string.technical_settings_sha256), configuration.contentSha256, true)
                         }
-                        DetailValue(stringResource(R.string.technical_release_last_checked), record.app.lastReleaseCheckedAt ?: stringResource(R.string.value_never))
-                        DetailValue(stringResource(R.string.technical_release_variant), effectiveVariant(record, globalSettings).displayName())
-                        DetailValue(stringResource(R.string.settings_abi), effectiveAbi(record, globalSettings).displayName())
-                        DetailValue(stringResource(R.string.technical_apk_limit), "${effectiveLimit(record, globalSettings) / MIB} MiB")
+                        TechnicalValue(stringResource(R.string.technical_release_last_checked), record.app.lastReleaseCheckedAt ?: stringResource(R.string.value_never))
+                        TechnicalValue(stringResource(R.string.technical_release_variant), effectiveVariant(record, globalSettings).displayName())
+                        TechnicalValue(stringResource(R.string.settings_abi), effectiveAbi(record, globalSettings).displayName())
+                        TechnicalValue(stringResource(R.string.technical_apk_limit), "${effectiveLimit(record, globalSettings) / MIB} MiB")
                         if (record.app.savedAssetSelectionJson != null) {
-                            DetailValue(
+                            TechnicalValue(
                                 stringResource(R.string.technical_saved_selection),
                                 stringResource(R.string.technical_saved_selection_active),
                             )
@@ -81,49 +81,53 @@ internal fun AppTechnicalScreen(
                     }
             }
             record.latestRelease?.let { release -> item {
-                    DetailCard(stringResource(R.string.technical_latest_release)) {
-                        DetailValue(stringResource(R.string.technical_release), release.snapshot.releaseName)
-                        DetailValue(stringResource(R.string.technical_tag), release.snapshot.tagName)
-                        DetailValue(stringResource(R.string.technical_resolved_commit), release.snapshot.resolvedCommitSha, true)
-                        DetailValue(stringResource(R.string.technical_target_commitish), release.snapshot.targetCommitishRaw)
-                        DetailValue(
+                    TechnicalSection(stringResource(R.string.technical_latest_release)) {
+                        TechnicalValue(stringResource(R.string.technical_release), release.snapshot.releaseName)
+                        TechnicalValue(stringResource(R.string.technical_tag), release.snapshot.tagName)
+                        TechnicalValue(stringResource(R.string.technical_resolved_commit), release.snapshot.resolvedCommitSha, true)
+                        TechnicalValue(stringResource(R.string.technical_target_commitish), release.snapshot.targetCommitishRaw)
+                        TechnicalValue(
                             stringResource(R.string.technical_published),
                             release.snapshot.publishedAt ?: stringResource(R.string.technical_not_supplied),
                         )
                     }
             } }
             record.latestRelease?.selectedAsset?.let { current -> item {
-                    DetailCard(stringResource(R.string.technical_official_apk)) {
-                        DetailValue(stringResource(R.string.technical_asset), current.assetName)
-                        DetailValue(stringResource(R.string.label_package), current.packageName ?: stringResource(R.string.value_unknown))
-                        DetailValue(stringResource(R.string.technical_version), current.versionName ?: stringResource(R.string.value_not_available))
-                        DetailValue(
+                    TechnicalSection(stringResource(R.string.technical_official_apk)) {
+                        TechnicalValue(stringResource(R.string.technical_asset), current.assetName)
+                        TechnicalValue(stringResource(R.string.label_package), current.packageName ?: stringResource(R.string.value_unknown))
+                        TechnicalValue(stringResource(R.string.technical_version), current.versionName ?: stringResource(R.string.value_not_available))
+                        TechnicalValue(
                             stringResource(R.string.technical_installed),
                             current.installedVersionName?.let { "$it (${current.installedVersionCode})" }
                                 ?: stringResource(R.string.state_not_installed),
                         )
-                        DetailValue(stringResource(R.string.label_update), updateLabel(current.updateStatus))
-                        DetailValue(stringResource(R.string.technical_signer_relation), signerLabel(current.existingInstallStatus))
-                        DetailValue(stringResource(R.string.technical_comparison), current.comparisonEligibility)
-                        DetailValue(stringResource(R.string.technical_selection), current.selectionReason)
-                        DetailValue(
+                        TechnicalValue(stringResource(R.string.label_update), updateLabel(current.updateStatus))
+                        TechnicalValue(stringResource(R.string.technical_signer_relation), signerLabel(current.existingInstallStatus))
+                        TechnicalValue(stringResource(R.string.technical_comparison), statusLabel(current.comparisonEligibility))
+                        TechnicalValue(stringResource(R.string.technical_selection), statusLabel(current.selectionReason))
+                        TechnicalValue(
                             stringResource(R.string.technical_provider_created),
                             current.providerCreatedAt ?: stringResource(R.string.value_not_available),
                         )
-                        DetailValue(
+                        TechnicalValue(
                             stringResource(R.string.technical_download_content_type),
                             current.downloadContentType ?: stringResource(R.string.value_not_available),
                         )
-                        DetailValue(stringResource(R.string.technical_provider_sha256), current.providerDigestSha256 ?: stringResource(R.string.value_not_available), true)
-                        DetailValue(stringResource(R.string.technical_computed_sha256), current.computedRawSha256 ?: stringResource(R.string.value_not_available), true)
-                        DetailValue(stringResource(R.string.technical_signer), current.currentSignerSha256 ?: stringResource(R.string.value_unknown), true)
-                        current.incomparableReason?.let { DetailValue(stringResource(R.string.storage_reason), it) }
+                        TechnicalValue(stringResource(R.string.technical_provider_sha256), current.providerDigestSha256 ?: stringResource(R.string.value_not_available), true)
+                        TechnicalValue(stringResource(R.string.technical_computed_sha256), current.computedRawSha256 ?: stringResource(R.string.value_not_available), true)
+                        TechnicalValue(stringResource(R.string.technical_signer), current.currentSignerSha256 ?: stringResource(R.string.value_unknown), true)
+                        current.incomparableReason?.let { TechnicalValue(stringResource(R.string.storage_reason), it) }
                         current.downloadErrorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
             } }
-            item { ComparisonTechnicalContent(record, runnerJobs, buildEnvironmentManifests, buildManifestWarnings, sourceScanWarnings, sandboxWarnings) }
+            if (record.currentComparison != null) item {
+                TechnicalSection(stringResource(R.string.technical_verification_evidence)) {
+                    ComparisonTechnicalContent(record, runnerJobs, buildEnvironmentManifests, buildManifestWarnings, sourceScanWarnings, sandboxWarnings)
+                }
+            }
             item {
-                    DetailCard(stringResource(R.string.technical_history)) {
+                    TechnicalSection(stringResource(R.string.technical_history)) {
                         Text(
                             stringResource(R.string.technical_history_body),
                             style = MaterialTheme.typography.bodySmall,
@@ -144,15 +148,15 @@ internal fun AppTechnicalScreen(
                                     }?.state
                                 } ?: stringResource(R.string.value_unknown)
                                 HorizontalDivider()
-                                DetailValue(stringResource(R.string.technical_release), "${observation.snapshot.tagName} · ${observation.snapshot.publishedAt}")
-                                DetailValue(stringResource(R.string.technical_observation), observation.snapshot.observationSha256, monospace = true)
-                                DetailValue(stringResource(R.string.technical_last_observed), observation.snapshot.lastObservedAt)
-                                DetailValue(stringResource(R.string.technical_apk_availability), availabilityState)
+                                TechnicalValue(stringResource(R.string.technical_release), "${observation.snapshot.tagName} · ${observation.snapshot.publishedAt}")
+                                TechnicalValue(stringResource(R.string.technical_observation), observation.snapshot.observationSha256, monospace = true)
+                                TechnicalValue(stringResource(R.string.technical_last_observed), observation.snapshot.lastObservedAt)
+                                TechnicalValue(stringResource(R.string.technical_apk_availability), availabilityState)
                             }
                         record.comparisons.sortedByDescending { it.createdAt }.forEach { comparison ->
                             HorizontalDivider()
-                            DetailValue(stringResource(R.string.technical_comparison), "${comparison.createdAt} · ${comparison.status}")
-                            DetailValue(stringResource(R.string.technical_raw_outcomes), buildString {
+                            TechnicalValue(stringResource(R.string.technical_comparison), "${comparison.createdAt} · ${comparison.status}")
+                            TechnicalValue(stringResource(R.string.technical_raw_outcomes), buildString {
                                 append(comparison.outcome)
                                 if (comparison.protocolVersion >= 2) {
                                     append(" / ${comparison.repeatOfficialOutcome} / ${comparison.repeatabilityOutcome}")
@@ -161,7 +165,7 @@ internal fun AppTechnicalScreen(
                         }
                         record.releaseInstallAttempts.sortedByDescending { it.createdAt }.forEach { attempt ->
                             HorizontalDivider()
-                            DetailValue(stringResource(R.string.technical_install_attempt), "${attempt.createdAt} · ${attempt.status}")
+                            TechnicalValue(stringResource(R.string.technical_install_attempt), "${attempt.createdAt} · ${attempt.status}")
                         }
                     }
             }

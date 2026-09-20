@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 
 sealed interface ReproDroidRoute {
+    data object Groups : ReproDroidRoute
     data object Apps : ReproDroidRoute
     data object InactiveApps : ReproDroidRoute
     data object AddSource : ReproDroidRoute
@@ -18,12 +19,16 @@ sealed interface ReproDroidRoute {
     data object AboutSettings : ReproDroidRoute
     data object Settings : ReproDroidRoute
     data object DataManagement : ReproDroidRoute
+    data object DataCleanup : ReproDroidRoute
+    data object DataAudit : ReproDroidRoute
     data object DataStorage : ReproDroidRoute
     data object DataInactive : ReproDroidRoute
     data object RunnerSettings : ReproDroidRoute
+    data object DataRunnerStorage : ReproDroidRoute
     data object RunnerStorage : ReproDroidRoute
     data object Toolchains : ReproDroidRoute
     data object Jobs : ReproDroidRoute
+    data object NotificationSettings : ReproDroidRoute
     data object UpdateSettings : ReproDroidRoute
     data object Authentication : ReproDroidRoute
     data object LogExport : ReproDroidRoute
@@ -67,6 +72,7 @@ sealed interface ReproDroidRoute {
         }
 
     fun encode(): String = when (this) {
+        Groups -> "apps/groups"
         Apps -> "apps"
         InactiveApps -> "apps/inactive"
         AddSource -> "add/source"
@@ -79,12 +85,16 @@ sealed interface ReproDroidRoute {
         AboutSettings -> "settings/about"
         Settings -> "settings"
         DataManagement -> "settings/data"
+        DataCleanup -> "settings/data/cleanup"
+        DataAudit -> "settings/data/audit"
         DataStorage -> "settings/data/storage"
         DataInactive -> "settings/data/inactive"
         RunnerSettings -> "settings/runner"
+        DataRunnerStorage -> "settings/data/runner-storage"
         RunnerStorage -> "settings/runner/storage"
         Toolchains -> "settings/toolchains"
         Jobs -> "settings/jobs"
+        NotificationSettings -> "settings/notifications"
         UpdateSettings -> "settings/updates"
         Authentication -> "settings/authentication"
         LogExport -> "settings/log-export"
@@ -106,6 +116,7 @@ sealed interface ReproDroidRoute {
         fun parse(value: String?): ReproDroidRoute {
             val route = value?.trim()?.trim('/') ?: return Apps
             return when (route) {
+                "apps/groups" -> Groups
                 "apps" -> Apps
                 "apps/inactive" -> InactiveApps
                 "add/source" -> AddSource
@@ -118,12 +129,16 @@ sealed interface ReproDroidRoute {
                 "settings/about" -> AboutSettings
                 "settings" -> Settings
                 "settings/data" -> DataManagement
+                "settings/data/cleanup" -> DataCleanup
+                "settings/data/audit" -> DataAudit
                 "settings/data/storage" -> DataStorage
                 "settings/data/inactive" -> DataInactive
                 "settings/runner" -> RunnerSettings
+                "settings/data/runner-storage" -> DataRunnerStorage
                 "settings/runner/storage" -> RunnerStorage
                 "settings/toolchains" -> Toolchains
                 "settings/jobs" -> Jobs
+                "settings/notifications" -> NotificationSettings
                 "settings/updates" -> UpdateSettings
                 "settings/authentication" -> Authentication
                 "settings/log-export",
