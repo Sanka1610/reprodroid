@@ -21,11 +21,11 @@ MainActivity
 |---|---|
 | `ui/app` | production host and uninstall／notification／document activity-result coordination |
 | `ui/navigation` | route parse／encode, back destinations, missing-record policy, notification route |
-| `ui/apps` | registered-app list, search／filter, groups, tracking history |
+| `ui/apps` | registered-app list, toolbar search, group management and display preference, tracking history |
 | `ui/add` | repository URL, bounded analysis, options, confirmation |
 | `ui/appdetail` | overview, acquisition, verification, installation content, source edit, app settings and read-only technical evidence |
 | `ui/comparison` | raw comparison evidence |
-| `ui/settings` | category navigation and separate appearance, updates, acquisition, provider, data and about screens |
+| `ui/settings` | category navigation and separate appearance, update checks, notifications, acquisition, provider, data and about screens |
 | `ui/runner` | Runner connection／authentication, confirmations, Runner storage, toolchains |
 | `ui/jobs` | Runner Job creation, RCE confirmation, scan review, artifact actions |
 | `ui/shared` | reusable components, technical rows, labels, and formatters |
@@ -40,6 +40,7 @@ The registered-app list is the root. Its FAB opens registration; the toolbar ope
 
 ```text
 Registered apps
+  +-- Manage groups: grouped or flat list, creation, renaming and ordering
   +-- Add: URL -> app review and registration -> app information
   +-- App information
   |     +-- APK acquisition and installation
@@ -48,11 +49,12 @@ Registered apps
   |     +-- Technical evidence and history
   +-- Settings
         +-- Appearance and hints
-        +-- Update checks, notifications and permissions
+        +-- Update checks
+        +-- Notifications and permissions
         +-- Acquisition defaults and installer
         +-- Provider credentials
         +-- Verification environment / Runner
-        +-- Data management and exports
+        +-- Data and storage: usage, cleanup, inactive apps, history export and diagnostic logs
         +-- About and licenses
 ```
 
@@ -65,16 +67,18 @@ Registration options and analysis details expand within the review page. Legacy 
 | Route family | Destination and fallback |
 |---|---|
 | `apps` | registered apps root |
+| `apps/groups` | independent group management; Back returns to Apps |
 | `apps/inactive` | tracking history; Back returns to Settings |
 | `add/source` -> `add/analysis` | two-step registration; legacy `/options` and `/confirm` open the same review content; missing preview offers return to source |
 | `settings` | category list |
 | `settings/appearance`, `settings/acquisition`, `settings/providers`, `settings/about` | category detail screens |
-| `settings/data`, `settings/data/storage`, `settings/data/inactive` | data management hierarchy |
+| `settings/data`, `settings/data/storage`, `settings/data/cleanup`, `settings/data/audit`, `settings/data/inactive`, `settings/data/runner-storage` | data management hierarchy |
 | `settings/runner`, `settings/runner/storage`, `settings/toolchains`, `settings/jobs` | Runner hierarchy |
 | `settings/authentication` | Runner authentication; Back returns to Runner settings |
 | `settings/log-export` | Log export; Back returns to Data management |
 | `settings/licenses`, `settings/third-party-notices` | License screens; Back returns to About |
-| `settings/updates` | update schedule, notifications and permissions |
+| `settings/updates` | update schedule and release scope |
+| `settings/notifications` | release notifications and OS permissions |
 | `settings/backup` | old compatibility alias parsed as `settings/log-export` |
 | `apps/{registeredAppId}/information` | app overview; missing or non-canonical identity fails closed to Apps |
 | `apps/{registeredAppId}/registration-complete` | compatibility input, redirected to app information |
@@ -143,3 +147,13 @@ system-wide componentとtrust boundaryは[Architecture overview](overview.md)、
 Feature delegates now live in separate files. `ManagedAppsDelegates` constructs them with one shared `AppActionDelegate` and event store; the split does not create independent competing app-ID gates. The common ViewModel facade and some host-level subscriptions remain. Gradle modules, Room25 schema and Runner APIs are unchanged.
 
 `AppActionPolicy` derives the primary action from candidate preparation, inspected version relation and active comparison state. Uninspected candidates lead to acquisition; verification remains reachable for same-version APKs. Metadata refresh no longer downloads a previously selected APK. Selection and explicit acquisition retain the existing download identity checks.
+
+## Compact UI revision (2026-09-20)
+
+The list search replaces the toolbar title and does not expose group controls. Display mode is a presentation-only Boolean in the private `app_list_display` preferences (`grouped`, default `true`); existing Room records and group membership are not migrated. Group management has its own route.
+
+App information uses short label/value rows and trailing action buttons. A tracking installation action calls the existing installation coordinator only when the selected bytes are present, the version is installable, installer permission is available and no risk acknowledgement is outstanding. Signed local builds additionally require the matching comparison artifact. Other cases open acquisition or candidate preparation. The repository revalidates current state at execution. Opening technical details or refreshing release metadata does not initiate acquisition.
+
+Data usage, cleanup selection and audit export are separate screens. Changing export scope clears the prior preview. Cleanup execution requires a selection and an explicit confirmation, then the existing manager revalidates protections, identity and expiration. Runner storage has a data-management route as well as its Runner-settings route so Back returns to the correct parent.
+
+The outer Scaffold consumes its applied insets before child app bars; app-bar content height is 56 dp. Information dialogs hold supplementary explanations. Technical sections reveal long evidence values on demand and retain copy actions without truncating identifiers.
