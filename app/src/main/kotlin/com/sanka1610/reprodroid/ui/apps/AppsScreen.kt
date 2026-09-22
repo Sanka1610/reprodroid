@@ -1,6 +1,8 @@
 package com.sanka1610.reprodroid.ui.apps
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +22,9 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -42,6 +47,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -57,61 +64,62 @@ import com.sanka1610.reprodroid.ui.shared.*
 import java.time.Instant
 import kotlin.math.abs
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun UiRAppsScreen(
     apps: List<RegisteredAppRecord>,
     groups: List<AppGroupEntity>,
     query: String,
     grouped: Boolean,
+    selectedIds: Set<String> = emptySet(),
+    refreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
+    onToggleSelection: (String) -> Unit = {},
     onSelect: (String) -> Unit,
     onAdd: () -> Unit,
     onManageGroups: () -> Unit,
 ) {
-    val filtered = remember(apps, query) {
-        apps.filter { record ->
-            record.app.resolvedDisplayName.contains(query, ignoreCase = true) ||
-                record.app.canonicalRepositoryUrl.contains(query, ignoreCase = true) ||
-                record.latestRelease?.selectedAsset?.packageName?.contains(query, ignoreCase = true) == true
-        }
-    }
-    Column(Modifier.fillMaxSize()) {
-        if (filtered.isEmpty()) {
-            Box(Modifier.weight(1f)) {
-                EmptyState(
-                    title = stringResource(if (apps.isEmpty()) R.string.apps_empty_title else R.string.apps_search_empty_title),
-                    body = stringResource(if (apps.isEmpty()) R.string.apps_empty_body else R.string.apps_search_empty_body),
-                    actionLabel = if (apps.isEmpty()) stringResource(R.string.action_add_app) else null,
-                    onAction = onAdd,
-                )
-            }
-            TextButton(onClick = onManageGroups, modifier = Modifier.padding(bottom = 72.dp)) {
-                Text(stringResource(R.string.action_manage_groups))
-            }
-        } else {
-            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                if (!grouped || groups.isEmpty()) {
-                    items(filtered, key = { it.app.registeredAppId }) { record ->
-                        AppListRow(record, onSelect)
-                        HorizontalDivider()
-                    }
-                } else {
-                    val sections = groups.map { it.groupId to it.displayName } + (null to null)
-                    sections.forEach { (id, name) ->
-                        val records = filtered.filter { it.app.groupId == id || (id == null && groups.none { group -> group.groupId == it.app.groupId }) }
-                        if (records.isNotEmpty()) {
-                            item(key = "header:$id") {
-                                Text(name ?: stringResource(R.string.group_ungrouped), Modifier.padding(top = 16.dp, bottom = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                            }
-                            items(records, key = { it.app.registeredAppId }) { record ->
-                                AppListRow(record, onSelect)
-                                HorizontalDivider()
+    val filtered = remember(apps, query) { filterApps(apps, query) }
+    PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            if (filtered.isEmpty()) {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                    item { EmptyState(
+                        title = stringResource(if (apps.isEmpty()) R.string.apps_empty_title else R.string.apps_search_empty_title),
+                        body = stringResource(if (apps.isEmpty()) R.string.apps_empty_body else R.string.apps_search_empty_body),
+                        actionLabel = if (apps.isEmpty()) stringResource(R.string.action_add_app) else null,
+                        onAction = onAdd,
+                    ) }
+                }
+                TextButton(onClick = onManageGroups, modifier = Modifier.padding(bottom = 72.dp)) {
+                    Text(stringResource(R.string.action_manage_groups))
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                    if (!grouped || groups.isEmpty()) {
+                        items(filtered, key = { it.app.registeredAppId }) { record ->
+                            AppListRow(record, record.app.registeredAppId in selectedIds, selectedIds.isNotEmpty(), onSelect, onToggleSelection)
+                            HorizontalDivider()
+                        }
+                    } else {
+                        val sections = groups.map { it.groupId to it.displayName } + (null to null)
+                        sections.forEach { (id, name) ->
+                            val records = filtered.filter { it.app.groupId == id || (id == null && groups.none { group -> group.groupId == it.app.groupId }) }
+                            if (records.isNotEmpty()) {
+                                item(key = "header:$id") {
+                                    Text(name ?: stringResource(R.string.group_ungrouped), Modifier.padding(top = 16.dp, bottom = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                                items(records, key = { it.app.registeredAppId }) { record ->
+                                    AppListRow(record, record.app.registeredAppId in selectedIds, selectedIds.isNotEmpty(), onSelect, onToggleSelection)
+                                    HorizontalDivider()
+                                }
                             }
                         }
                     }
-                }
-                item(key = "manage-groups") {
-                    SettingsLink(stringResource(R.string.action_manage_groups), onManageGroups)
-                    Spacer(Modifier.height(80.dp))
+                    item(key = "manage-groups") {
+                        SettingsLink(stringResource(R.string.action_manage_groups), onManageGroups)
+                        Spacer(Modifier.height(if (selectedIds.isEmpty()) 80.dp else 144.dp))
+                    }
                 }
             }
         }
@@ -189,15 +197,25 @@ internal fun GroupManagementScreen(
 }
 
 @Composable
-private fun AppListRow(record: RegisteredAppRecord, onSelect: (String) -> Unit) {
+private fun AppListRow(
+    record: RegisteredAppRecord, selected: Boolean, selectionMode: Boolean,
+    onSelect: (String) -> Unit, onToggleSelection: (String) -> Unit,
+) {
     val latest = record.latestRelease
     val asset = latest?.selectedAsset
-    val author = record.app.authorDisplayOverride?.takeIf(String::isNotBlank)
-        ?: repositoryOwner(record.app.canonicalRepositoryUrl)
+    val author = record.displayAuthor()
     val relativeTime = relativeTime(asset?.updateEvaluatedAt ?: record.app.lastReleaseCheckedAt ?: latest?.snapshot?.lastObservedAt)
     val update = updateLabel(asset?.updateStatus)
     Row(
-        Modifier.fillMaxWidth().clickable { onSelect(record.app.registeredAppId) }.heightIn(min = 76.dp).padding(vertical = 10.dp),
+        Modifier.fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
+            .semantics { this.selected = selected }
+            .combinedClickable(
+                role = if (selectionMode) Role.Checkbox else Role.Button,
+                onLongClickLabel = stringResource(R.string.apps_select),
+                onLongClick = { if (!selected) onToggleSelection(record.app.registeredAppId) },
+                onClick = { if (selectionMode) onToggleSelection(record.app.registeredAppId) else onSelect(record.app.registeredAppId) },
+            ).heightIn(min = 76.dp).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ManagedAppIcon(record, 44.dp)
@@ -227,7 +245,8 @@ private fun AppListRow(record: RegisteredAppRecord, onSelect: (String) -> Unit) 
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (selectionMode) Checkbox(checked = selected, onCheckedChange = null)
+        else Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -313,4 +332,10 @@ private fun ReorderableGroupRow(
             }
         }
     }
+}
+
+internal fun filterApps(apps: List<RegisteredAppRecord>, query: String): List<RegisteredAppRecord> = apps.filter { record ->
+    record.app.resolvedDisplayName.contains(query, ignoreCase = true) ||
+        record.app.canonicalRepositoryUrl.contains(query, ignoreCase = true) ||
+        record.latestRelease?.selectedAsset?.packageName?.contains(query, ignoreCase = true) == true
 }

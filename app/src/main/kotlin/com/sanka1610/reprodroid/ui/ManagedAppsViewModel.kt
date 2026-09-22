@@ -96,6 +96,9 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     )
 
     fun clearSavedAssetSelection(registeredAppId: String) = delegates.apps.clearSavedAssetSelection(registeredAppId)
+    fun assignAppsToGroup(expectedUpdates: Map<String, String>, groupId: String?, onSuccess: () -> Unit) =
+        delegates.apps.assignAppsToGroup(expectedUpdates, groupId, onSuccess)
+
     fun createGroup(displayName: String) = delegates.apps.createGroup(displayName)
     fun renameGroup(groupId: String, displayName: String) = delegates.apps.renameGroup(groupId, displayName)
     fun reorderGroups(orderedGroupIds: List<String>) = delegates.apps.reorderGroups(orderedGroupIds)
@@ -143,6 +146,8 @@ class ManagedAppsViewModel(application: Application) : AndroidViewModel(applicat
     fun saveProviderToken(provider: ProviderId, token: String) = delegates.providerAuth.save(provider, token)
     fun deleteProviderToken(provider: ProviderId) = delegates.providerAuth.delete(provider)
     fun updateReleaseCheckOverride(override: AppReleaseCheckOverrideEntity) = delegates.release.updateOverride(override)
+    fun checkAllReleaseMetadataNow(appIds: List<String>) = delegates.release.checkAll(appIds)
+
     fun checkReleaseMetadataNow(registeredAppId: String) = delegates.release.checkNow(registeredAppId)
     fun markReleaseCandidateSeen(candidateId: String) = delegates.release.markCandidateSeen(candidateId)
     fun openReleaseCandidate(registeredAppId: String, candidateId: String, originRoute: String) =

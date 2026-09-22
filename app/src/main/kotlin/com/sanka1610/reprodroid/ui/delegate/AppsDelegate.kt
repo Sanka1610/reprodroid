@@ -5,6 +5,7 @@ import com.sanka1610.reprodroid.data.local.*
 import com.sanka1610.reprodroid.ui.state.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -17,6 +18,7 @@ internal class AppsDelegate(
     private val events: ManagedUiEventStore,
 ) {
     private val repository = application.managedAppRepository
+    private val groupBusy = MutableStateFlow(false)
     private val releaseRepository = application.releaseCheckRepository
     private val coreState = combine(
         repository.observeApps(),
@@ -27,8 +29,8 @@ internal class AppsDelegate(
     ) { active, inactive, loaded, groups, settings ->
         AppsUiState(active, inactive, loaded, groups, settings)
     }
-    val state = combine(coreState, actions.activeIds, events.observe(ManagedUiOwner.APPS)) { base, activeIds, event ->
-        base.copy(activeAppIds = activeIds, message = event.message, results = event.results)
+    val state = combine(coreState, actions.activeIds, events.observe(ManagedUiOwner.APPS), groupBusy) { base, activeIds, event, busy ->
+        base.copy(activeAppIds = activeIds, message = event.message, results = event.results, groupBusy = busy)
     }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), AppsUiState())
 
     suspend fun initialize() {
@@ -67,6 +69,11 @@ internal class AppsDelegate(
     fun reorderGroups(orderedGroupIds: List<String>) = runGroupAction { repository.reorderGroups(orderedGroupIds) }
     fun deleteGroup(groupId: String) = runGroupAction { repository.deleteGroup(groupId) }
 
+    fun assignAppsToGroup(expectedUpdates: Map<String, String>, groupId: String?, onSuccess: () -> Unit) = runGroupAction {
+        repository.assignAppsToGroup(expectedUpdates, groupId)
+        onSuccess()
+    }
+
     fun updateGlobalSettings(settings: GlobalSettingsEntity, onSuccess: suspend () -> Unit) {
         scope.launch {
             try {
@@ -81,6 +88,8 @@ internal class AppsDelegate(
     }
 
     private fun runGroupAction(action: suspend () -> Unit) {
+        if (groupBusy.value) return
+        groupBusy.value = true
         scope.launch {
             try {
                 action()
@@ -89,6 +98,8 @@ internal class AppsDelegate(
             } catch (failure: Throwable) {
                 application.appLogStore.error("GROUP_ACTION_FAILED", failure::class.simpleName.orEmpty())
                 events.publishMessage(ManagedUiOwner.APPS, failure.userMessage())
+            } finally {
+                groupBusy.value = false
             }
         }
     }

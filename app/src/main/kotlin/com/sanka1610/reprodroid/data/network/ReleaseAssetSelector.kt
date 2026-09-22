@@ -131,6 +131,41 @@ object ReleaseAssetSelector {
         )
     }
 
+    /** Suggests a filename candidate only; downloading still requires the user's action. */
+    fun suggestForDevice(
+        assets: List<Pair<String, String>>,
+        supportedAbis: List<String>,
+        variant: ReleaseVariantPreference,
+    ): String? {
+        val matchingVariant = assets.filter { variant.matchesFilename(it.second) }
+        if (matchingVariant.isEmpty()) return null
+        val knownAbis = supportedAbis.map(String::lowercase).filter { it in DEVICE_ABI_TOKENS }.distinct()
+        if (knownAbis.isEmpty()) {
+            return assets.singleOrNull()?.takeIf { candidate ->
+                candidate in matchingVariant && deviceAbis(candidate.second).isEmpty()
+            }?.first
+        }
+        for (abi in knownAbis) {
+            val compatible = matchingVariant.filter { abi in deviceAbis(it.second) }
+            if (compatible.isNotEmpty()) return compatible.singleOrNull()?.first
+        }
+        val universal = matchingVariant.filter { token("universal").containsMatchIn(it.second) }
+        if (universal.isNotEmpty()) return universal.singleOrNull()?.first
+        return matchingVariant.filter { deviceAbis(it.second).isEmpty() }.singleOrNull()?.first
+    }
+
+    private fun deviceAbis(filename: String): Set<String> = DEVICE_ABI_TOKENS
+        .filterValues { it.containsMatchIn(filename) }.keys
+
+    private val DEVICE_ABI_TOKENS = mapOf(
+        "arm64-v8a" to token("arm64(?:[-_]v8a)?|aarch64"),
+        "armeabi-v7a" to token("(?:armeabi|arm)[-_]v7a|armv7a?"),
+        "armeabi" to token("armeabi(?![-_]v7a)"),
+        "x86_64" to token("x86[-_]64|amd64"),
+        "x86" to token("x86(?![-_]64)|i686"),
+        "riscv64" to token("riscv64"),
+    )
+
     private fun isApkCandidate(asset: GitHubReleaseAsset): Boolean =
         asset.state == "uploaded" &&
             asset.name.lowercase().endsWith(".apk") &&
@@ -198,7 +233,7 @@ object ReleaseAssetSelector {
         ReleaseVariantPreference.DEBUG -> DEBUG_TOKEN.containsMatchIn(filename)
     }
 
-    private fun token(value: String) = Regex("(^|[^a-z0-9])$value([^a-z0-9]|$)", RegexOption.IGNORE_CASE)
+    private fun token(value: String) = Regex("(^|[^a-z0-9])(?:$value)([^a-z0-9]|$)", RegexOption.IGNORE_CASE)
 
     private val PREVIEW_TOKEN = token("preview")
     private val DEBUG_TOKEN = token("debug")

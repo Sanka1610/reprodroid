@@ -830,4 +830,13 @@
     <string name="storage_label_missing">Not stored</string>
     <string name="storage_label_corrupt">File is damaged</string>
     <string name="settings_permission_not_allowed">Not allowed</string>
+    <string name="apps_selection_count">%1$d selected</string>
+    <string name="apps_selection_actions_title">Actions for %1$d apps</string>
+    <string name="apps_selection_actions">App activities</string>
+    <string name="apps_select">Select app</string>
+    <string name="apps_select_all">Select all</string>
+    <string name="apps_clear_selection">Clear selection</string>
+    <string name="apps_change_group">Change group</string>
+    <string name="action_apply">Apply</string>
+    <string name="technical_auto_apk_body">A matching APK is selected for this device. You can change the selection before downloading.</string>
 </resources>

@@ -8,6 +8,7 @@ import com.sanka1610.reprodroid.ui.state.*
 import com.sanka1610.reprodroid.work.ReleaseCheckScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -20,14 +21,16 @@ internal class ReleaseDelegate(
     private val events: ManagedUiEventStore,
 ) {
     private val repository = application.releaseCheckRepository
+    private val checkingIds = MutableStateFlow<Set<String>>(emptySet())
+    private val checkingAll = MutableStateFlow(false)
     private val stateCore = combine(
         repository.observeSettings(),
         repository.observeOverrides(),
         repository.observeScheduleStates(),
         repository.observeCandidates(),
     ) { settings, overrides, schedules, candidates -> ReleaseUiState(settings, overrides, schedules, candidates) }
-    val state = combine(stateCore, events.observe(ManagedUiOwner.RELEASE)) { base, event ->
-        base.copy(message = event.message, results = event.results)
+    val state = combine(stateCore, events.observe(ManagedUiOwner.RELEASE), checkingIds, checkingAll) { base, event, ids, all ->
+        base.copy(message = event.message, results = event.results, checkingAppIds = ids, checkingAll = all)
     }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), ReleaseUiState())
 
     fun updateSettings(settings: ReleaseCheckSettingsEntity) {
@@ -50,10 +53,27 @@ internal class ReleaseDelegate(
         })
 
     fun checkNow(registeredAppId: String) = actions.run(ManagedUiOwner.RELEASE, registeredAppId, {
-        repository.checkNow(registeredAppId)
-        ReleaseCheckScheduler.enqueueDelivery(application)
-        ReleaseCheckScheduler.scheduleNext(application, repository, ExistingWorkPolicy.REPLACE)
+        checkingIds.value += registeredAppId
+        try {
+            repository.checkNow(registeredAppId)
+            ReleaseCheckScheduler.enqueueDelivery(application)
+            ReleaseCheckScheduler.scheduleNext(application, repository, ExistingWorkPolicy.REPLACE)
+        } finally {
+            checkingIds.value -= registeredAppId
+        }
     })
+
+    fun checkAll(registeredAppIds: List<String>) {
+        if (checkingAll.value) return
+        checkingAll.value = true
+        scope.launch {
+            try {
+                registeredAppIds.distinct().forEach { checkNow(it)?.join() }
+            } finally {
+                checkingAll.value = false
+            }
+        }
+    }
 
     fun markCandidateSeen(candidateId: String) {
         scope.launch {

@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +24,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,6 +52,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -70,6 +75,8 @@ import com.sanka1610.reprodroid.ui.appdetail.AppEditScreen
 import com.sanka1610.reprodroid.ui.appdetail.AppInformationScreen
 import com.sanka1610.reprodroid.ui.appdetail.AppPreferencesScreen
 import com.sanka1610.reprodroid.ui.appdetail.RemoveTrackingDialog
+import com.sanka1610.reprodroid.ui.apps.AppSelectionSheet
+import com.sanka1610.reprodroid.ui.apps.filterApps
 import com.sanka1610.reprodroid.ui.apps.GroupManagementScreen
 import com.sanka1610.reprodroid.ui.apps.InactiveAppsScreen
 import com.sanka1610.reprodroid.ui.apps.UiRAppsScreen
@@ -196,6 +203,14 @@ fun ReproDroidApp(
     val displayPreferences = remember(context) { context.getSharedPreferences("app_list_display", Context.MODE_PRIVATE) }
     var appsGrouped by remember { mutableStateOf(displayPreferences.getBoolean("grouped", true)) }
     var appsQuery by rememberSaveable { mutableStateOf("") }
+    var selectedAppIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var selectionSheetOpen by rememberSaveable { mutableStateOf(false) }
+    val selectedApps = apps.filter { it.app.registeredAppId in selectedAppIds }
+    fun clearSelection() { selectedAppIds = emptyList(); selectionSheetOpen = false }
+    LaunchedEffect(apps, appCatalogLoaded) {
+        if (appCatalogLoaded) selectedAppIds = selectedAppIds.filter { id -> apps.any { it.app.registeredAppId == id } }
+        if (selectedAppIds.isEmpty()) selectionSheetOpen = false
+    }
     var appsSearchExpanded by rememberSaveable { mutableStateOf(false) }
     fun navigate(destination: ReproDroidRoute) {
         if (destination is ReproDroidRoute.AppVerification) verificationReturnAppId = null
@@ -209,7 +224,7 @@ fun ReproDroidApp(
     }
 
     LaunchedEffect(route) {
-        if (route != ReproDroidRoute.Apps) { appsSearchExpanded = false; appsQuery = "" }
+        if (route != ReproDroidRoute.Apps) { appsSearchExpanded = false; appsQuery = ""; clearSelection() }
         if (route is ReproDroidRoute.AppRegistrationComplete) {
             navigate(ReproDroidRoute.AppInformation(route.registeredAppId))
         }
@@ -284,8 +299,9 @@ fun ReproDroidApp(
         verificationOwnerAppId = verificationReturnAppId,
     )
 
-    BackHandler(enabled = route != ReproDroidRoute.Apps || appsSearchExpanded) {
-        if (route == ReproDroidRoute.Apps) { appsSearchExpanded = false; appsQuery = "" }
+    BackHandler(enabled = route != ReproDroidRoute.Apps || appsSearchExpanded || selectedAppIds.isNotEmpty()) {
+        if (route == ReproDroidRoute.Apps && selectedAppIds.isNotEmpty()) clearSelection()
+        else if (route == ReproDroidRoute.Apps) { appsSearchExpanded = false; appsQuery = "" }
         else navigate(backDestination(route, backContext))
     }
 
@@ -330,6 +346,18 @@ fun ReproDroidApp(
         managedViewModel.acknowledgeMessage(currentMessage.id)
     }
     ReproDroidTheme(globalSettings) {
+        if (route == ReproDroidRoute.Apps && selectionSheetOpen && selectedApps.isNotEmpty()) {
+            AppSelectionSheet(
+                selectedApps, groups, appsState.groupBusy,
+                onDismiss = { selectionSheetOpen = false },
+                onClear = ::clearSelection,
+                onApply = { expectedUpdates, groupId ->
+                    managedViewModel.assignAppsToGroup(expectedUpdates, groupId) {
+                        if (selectedAppIds.toSet() == expectedUpdates.keys) clearSelection()
+                    }
+                },
+            )
+        }
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
@@ -337,7 +365,8 @@ fun ReproDroidApp(
                     TopAppBar(
             expandedHeight = 56.dp,
                         title = {
-                            if (appsSearchExpanded) {
+                            if (selectedAppIds.isNotEmpty()) Text(stringResource(R.string.apps_selection_count, selectedAppIds.size))
+                            else if (appsSearchExpanded) {
                                 val requester = remember { FocusRequester() }
                                 val searchHint = stringResource(R.string.apps_search_hint)
                                 LaunchedEffect(Unit) { requester.requestFocus() }
@@ -355,12 +384,23 @@ fun ReproDroidApp(
                                 )
                             } else Text(stringResource(R.string.apps_title))
                         },
-                        actions = {
-                            IconButton(onClick = { appsSearchExpanded = !appsSearchExpanded; if (!appsSearchExpanded) appsQuery = "" }) {
-                                Icon(if (appsSearchExpanded) Icons.Default.Close else Icons.Default.Search, contentDescription = stringResource(if (appsSearchExpanded) R.string.apps_close_search else R.string.apps_open_search))
+                        navigationIcon = {
+                            if (selectedAppIds.isNotEmpty()) IconButton(onClick = ::clearSelection) {
+                                Icon(Icons.Default.Close, stringResource(R.string.apps_clear_selection))
                             }
-                            IconButton(onClick = { navigate(ReproDroidRoute.Settings) }) {
-                                Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.root_open_settings))
+                        },
+                        actions = {
+                            if (selectedAppIds.isNotEmpty()) {
+                                TextButton(onClick = { selectedAppIds = (selectedAppIds + filterApps(apps, appsQuery).map { it.app.registeredAppId }).distinct() }) {
+                                    Text(stringResource(R.string.apps_select_all))
+                                }
+                            } else {
+                                IconButton(onClick = { appsSearchExpanded = !appsSearchExpanded; if (!appsSearchExpanded) appsQuery = "" }) {
+                                    Icon(if (appsSearchExpanded) Icons.Default.Close else Icons.Default.Search, contentDescription = stringResource(if (appsSearchExpanded) R.string.apps_close_search else R.string.apps_open_search))
+                                }
+                                IconButton(onClick = { navigate(ReproDroidRoute.Settings) }) {
+                                    Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.root_open_settings))
+                                }
                             }
                         },
                     )
@@ -368,8 +408,13 @@ fun ReproDroidApp(
             },
             floatingActionButton = {
                 if (route == ReproDroidRoute.Apps) {
-                    FloatingActionButton(onClick = { navigate(ReproDroidRoute.AddSource) }) {
-                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.action_add_app))
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (selectedAppIds.isNotEmpty()) SmallFloatingActionButton(onClick = { selectionSheetOpen = true }) {
+                            Icon(painterResource(R.drawable.ic_activities), stringResource(R.string.apps_selection_actions))
+                        }
+                        FloatingActionButton(onClick = { navigate(ReproDroidRoute.AddSource) }) {
+                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.action_add_app))
+                        }
                     }
                 }
             },
@@ -386,6 +431,10 @@ fun ReproDroidApp(
                     groups = groups,
                     query = appsQuery,
                     grouped = appsGrouped,
+                    selectedIds = selectedAppIds.toSet(),
+                    refreshing = releaseState.checkingAll || releaseState.checkingAppIds.isNotEmpty(),
+                    onRefresh = { managedViewModel.checkAllReleaseMetadataNow(apps.map { it.app.registeredAppId }) },
+                    onToggleSelection = { id -> selectedAppIds = if (id in selectedAppIds) selectedAppIds - id else selectedAppIds + id },
                     onSelect = { navigate(ReproDroidRoute.AppInformation(it)) },
                     onAdd = { navigate(ReproDroidRoute.AddSource) },
                     onManageGroups = { navigate(ReproDroidRoute.Groups) },
@@ -633,6 +682,7 @@ fun ReproDroidApp(
                     AppInformationScreen(
                         record = record,
                         active = record.app.registeredAppId in activeAppIds,
+                        refreshing = record.app.registeredAppId in releaseState.checkingAppIds,
                         runnerJobs = runnerJobs.associateBy { it.job.jobId },
                         candidates = appCandidates,
                         schedule = releaseScheduleStates.firstOrNull {

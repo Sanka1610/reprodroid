@@ -4,6 +4,7 @@ import com.sanka1610.reprodroid.data.local.*
 import com.sanka1610.reprodroid.data.log.AppLogStore
 import com.sanka1610.reprodroid.ui.state.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,9 +72,9 @@ internal class AppActionDelegate(
         registeredAppId: String,
         action: suspend () -> Unit,
         onSuccess: suspend () -> Unit = {},
-    ) {
-        if (!gate.tryAcquire(registeredAppId)) return
-        scope.launch {
+    ): Job? {
+        if (!gate.tryAcquire(registeredAppId)) return null
+        return scope.launch {
             try {
                 action()
                 onSuccess()

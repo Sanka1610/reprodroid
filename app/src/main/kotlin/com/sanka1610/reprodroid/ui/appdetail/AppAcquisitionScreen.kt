@@ -1,5 +1,6 @@
 package com.sanka1610.reprodroid.ui.appdetail
 
+import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.sanka1610.reprodroid.R
+import com.sanka1610.reprodroid.data.provider.ReleaseAssetSelector
+import com.sanka1610.reprodroid.data.local.PreferredAbi
+import com.sanka1610.reprodroid.data.local.ReleaseVariantPreference
 import com.sanka1610.reprodroid.data.local.GlobalSettingsEntity
 import com.sanka1610.reprodroid.data.local.ManagementMode
 import com.sanka1610.reprodroid.data.local.ReferenceDownloadStatus
@@ -55,8 +59,27 @@ internal fun AppAcquisitionScreen(
     val asset = latest?.selectedAsset
     val referenceAvailable = referenceApkAvailable(asset, availability)
     var selectedReleaseAssetId by rememberSaveable(record.app.registeredAppId, latest?.snapshot?.releaseSnapshotId, latest?.snapshot?.observationSha256) { mutableStateOf<String?>(null) }
+    val variant = runCatching { ReleaseVariantPreference.valueOf(
+        if (record.app.useGlobalReleaseVariant) globalSettings.defaultReleaseVariantPreference else record.app.releaseVariantPreference,
+    ) }.getOrDefault(ReleaseVariantPreference.RELEASE)
+    val deviceAbis = Build.SUPPORTED_ABIS.toList()
+    val abiPreference = if (record.app.useGlobalPreferredAbi) globalSettings.defaultPreferredAbi else record.app.preferredAbi
+    val preferredDeviceAbi = when (abiPreference) {
+        PreferredAbi.ARM64_V8A.name -> "arm64-v8a"
+        PreferredAbi.ARMEABI_V7A.name -> "armeabi-v7a"
+        PreferredAbi.X86_64.name -> "x86_64"
+        else -> null
+    }
+    val selectionAbis = if (record.app.useGlobalPreferredAbi) {
+        deviceAbis.sortedBy { it != preferredDeviceAbi }
+    } else deviceAbis.filter { it == preferredDeviceAbi }
+    val suggestedAssetId = ReleaseAssetSelector.suggestForDevice(
+        latest?.assets.orEmpty()
+            .filter { abiPreference != PreferredAbi.UNIVERSAL.name || UNIVERSAL_APK_TOKEN.containsMatchIn(it.assetName) }
+            .map { it.providerAssetId to it.assetName }, selectionAbis, variant,
+    )
     val effectiveSelectedAssetId = selectedReleaseAssetId?.takeIf { id -> latest?.assets?.any { it.providerAssetId == id } == true }
-        ?: latest?.assets?.singleOrNull()?.providerAssetId
+        ?: suggestedAssetId
     BackScaffoldTitle(stringResource(R.string.app_acquisition_open), onBack) {
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { Text(record.app.resolvedDisplayName, style = MaterialTheme.typography.titleLarge) }
@@ -71,7 +94,7 @@ internal fun AppAcquisitionScreen(
                     DetailCard(stringResource(R.string.technical_select_apk)) {
                         Text(
                             stringResource(
-                                if (latest.assets.size == 1) R.string.technical_single_apk_body
+                                if (suggestedAssetId != null) R.string.technical_auto_apk_body
                                 else R.string.technical_select_apk_body,
                             ),
                             style = MaterialTheme.typography.bodySmall,
@@ -82,13 +105,13 @@ internal fun AppAcquisitionScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable(enabled = !active && latest.assets.size > 1) {
+                                        .clickable(enabled = !active) {
                                             selectedReleaseAssetId = candidate.providerAssetId
                                         }
                                         .padding(vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    if (latest.assets.size > 1) RadioButton(
+                                    if (latest.assets.size > 1 || suggestedAssetId == null) RadioButton(
                                         selected = effectiveSelectedAssetId == candidate.providerAssetId,
                                         onClick = {
                                             selectedReleaseAssetId = candidate.providerAssetId
@@ -116,7 +139,7 @@ internal fun AppAcquisitionScreen(
                         ) {
                             Text(
                                 stringResource(
-                                    if (latest.assets.size == 1) R.string.technical_download_apk
+                                    if (effectiveSelectedAssetId != null) R.string.technical_download_apk
                                     else R.string.technical_select_download,
                                 ),
                             )
@@ -152,3 +175,5 @@ internal fun AppAcquisitionScreen(
         }
     }
 }
+
+private val UNIVERSAL_APK_TOKEN = Regex("(^|[^a-z0-9])universal([^a-z0-9]|$)", RegexOption.IGNORE_CASE)

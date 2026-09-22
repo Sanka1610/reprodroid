@@ -17,6 +17,9 @@ interface ProviderRepositoryLocator {
     val host: String
 }
 
+val ProviderRepositoryLocator.displayUrl: String
+    get() = "https://$host/$owner/$name"
+
 interface ProviderRepositoryIdentity {
     val repository: ProviderRepositoryLocator
     val provider: String

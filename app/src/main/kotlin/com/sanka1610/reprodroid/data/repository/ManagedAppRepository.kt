@@ -63,6 +63,7 @@ import com.sanka1610.reprodroid.data.provider.RepositoryRegistrationPreview
 import com.sanka1610.reprodroid.data.provider.ResolvedGitHubRelease
 import com.sanka1610.reprodroid.data.provider.ResolvedProviderRelease
 import com.sanka1610.reprodroid.data.provider.SavedAssetSelection
+import com.sanka1610.reprodroid.data.provider.displayUrl
 import com.sanka1610.reprodroid.data.provider.SavedAssetSelectionCondition
 import com.sanka1610.reprodroid.data.storage.AndroidCleanupManager
 import com.sanka1610.reprodroid.data.storage.AndroidStorageManager
@@ -359,6 +360,25 @@ class ManagedAppRepository(
         }
     }
 
+    suspend fun assignAppsToGroup(expectedUpdates: Map<String, String>, groupId: String?) {
+        require(expectedUpdates.isNotEmpty()) { "Select at least one app." }
+        val normalizedGroupId = groupId?.let { canonicalUuid(it, "App group ID") }
+        database.withTransaction {
+            if (normalizedGroupId != null) check(dao.getAppGroup(normalizedGroupId) != null) {
+                "The selected app group no longer exists."
+            }
+            val apps = expectedUpdates.map { (id, expectedUpdatedAt) ->
+                val app = dao.getRegisteredApp(id) ?: error("The selected app no longer exists.")
+                check(app.trackingState == AppTrackingState.ACTIVE.name && app.updatedAt == expectedUpdatedAt) {
+                    "The selected apps changed; reload before assigning a group."
+                }
+                app
+            }
+            val now = Instant.now().toString()
+            apps.forEach { dao.upsertRegisteredApp(it.copy(groupId = normalizedGroupId, updatedAt = now)) }
+        }
+    }
+
     suspend fun updateMetadata(registeredAppId: String, update: AppMetadataUpdate) {
         val displayNameOverride = normalizedOptionalText(
             update.displayNameOverride,
@@ -450,7 +470,7 @@ class ManagedAppRepository(
             dao.upsertRegisteredApp(
                 currentApp.copy(
                     displayName = preview.identity.displayName,
-                    repositoryUrl = preview.normalizedInputUrl,
+                    repositoryUrl = preview.identity.repository.displayUrl,
                     canonicalRepositoryUrl = preview.normalizedInputUrl,
                     updatedAt = now,
                 ),
@@ -664,7 +684,7 @@ class ManagedAppRepository(
         val app = RegisteredAppEntity(
             registeredAppId = appId,
             displayName = identity.displayName,
-            repositoryUrl = identity.repository.canonicalUrl,
+            repositoryUrl = identity.repository.displayUrl,
             canonicalRepositoryUrl = identity.repository.canonicalUrl,
             provider = releaseProviderName(identity.provider),
             managementMode = mode.name,
@@ -879,7 +899,7 @@ class ManagedAppRepository(
             dao.upsertRegisteredApp(
                 app.copy(
                     displayName = preview.identity.displayName,
-                    repositoryUrl = preview.normalizedInputUrl,
+                    repositoryUrl = preview.identity.repository.displayUrl,
                     canonicalRepositoryUrl = preview.normalizedInputUrl,
                     updatedAt = now,
                 ),
@@ -960,7 +980,7 @@ class ManagedAppRepository(
         val app = RegisteredAppEntity(
             registeredAppId = appId,
             displayName = preview.repository.name,
-            repositoryUrl = preview.repository.canonicalUrl,
+            repositoryUrl = registrationPreview.identity.repository.displayUrl,
             canonicalRepositoryUrl = preview.repository.canonicalUrl,
             provider = PROVIDER_GITHUB_RELEASES,
             managementMode = mode.name,

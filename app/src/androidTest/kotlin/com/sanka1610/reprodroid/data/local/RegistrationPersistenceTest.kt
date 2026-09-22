@@ -679,6 +679,53 @@ class RegistrationPersistenceTest {
         }
     }
 
+    @Test
+    fun bulkGroupingValidatesEveryAppBeforeChangingAnyMembership() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java).allowMainThreadQueries().build()
+        try {
+            val runnerApi = RunnerApiClient("", MockEngine { error("Unexpected Runner request") })
+            val repository = ManagedAppRepository(context, database, JobRepository(context, database, runnerApi))
+            repository.ensureSettings()
+            val first = repository.registerRepository(preview(), ManagementMode.ACQUISITION, InstallationSource.OFFICIAL_RELEASE)
+            val second = repository.registerRepository(preview(), ManagementMode.ACQUISITION, InstallationSource.OFFICIAL_RELEASE, separateManagementTarget = true)
+            val group = repository.createGroup("Development")
+            val dao = database.managedAppDao()
+            fun timestamps() = runBlocking { listOf(first, second).associateWith { requireNotNull(dao.getRegisteredApp(it)).updatedAt } }
+            val initial = timestamps()
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking { repository.assignAppsToGroup(initial + (second to "stale"), group.groupId) }
+            }
+            assertNull(dao.getRegisteredApp(first)?.groupId)
+            assertNull(dao.getRegisteredApp(second)?.groupId)
+            repository.assignAppsToGroup(initial, group.groupId)
+            assertEquals(group.groupId, dao.getRegisteredApp(first)?.groupId)
+            assertEquals(group.groupId, dao.getRegisteredApp(second)?.groupId)
+            repository.assignAppsToGroup(timestamps(), null)
+            assertNull(dao.getRegisteredApp(first)?.groupId)
+            assertNull(dao.getRegisteredApp(second)?.groupId)
+            repository.deleteGroup(group.groupId)
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking { repository.assignAppsToGroup(timestamps(), group.groupId) }
+            }
+            assertNull(dao.getRegisteredApp(first)?.groupId)
+        } finally { database.close() }
+    }
+
+    @Test
+    fun registrationPreservesProviderSpellingWithoutChangingCanonicalIdentity() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, ReproDroidDatabase::class.java).allowMainThreadQueries().build()
+        try {
+            val runnerApi = RunnerApiClient("", MockEngine { error("Unexpected Runner request") })
+            val repository = ManagedAppRepository(context, database, JobRepository(context, database, runnerApi))
+            repository.ensureSettings()
+            val spelled = preview().copy(identity = GitHubRepositoryIdentity(GitHubRepository("Example", "Project"), "123456789012345678", "Project", "main"))
+            val id = repository.registerRepository(spelled, ManagementMode.ACQUISITION, InstallationSource.OFFICIAL_RELEASE)
+            val app = requireNotNull(database.managedAppDao().getRegisteredApp(id))
+            assertEquals("https://github.com/Example/Project", app.repositoryUrl)
+            assertEquals("https://github.com/example/project", app.canonicalRepositoryUrl)
+        } finally { database.close() }
+    }
+
     private fun preview() = RepositoryRegistrationPreview(
         normalizedInputUrl = "https://github.com/example/project",
         identity = GitHubRepositoryIdentity(

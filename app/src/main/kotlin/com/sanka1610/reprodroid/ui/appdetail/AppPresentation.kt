@@ -18,8 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -49,7 +49,6 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,6 +73,7 @@ import java.time.format.DateTimeFormatter
 internal fun AppInformationScreen(
     record: RegisteredAppRecord,
     active: Boolean,
+    refreshing: Boolean = false,
     runnerJobs: Map<String, JobRecord>,
     candidates: List<ReleaseCandidateEntity>,
     schedule: ReleaseScheduleStateEntity?,
@@ -91,9 +91,6 @@ internal fun AppInformationScreen(
     val comparison = record.currentComparison
     val currentJob = comparison?.let { runnerJobs[it.repeatRunnerJobId ?: it.runnerJobId] }
     val candidate = candidates.latestInstallableCandidate(record.latestRelease)?.takeIf { candidateNeedsPreparation(it, record.latestRelease) }
-    val verificationInProgress = appInformationPrimaryAction(
-        record.app.managementMode, record.trustLevel, asset?.updateStatus, candidate, comparison?.status,
-    ) == AppInformationPrimaryAction.VIEW_VERIFICATION
     val statusSummary = when {
         candidate != null -> stringResource(R.string.app_status_uninspected)
         asset?.updateStatus == UpdateStatus.UPDATE_AVAILABLE.name -> stringResource(
@@ -132,131 +129,132 @@ internal fun AppInformationScreen(
             navigationIcon = { BackButton(onBack) },
         )
         if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = { if (!active && record.app.trackingState == AppTrackingState.ACTIVE.name) onCheckRelease() },
+            modifier = Modifier.fillMaxSize(),
         ) {
-            if (record.app.authorDisplayOverride != null || record.group != null) item {
-                Text(
-                    listOfNotNull(record.app.authorDisplayOverride, record.group?.displayName).joinToString(" · "),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            item {
-                CompactAppSection(stringResource(R.string.app_information_section)) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(stringResource(R.string.label_tracking), style = MaterialTheme.typography.titleSmall)
-                            Text(statusSummary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (record.app.trackingState == AppTrackingState.ACTIVE.name) {
-                            val hasInstall = candidate != null || asset?.updateStatus in setOf(UpdateStatus.UPDATE_AVAILABLE.name, UpdateStatus.NOT_INSTALLED.name)
-                            OutlinedIconButton(enabled = !active, onClick = {
-                                when {
-                                    verificationInProgress -> onVerification()
-                                    candidate != null -> onOpenCandidate(candidate)
-                                    hasInstall -> onInstallNow()
-                                    else -> onCheckRelease()
-                                }
-                            }) {
-                                if (verificationInProgress) Icon(Icons.Default.CheckCircle, stringResource(R.string.app_verification_open))
-                                else if (hasInstall) InstallActionIcon(stringResource(R.string.technical_install))
-                                else Icon(Icons.Default.Refresh, stringResource(R.string.app_flow_check_release))
-                            }
-                        }
-                    }
-                    HorizontalDivider()
-                    CompactAppRow(stringResource(R.string.label_latest_version), latestVersion)
-                    HorizontalDivider()
-                    CompactAppRow(
-                        stringResource(R.string.label_verification),
-                        trustLabel(record),
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (record.app.authorDisplayOverride != null || record.group != null) item {
+                    Text(
+                        listOfNotNull(record.app.authorDisplayOverride, record.group?.displayName).joinToString(" · "),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    HorizontalDivider()
-                    CompactAppRow(
-                        stringResource(R.string.label_last_checked),
-                        lastChecked?.let(::formatAppTimestamp) ?: stringResource(R.string.value_never),
-                    )
-                }
-            }
-            item {
-                CompactAppSection(stringResource(R.string.app_details_section)) {
-                    CompactAppRow(
-                        stringResource(R.string.section_source),
-                        record.app.canonicalRepositoryUrl.trimEnd('/').substringAfterLast('/').removeSuffix(".git"),
-                        link = record.app.canonicalRepositoryUrl,
-                    )
-                    HorizontalDivider()
-                    CompactAppRow(
-                        stringResource(R.string.label_author),
-                        record.app.authorDisplayOverride?.takeIf(String::isNotBlank) ?: repositoryOwner(record.app.canonicalRepositoryUrl),
-                        link = record.app.canonicalRepositoryUrl.trimEnd('/').substringBeforeLast('/'),
-                    )
-                    HorizontalDivider()
-                    CompactAppRow(
-                        stringResource(R.string.label_package),
-                        asset?.packageName ?: stringResource(R.string.value_unknown),
-                    )
-                    HorizontalDivider()
-                    CompactAppRow(
-                        stringResource(R.string.release_check_next),
-                        schedule?.nextEligibleAt?.let(::formatAppTimestamp)
-                            ?: stringResource(R.string.value_not_available),
-                    )
-                    currentJob?.let {
-                        HorizontalDivider()
-                        CompactAppRow(
-                            stringResource(R.string.section_build_summary),
-                            "${statusLabel(it.job.state)} · ${it.job.progressPercent}%",
-                        )
-                    }
-                    comparison?.let {
-                        HorizontalDivider()
-                        OutlinedButton(
-                            onClick = { onComparison(it.comparisonRunId) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text(stringResource(R.string.action_open_comparison)) }
-                    }
-                }
-            }
-            if (record.app.trackingState == AppTrackingState.ACTIVE.name) {
-                if (record.app.managementMode == ManagementMode.VERIFICATION.name) item {
-                    OutlinedButton(onClick = onVerification, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.app_verification_open)) }
                 }
                 item {
-                    AppOperationRow(stringResource(R.string.app_acquisition_open), onClick = onInstall) {
-                        InstallActionIcon(stringResource(R.string.app_acquisition_open))
+                    CompactAppSection(stringResource(R.string.app_information_section)) {
+                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(stringResource(R.string.label_tracking), style = MaterialTheme.typography.titleSmall)
+                                Text(statusSummary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (record.app.trackingState == AppTrackingState.ACTIVE.name) {
+                                OutlinedIconButton(enabled = !active, onClick = onCheckRelease) {
+                                    Icon(Icons.Default.Refresh, stringResource(R.string.app_flow_check_release))
+                                }
+                            }
+                        }
+                        HorizontalDivider()
+                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(stringResource(R.string.label_latest_version), style = MaterialTheme.typography.titleSmall)
+                                Text(latestVersion, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (record.app.trackingState == AppTrackingState.ACTIVE.name) {
+                                OutlinedIconButton(enabled = !active, onClick = {
+                                    when {
+                                        candidate != null -> onOpenCandidate(candidate)
+                                        asset?.updateStatus in setOf(UpdateStatus.UPDATE_AVAILABLE.name, UpdateStatus.NOT_INSTALLED.name) -> onInstallNow()
+                                        else -> onInstall()
+                                    }
+                                }) { InstallActionIcon(stringResource(R.string.app_acquisition_open)) }
+                            }
+                        }
+                        HorizontalDivider()
+                        CompactAppRow(
+                            stringResource(R.string.label_verification),
+                            trustLabel(record),
+                        )
+                        HorizontalDivider()
+                        CompactAppRow(
+                            stringResource(R.string.label_last_checked),
+                            lastChecked?.let(::formatAppTimestamp) ?: stringResource(R.string.value_never),
+                        )
                     }
-                    HorizontalDivider()
-                    AppOperationRow(stringResource(R.string.app_flow_check_release), enabled = !active, onClick = onCheckRelease) {
-                        Icon(Icons.Default.Refresh, stringResource(R.string.app_flow_check_release))
+                }
+                item {
+                    CompactAppSection(stringResource(R.string.app_details_section)) {
+                        CompactAppRow(
+                            stringResource(R.string.section_source),
+                            record.app.displayName,
+                            link = record.app.canonicalRepositoryUrl,
+                        )
+                        HorizontalDivider()
+                        CompactAppRow(
+                            stringResource(R.string.label_author),
+                            record.displayAuthor(),
+                            link = record.app.canonicalRepositoryUrl.trimEnd('/').substringBeforeLast('/'),
+                        )
+                        HorizontalDivider()
+                        CompactAppRow(
+                            stringResource(R.string.label_package),
+                            asset?.packageName ?: stringResource(R.string.value_unknown),
+                        )
+                        HorizontalDivider()
+                        CompactAppRow(
+                            stringResource(R.string.release_check_next),
+                            schedule?.nextEligibleAt?.let(::formatAppTimestamp)
+                                ?: stringResource(R.string.value_not_available),
+                        )
+                        currentJob?.let {
+                            HorizontalDivider()
+                            CompactAppRow(
+                                stringResource(R.string.section_build_summary),
+                                "${statusLabel(it.job.state)} · ${it.job.progressPercent}%",
+                            )
+                        }
+                        comparison?.let {
+                            HorizontalDivider()
+                            OutlinedButton(
+                                onClick = { onComparison(it.comparisonRunId) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(stringResource(R.string.action_open_comparison)) }
+                        }
                     }
-                    if (schedule?.waitingReason in setOf("RETRY_BACKOFF", "PROVIDER_COOLDOWN", "INVALID_STATE")) {
+                }
+                if (record.app.trackingState == AppTrackingState.ACTIVE.name) {
+                    if (record.app.managementMode == ManagementMode.VERIFICATION.name) item {
+                        OutlinedButton(onClick = onVerification, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.app_verification_open)) }
+                    }
+                    if (schedule?.waitingReason in setOf("RETRY_BACKOFF", "PROVIDER_COOLDOWN", "INVALID_STATE")) item {
                         Text(stringResource(if (schedule?.waitingReason == "PROVIDER_COOLDOWN") R.string.registration_complete_cooldown else R.string.error_operation_failed), style = MaterialTheme.typography.bodySmall)
                     }
                 }
-            }
-            if (record.app.note.isNotBlank()) {
-                item { CompactAppSection(stringResource(R.string.label_note)) { Text(record.app.note) } }
-            }
-            item {
-                OutlinedButton(
-                    enabled = record.app.trackingState == AppTrackingState.ACTIVE.name,
-                    onClick = onTechnical,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.action_open_details))
+                if (record.app.note.isNotBlank()) {
+                    item { CompactAppSection(stringResource(R.string.label_note)) { Text(record.app.note) } }
                 }
-            }
-            if (record.app.trackingState == AppTrackingState.INACTIVE.name) {
                 item {
-                    Button(onClick = onResume, Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.action_resume_tracking))
+                    OutlinedButton(
+                        enabled = record.app.trackingState == AppTrackingState.ACTIVE.name,
+                        onClick = onTechnical,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.action_open_details))
                     }
                 }
+                if (record.app.trackingState == AppTrackingState.INACTIVE.name) {
+                    item {
+                        Button(onClick = onResume, Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.action_resume_tracking))
+                        }
+                    }
+                }
+                item { Spacer(Modifier.height(12.dp)) }
             }
-            item { Spacer(Modifier.height(12.dp)) }
         }
     }
 }
@@ -286,17 +284,8 @@ private fun CompactAppRow(label: String, value: String, link: String? = null) {
             value, style = MaterialTheme.typography.bodyMedium,
             color = if (link == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
             textDecoration = if (link != null) TextDecoration.Underline else null,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(0.58f).then(if (link != null) Modifier.clickable { uriHandler.openUri(link) }.padding(vertical = 12.dp) else Modifier),
+            modifier = Modifier.weight(0.58f).padding(start = 12.dp).then(if (link != null) Modifier.clickable { uriHandler.openUri(link) }.padding(vertical = 12.dp) else Modifier),
         )
-    }
-}
-
-@Composable
-private fun AppOperationRow(label: String, enabled: Boolean = true, onClick: () -> Unit, icon: @Composable () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-        OutlinedIconButton(enabled = enabled, onClick = onClick, content = icon)
     }
 }
 

@@ -45,6 +45,11 @@ dev.rikka.shizuku:provider 13.1.5 (Apache License 2.0)
 dev.rikka.tools.refine:runtime 4.4.0 (Apache License 2.0)
 org.lsposed.hiddenapibypass:hiddenapibypass 6.1 (Apache License 2.0)
 
+Bundled icon
+------------
+Material Design Icons category (Google, Apache License 2.0), used for app activities.
+https://github.com/google/material-design-icons/blob/master/src/maps/category/materialicons/24px.svg
+
 Adapted implementation
 ----------------------
 The privileged PackageInstaller binder-wrapping approach is adapted from

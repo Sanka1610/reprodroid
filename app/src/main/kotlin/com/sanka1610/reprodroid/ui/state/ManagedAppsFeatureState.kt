@@ -38,6 +38,7 @@ data class AppsUiState(
     val activeAppIds: Set<String> = emptySet(),
     val message: ManagedUiMessage? = null,
     val results: List<ManagedUiResult> = emptyList(),
+    val groupBusy: Boolean = false,
 )
 
 data class RegistrationUiState(
@@ -65,6 +66,8 @@ data class ReleaseUiState(
     val candidates: List<ReleaseCandidateEntity> = emptyList(),
     val message: ManagedUiMessage? = null,
     val results: List<ManagedUiResult> = emptyList(),
+    val checkingAppIds: Set<String> = emptySet(),
+    val checkingAll: Boolean = false,
 )
 
 data class ProviderAuthUiState(

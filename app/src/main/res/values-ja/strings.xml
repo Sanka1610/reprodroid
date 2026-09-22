@@ -828,4 +828,13 @@
     <string name="storage_label_missing">保存されていません</string>
     <string name="storage_label_corrupt">ファイルが破損しています</string>
     <string name="settings_permission_not_allowed">未許可</string>
+    <string name="apps_selection_count">%1$d件選択</string>
+    <string name="apps_selection_actions_title">%1$d件のアプリを操作</string>
+    <string name="apps_selection_actions">選択したアプリを操作</string>
+    <string name="apps_select">アプリを選択</string>
+    <string name="apps_select_all">すべて選択</string>
+    <string name="apps_clear_selection">選択を解除</string>
+    <string name="apps_change_group">グループを変更</string>
+    <string name="action_apply">適用</string>
+    <string name="technical_auto_apk_body">端末に合うAPKを選択しました。必要なら取得前に変更できます。</string>
 </resources>
