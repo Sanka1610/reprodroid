@@ -23,7 +23,7 @@
 
 保存するルート文字列と互換入力は[ReproDroidRoute.kt](../../app/src/main/kotlin/com/sanka1610/reprodroid/ui/navigation/ReproDroidRoute.kt)の`ReproDroidRoute`が定義します。通知入力も同じ解析を通り、レコードIDには正規形のUUIDを要求します。
 
-戻り先は[ReproDroidNavigationPolicy.kt](../../app/src/main/kotlin/com/sanka1610/reprodroid/ui/navigation/ReproDroidNavigationPolicy.kt)の`backDestination`、レコード欠落時の遷移は`missingAppDestination`、通知先は`releaseNotificationRoute`が決定します。検証中に前提設定へ移った場合は元アプリの検証へ戻り、一覧では検索を閉じた後、通常のAndroid終了操作へ進みます。
+戻り先は[ReproDroidNavigationPolicy.kt](../../app/src/main/kotlin/com/sanka1610/reprodroid/ui/navigation/ReproDroidNavigationPolicy.kt)の`backDestination`、レコード欠落時の遷移は`missingAppDestination`、通知先は`releaseNotificationRoute`が決定します。検証中に前提設定へ移った場合は元アプリの検証へ戻り、一覧では複数選択、検索の順に閉じた後、通常のAndroid終了操作へ進みます。
 
 ## 状態と操作結果
 
@@ -31,7 +31,11 @@
 
 ルート・入力選択・検索表示・検証の戻り先は画面の保存可能状態として保持します。インストールやスキャンの確認は対象に結び付いた一時状態です。永続設定・履歴は[Roomの定義](../compatibility.md#配布版とチェックアウトを識別する)を参照してください。
 
+選択中のアプリIDは画面の保存可能状態で保持し、一覧から消えたIDは除きます。一括グループ変更はRepositoryのトランザクション内で全対象の更新日時とグループの存在を確認してから適用します。成功時だけ選択を解除し、失敗時は選択を保持します。
+
 一覧のグループ表示は`ReproDroidApp`内の`displayPreferences`が所有します。保存先`app_list_display`の`grouped`は既定`true`で、表示切替に使用します。
+
+一覧・詳細のプルダウンと追跡欄のリロードは`ReleaseDelegate.checkNow`へ集約します。一覧の確認はアプリごとの操作制御を通して順番に待ち、APKをダウンロードしません。
 
 ## 主操作と実行条件
 
