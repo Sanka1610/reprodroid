@@ -1,71 +1,40 @@
-# Compatibility
+# 互換性
 
-## Release組合せ
+## 配布版とチェックアウトを識別する
 
-| Android | Runner | Room | SQLite | Stable API | Capability API |
-|---|---|---|---|---|---|
-| `develop`（未公開） | `0.1.0-alpha02` | 25 | 12 | v1 | v2 |
-| `0.1.0-alpha05` | `0.1.0-alpha02` | 24 | 12 | v1 | v2 |
+配布APK／ZIPの版、ソースコミット、データベースの版、対応製品は、対象Releaseの`release-manifest.json`で確認します。Android側の`compatibleRunner`とRunner側の`compatibleAndroid`を照合してください。版ごとの機能差は[変更履歴](../CHANGELOG.md)に記録しています。
 
-Android `0.1.0-alpha05`のapplication IDは`com.sanka1610.reprodroid`、versionCodeは5です。debug buildは`com.sanka1610.reprodroid.debug`です。
+ソースの状態は各リポジトリで次を確認します。
 
-## Android環境
-
-| 項目 | 値 |
-|---|---|
-| minSdk | 26 / Android 8.0 |
-| targetSdk | 36 |
-| compileSdk | 36 |
-| build JDK | 21 |
-| database | Room25（`develop`） |
-| package | single APK |
-
-## Runner環境
-
-| 項目 | 値 |
-|---|---|
-| OS | Linux、WSL2 |
-| service JDK | 21 |
-| fixed comparison JDK | 18（対象recipeのみ） |
-| database | SQLite12 |
-| default HTTP port | 8080 |
-| default HTTPS port | 8443 |
-| generic build | Docker必須 |
-
-## APIとcapability
-
-- API v1: health、legacy/fixed recipe Job、log、artifact、manifest、source scan
-- API v2: capability、storage、toolchain、generic build、comparison、self-revoke
-- pairing v1: manual invitation、request、PC approval
-
-対応capability:
-
-```text
-foundation@1
-storage-retention@1
-toolchain-install@1
-generic-build@1
-apk-comparison@1
-runner-authentication@1
-codeberg-source@1
+```bash
+git rev-parse HEAD
+git describe --tags --always
 ```
 
-Androidは実行中Runnerのcapability応答、runner ID、transport modeを確認します。READMEのversion表だけで機能を有効にしません。
+ローカルビルドの`versionName`が公開版と同じでも、ソースコミットやスキーマが異なることがあります。配布版の値を作業中コードへ流用せず、次の定義を参照します。
 
-## Provider
+| 項目 | 定義・確認先 |
+|---|---|
+| Androidのapplication ID、versionName／versionCode、minSdk、targetSdk、compileSdk、Build Tools、JDK | [app/build.gradle.kts](../app/build.gradle.kts)の`android`、`defaultConfig`、`buildTypes`、`jvmToolchain` |
+| Androidデータベース | [ReproDroidDatabase.kt](../app/src/main/kotlin/com/sanka1610/reprodroid/data/local/ReproDroidDatabase.kt)の`ReproDroidDatabase`、`@Database.version`と各`MIGRATION_*` |
+| Runnerの動作環境 | [Runner導入手順](https://github.com/Sanka1610/reprodroid-runner/blob/main/docs/installation.md#必要要件) |
+| Runnerの設定既定値 | [Runner設定](https://github.com/Sanka1610/reprodroid-runner/blob/main/docs/configuration.md) |
+| Runnerデータベース | [SQLiteJobStore.kt](https://github.com/Sanka1610/reprodroid-runner/blob/main/src/main/kotlin/com/sanka1610/reprodroid/runner/SQLiteJobStore.kt)の`SCHEMA_VERSION` |
 
-| Provider | Repository | Release metadata | APK asset | Source build |
-|---|---|---|---|---|
-| GitHub.com public repository | 対応 | 対応 | 対応 | 対応 |
-| Codeberg.org public repository | 対応 | 対応 | 対応 | 対応 |
-| private repository | 非対応 | 非対応 | 非対応 | 非対応 |
-| GitLab | 非対応 | 非対応 | 非対応 | 非対応 |
-| 任意Forgejo/Gitea | 非対応 | 非対応 | 非対応 | 非対応 |
+## APIと機能の確認
 
-## APK形式
+実行中Runnerの`GET /v1/health`で版と稼働状態、`GET /v2/capabilities`で利用可能な機能と契約バージョンを確認します。認証と応答フィールドは[Runner共通API](https://github.com/Sanka1610/reprodroid-runner/blob/main/docs/api/common.md)に定義しています。
 
-単一の`.apk`を扱います。split APK、APKS、XAPK、APKM、AABは対象外です。複数のAPK assetがあるreleaseでは、利用者がexact assetを選択します。
+AndroidはRunner ID、接続方式、capability応答を検証してから機能を使用します。API、capability、データベースのバージョンはそれぞれ独立しています。
 
-## Storage migration
+<a id="provider"></a>
 
-Androidの`develop`は既存databaseをRoom25までmigrationします。公開済み`0.1.0-alpha05`はRoom24です。fresh databaseではReproDroid自身のpublic GitHub repositoryをofflineで1件登録します。RunnerはSQLite12を使用します。backup/restoreと端末間migrationは提供していません。
+## 対応する配布元とAPK形式
+
+公開`github.com`／`codeberg.org`のリポジトリと、単一の`.apk`を扱います。非公開リポジトリ、GitLab、任意のForgejo／Gitea、split APK、APKS、XAPK、APKM、AABには対応していません。リリースに複数のAPKがある場合は対象を選択します。
+
+登録URLの受理条件は[GitHubRepositoryParser.kt](../app/src/main/kotlin/com/sanka1610/reprodroid/data/network/GitHubRepositoryParser.kt)の`GitHubRepositoryParser`と[CodebergRepositoryParser.kt](../app/src/main/kotlin/com/sanka1610/reprodroid/data/network/CodebergRepositoryParser.kt)の`CodebergRepositoryParser`を参照してください。
+
+## 保存データの互換性
+
+Android・Runnerとも、更新時に対応するデータベース移行を実行します。移行後のデータを旧版で開く前に、対象版のスキーマ対応を確認してください。Androidにはバックアップ復元・端末間移行機能がありません。Runnerのデータ保全は[運用手順](https://github.com/Sanka1610/reprodroid-runner/blob/main/docs/operations.md#stateの保全)を参照してください。

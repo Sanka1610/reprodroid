@@ -1,83 +1,39 @@
-# Reproducibility
+# 再現可能性の判定
 
 ## 比較対象
 
-1つのrelease observationに次の3 artifactを関連付けます。
-
-- Official: provider releaseから取得し、APK bytesを検査した公式artifact
-- Build A: resolved commitと保存済みconfigurationから作成した1回目のartifact
-- Build B:同じrelease/configurationを独立して解決・buildした2回目のartifact
-
-Build A/Bは別Job、別checkout、別build home、別artifactです。
+1つのリリース観測へ公式APK（Official）と独立したBuild A／Bを関連付け、Official vs A、Official vs B、A vs Bを比較します。Build A／Bは別Job、別チェックアウト、別ビルド保存先、別成果物として実行します。
 
 ## Raw三軸
 
-```text
-Official ── comparison ── Build A
-    │                       │
-    └──── comparison ── Build B
-              Build A ── comparison ── Build B
-```
-
-各軸は次のraw resultを持ちます。
-
-| Result | 意味 |
+| 結果 | 意味 |
 |---|---|
-| `MATCH` | 定義されたraw comparison scopeで一致 |
-| `DIFFERENT` | 定義されたraw scopeに差異がある |
-| `INCOMPARABLE` | artifact、identity、configuration、scope、evidenceが不足または不整合 |
+| `MATCH` | 比較対象エントリの名前、展開後サイズ、SHA-256が一致 |
+| `DIFFERENT` | 比較対象エントリの追加・欠落・ハッシュ差異がある |
+| `INCOMPARABLE` | 識別情報、構成、成果物の不足・不整合、または検査上限超過で比較できない |
 
-raw scopeにはAPK entry inventory、DEX、native library等、保存されたcomparison protocolが定義するbyte-level resultが含まれます。
+[ApkContentComparator.kt](../app/src/main/kotlin/com/sanka1610/reprodroid/data/artifact/ApkContentComparator.kt)の`compare`は入力APK全体のサイズとSHA-256を保存済み情報と照合した後、`isComparedEntry`で対象を選びます。対象はルートの`classes.dex`／後続DEXと`lib/<ABI>/*.so`です。両APKに`classes.dex`が必要です。エントリ数・展開サイズの上限は同クラスのコンストラクタに定義しています。
+
+この結果の比較範囲は実行コードです。署名・ZIP圧縮方式を含むAPK全体のバイト一致を確認する場合は、APK全体のSHA-256を別途照合します。
 
 ## Reproducible
 
-`Reproducible`は次がすべて成立した場合に表示します。
+Androidの表示は[ManagedAppEntities.kt](../app/src/main/kotlin/com/sanka1610/reprodroid/data/local/ManagedAppEntities.kt)の`RegisteredAppRecord.currentComparison`、`trustLevel`、`repeatedBuildTrustLevel`が決定します。
 
-- Official、Build A、Build Bが同じrelease observationに属する
-- repository、resolved commit、configuration digestが一致する
-- Official vs Aが`MATCH`
-- Official vs Bが`MATCH`
-- A vs Bが`MATCH`
-- package/version等の必須identityが成立する
-- 保存されたtrust/install eligibility gateが成立する
+繰り返しビルドのプロトコルでは、3軸がすべて`MATCH`なら`Reproducible`、いずれかが`DIFFERENT`なら`Different`です。比較不能の軸がある場合は`Incomparable`となり、Runner Jobの失敗が原因なら`Failed`として扱います。比較が未完了でローカル成果物だけがある場合は`Buildable`です。保存済みの旧プロトコルでは単一の`outcome`から表示を決めます。
 
-一つでも`DIFFERENT`なら`Different`です。比較の前提が成立しない場合は`Incomparable`です。unknown stateを`MATCH`へ変換しません。
+インストールの実行条件は[AppInstallationCoordinator.kt](../app/src/main/kotlin/com/sanka1610/reprodroid/data/repository/AppInstallationCoordinator.kt)の`installManagedApp`で別途確認します。Runner APIの`reproducible`フィールドは、保存するJobと要求の条件も含む[API上の定義](https://github.com/Sanka1610/reprodroid-runner/blob/main/docs/api/builds-v2.md#comparisonを作成する)を使います。
 
 ## 補助証拠
 
-次は差異の調査に使用します。
+DEXのクラス・メソッド、ネイティブライブラリ、Manifest、リソース、依存関係、ビルド環境、ソーススキャン、実行環境の情報は差異の調査に使用します。[AdvancedApkComparator.kt](../app/src/main/kotlin/com/sanka1610/reprodroid/data/artifact/AdvancedApkComparator.kt)の`AdvancedApkComparator`が補助比較を行い、rawの判定結果を保持します。
 
-- DEX class/method差異
-- native library差異
-- Android Manifest差異
-- resource差異
-- dependency multiset
-- Java、Gradle、SDK、Build Tools
-- dependency pinning、`SOURCE_DATE_EPOCH`、locale、build cache
-- source scan finding
-- Docker/sandbox identity
+## 結果と次の操作
 
-補助証拠が説明可能な一致を示しても、raw `DIFFERENT`を`MATCH`へ変更しません。
-
-## 独立して扱う状態
-
-| 状態 | 判断する内容 |
+| 確認する内容 | 参照先 |
 |---|---|
-| Build completion | Runnerがconfigured buildを完了したか |
-| Source scan | configured static indicatorが見つかったか |
-| Raw comparison | artifact bytesが定義scopeで一致したか |
-| Signer relation | APK signerがinstalled/expected signerと一致するか |
-| Trust | 利用者がどのartifactを信頼対象として選択したか |
-| Update relation | versionCodeとinstalled packageの関係 |
-| Install eligibility | Android installerへ渡す前提が成立するか |
-| Installer result | Android platformがinstall/updateを完了したか |
-
-これらを一つの「安全」判定へ統合しません。
-
-## 現在の制限
-
-- source scanは静的indicatorであり、malware判定ではありません。
-- Docker bridgeには固定egress allowlistがありません。
-- Job単位のhard disk／inode quotaがありません。
-- upstream dependencyやtoolchainの第三者attestationは提供しません。
-- split APK/APKS/AABは比較対象外です。
+| Jobの実行・スキャン待ち・失敗 | [ビルド操作](user-guide.md#jobsとsource-scan) |
+| 導入済みAPKとのバージョン関係 | [リリース確認](user-guide.md#リリースを確認する) |
+| 署名とインストール条件 | [APKの取得と検査](security.md#apkの取得と検査) |
+| Dockerの隔離条件と制限 | [Runnerセキュリティ](https://github.com/Sanka1610/reprodroid-runner/blob/main/docs/security.md#build-isolation) |
+| 対応APK形式 | [互換性](compatibility.md#対応する配布元とapk形式) |

@@ -1,6 +1,4 @@
-# Document moved
+# 文書の参照先
 
-This URL is retained for existing links.
-
-- [Current documentation](../user-guide.md#toolchainを導入する)
-- [Historical full text at v0.1.0-alpha05](https://github.com/Sanka1610/reprodroid/blob/v0.1.0-alpha05/docs/adr/0020-phase-4-trusted-toolchain-installation.md)
+- [現在の文書](../user-guide.md#toolchainを導入する)
+- [v0.1.0-alpha05時点の原文](https://github.com/Sanka1610/reprodroid/blob/v0.1.0-alpha05/docs/adr/0020-phase-4-trusted-toolchain-installation.md)

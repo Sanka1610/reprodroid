@@ -1,85 +1,31 @@
-# Architecture overview
+# アーキテクチャ概要
 
-## Purpose
+Androidはリリース情報・APK・比較結果・利用者の操作を管理し、Runnerはソースの取得とビルドを実行します。
 
-ReproDroidは、配布元が公開するAPKと、対応する公開sourceからローカルに生成したAPKを、同じrelease observationに結び付けて比較するためのシステムです。比較結果と補助証拠を提示しますが、sourceやAPKの安全性を自動的に証明しません。
+## コンポーネントの責務
 
-## Components
+| 担当 | 責務と実装 |
+|---|---|
+| Androidの登録・取得 | [ManagedAppRepository.kt](../../app/src/main/kotlin/com/sanka1610/reprodroid/data/repository/ManagedAppRepository.kt)の`ManagedAppRepository`が登録・追跡・リリース取得を提供 |
+| Androidの比較 | [AppComparisonCoordinator.kt](../../app/src/main/kotlin/com/sanka1610/reprodroid/data/repository/AppComparisonCoordinator.kt)の`AppComparisonCoordinator`が対象を照合し、結果・証拠を保存 |
+| Androidのインストール | [AppInstallationCoordinator.kt](../../app/src/main/kotlin/com/sanka1610/reprodroid/data/repository/AppInstallationCoordinator.kt)の`AppInstallationCoordinator`が導入状態・実行条件・結果を管理 |
+| Runner | ソースのコミット解決、スキャン、ビルド、Job・成果物の保存と[API](https://github.com/Sanka1610/reprodroid-runner/blob/main/docs/api/README.md)による配信 |
+| 配布元 | 公開リポジトリ、リリース、公式APKを提供。[対応範囲](../compatibility.md#対応する配布元とapk形式)を参照 |
 
-### Android application
-
-`reprodroid`が所有します。
-
-- provider repository、release、APK候補の取得と表示
-- 公式APKのdownload、検査、保存
-- Runner Jobの作成・確認・状態同期
-- Build A／Bと公式APKのraw比較
-- 補助的なDEX／Manifest／resource差異表示
-- 履歴、設定、保存容量、cleanup、監査export
-- scheduled metadata checkと通知
-- Android標準installer、または安全条件付きShizuku／Sui sessionによるinstall
-- Android自身のlog export
-
-Androidは、Runnerのfilesystem path、秘密情報、toolchain inventory valueを複製しません。
-
-Androidのproduction UI rootは`MainActivity`から起動される単一の`ReproDroidApp`です。typed route、back、notification route、screen package、presentation state、one-shot resultの現在のownerは[UI architecture and navigation](ui.md)を参照してください。
-
-### Runner
-
-独立した`reprodroid-runner`が所有します。
-
-- 許可されたpublic repositoryからのsource取得
-- refからfull commit SHAへの解決
-- build前source scanと必要なreview gate
-- recipe、toolchain、sandbox、resource policyの固定
-- Job、log、artifact、private build evidenceの永続化
-- Androidへ公開するbounded API projection
-- Runner自身と選択Jobのbounded log export
-
-Runnerが`SUCCEEDED`になっても、公式APKとの一致や`Reproducible`を意味しません。最終的な三軸比較はAndroidが所有します。
-
-### Providers
-
-現在のprovider registryはpublic `github.com`とpublic `codeberg.org`に限定します。実験的な任意token認証はpublic repositoryのprovider API requestだけに適用します。private repository、認証付きasset、Runner checkoutへのtoken転送、任意Forgejo／Gitea、HTML scraping、外部assetの自動追跡は行いません。
-
-## Main flow
+## 処理の流れ
 
 ```text
-Public repository URL
-  -> bounded metadata and source discovery
-  -> release and APK asset selection
-  -> official APK download and inspection
-  -> explicit build approval
-  -> independent Runner Build A and Build B
-  -> Official-vs-A, Official-vs-B, A-vs-B raw comparison
-  -> bounded explanatory evidence
-  -> user decision and Android standard installer or eligible Shizuku/Sui session
+リポジトリ登録 → リリース確認 → 公式APKの選択・取得・検査
+                                  ├→ 取得モードのインストール
+                                  └→ RunnerのBuild A／B → 比較 → インストール条件の確認
 ```
 
-複数のAPK候補を一意に選べない場合は、利用者の明示選択まで停止します。未知schema、未知capability、別Runner、identity不一致、上限超過ではfail closedに停止します。
+画面の遷移と状態の責務は[UIアーキテクチャ](ui.md)、比較範囲と表示条件は[再現可能性の判定](../reproducibility.md)にまとめています。
 
-## Trust and comparison
+## 保存先と接続
 
-- build成功は`Buildable`の証拠であり、公式APKとの一致ではありません。
-- raw三軸の不一致は、意味比較で一致しても`Reproducible`へ昇格しません。
-- dependency、determinism、source scan、sandbox evidenceは補助証拠であり、raw outcomeやinstall policyを上書きしません。
-- signer一致とversion関係は、再現性判定とは別に扱います。
+Androidの登録・設定・履歴・比較結果はRoomへ、RunnerのJob・成果物・所有権は専用の保存先へ記録します。スキーマと移行は[互換性](../compatibility.md#保存データの互換性)、認証情報の保存・通信・公開署名は[セキュリティ](../security.md)を参照してください。
 
-## Connectivity
+## 文書の配置
 
-release経路はmanual pairingとroot pin付きHTTPSを使用します。Androidが生成するcredentialはAndroid private storageで保護し、Runnerは端末別の失効可能なprincipalとして扱います。無認証HTTPは明示的なloopback development modeだけに限定し、release buildはcleartext Runner endpointを拒否します。
-
-## Data and privacy
-
-- 登録、履歴、設定、比較結果はAndroidのRoom25へ保存します。
-- RunnerはJob、resource、log、artifact、owner情報をSQLiteと専用state directoryへ保存します。
-- metadata-only scheduled checkはbuildやinstallを開始しません。
-- AndroidはOS全体のlogcatや他アプリのlogをexportしません。
-- analytics、広告、tracking、自動crash uploadは使用しません。
-- audit exportは読取用証跡であり、backup／restore機能ではありません。
-
-## Repository boundary
-
-Android codeと製品横断文書は`reprodroid`、Runner codeとRunner固有のinstallation／configuration／API文書は`reprodroid-runner`に置きます。秘密鍵、credential、runtime DB、APK、raw log、build workspaceはGit repositoryへ保存しません。
-
-対応versionとAPIは[Compatibility](../compatibility.md)、比較判定は[Reproducibility](../reproducibility.md)、具体的な安全境界は[Security](../security.md)を参照してください。
+Android本体と製品横断の利用文書はこのリポジトリ、Runner本体と設定・運用・API文書は`reprodroid-runner`が管理します。各文書の入口は[ドキュメント一覧](../README.md)です。

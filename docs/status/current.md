@@ -1,6 +1,4 @@
-# Document moved
+# 文書の参照先
 
-This URL is retained for existing links.
-
-- [Current documentation](../compatibility.md)
-- [Historical full text at v0.1.0-alpha05](https://github.com/Sanka1610/reprodroid/blob/v0.1.0-alpha05/docs/status/current.md)
+- [現在の文書](../compatibility.md)
+- [v0.1.0-alpha05時点の原文](https://github.com/Sanka1610/reprodroid/blob/v0.1.0-alpha05/docs/status/current.md)
